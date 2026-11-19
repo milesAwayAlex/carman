@@ -1,0 +1,5 @@
+# The Claude Code image plus a Linux cmem client. The cmem binary is in the build context.
+ARG BASE=carman-clbench-claude:2.1.311
+FROM ${BASE}
+COPY cmem /usr/local/bin/cmem
+RUN chmod 0755 /usr/local/bin/cmem && cmem help > /dev/null

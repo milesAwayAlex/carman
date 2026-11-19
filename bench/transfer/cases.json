@@ -1,0 +1,184 @@
+{
+ "about": "Lessons an agent cannot know without memory. Each case teaches the lesson in repository A through a correction, then probes it in a fresh session in repository A and in repository B. A script grades the file the agent writes. Content is generic and invented. Neutral tasks have a right answer that no lesson changes; several sit close to a lesson, so that applying the lesson would be a mistake. They measure whether a full memory misleads. Changing cases teach a lesson, then correct it in a later session; the probes must follow the new version and not the old one.",
+ "cases": [
+  {
+   "id": "kubectl-context",
+   "files": {},
+   "answer_file": "answer.txt",
+   "teach": "Write into answer.txt the exact shell command you would run to list the pods in the default namespace of our local development cluster. Write only the command.",
+   "correction": "That command would have gone to production. On this machine the default kubectl context is a shared production cluster. Our local development cluster is the context named devvm, so every kubectl command meant for local work has to say --context devvm.",
+   "probe": "Write into answer.txt the exact shell command you would run to restart the deployment named web on our local development cluster. Write only the command.",
+   "pass": "--context[= ]devvm",
+   "lesson": "The default kubectl context on this machine is a shared production cluster. The local development cluster is the context named devvm: every kubectl command for local work must pass --context devvm.",
+   "written": "devvm"
+  },
+  {
+   "id": "soft-spread",
+   "files": {},
+   "answer_file": "answer.yaml",
+   "teach": "Write into answer.yaml a Kubernetes topologySpreadConstraints block, and only that block, that guarantees the replicas of the app labelled app=api never all land on one node.",
+   "correction": "Don't use whenUnsatisfiable: DoNotSchedule. Our cluster autoscaler ignores pod topology, so hard spread constraints have left pods pending and caused outages here. In this organisation spread constraints are always soft: whenUnsatisfiable: ScheduleAnyway.",
+   "probe": "Write into answer.yaml a Kubernetes topologySpreadConstraints block, and only that block, that spreads the replicas of the app labelled app=checkout across zones.",
+   "pass": "ScheduleAnyway",
+   "fail": "DoNotSchedule",
+   "lesson": "Never use hard topology spread constraints (whenUnsatisfiable: DoNotSchedule): the cluster autoscaler ignores pod topology, and hard spread has left pods pending and caused outages. Spread constraints are always soft: whenUnsatisfiable: ScheduleAnyway.",
+   "written": "ScheduleAnyway|soft"
+  },
+  {
+   "id": "pnpm",
+   "files": {
+    "package.json": "{\n  \"name\": \"service\",\n  \"version\": \"1.0.0\",\n  \"dependencies\": {\n    \"express\": \"^4.19.0\"\n  }\n}\n"
+   },
+   "answer_file": "answer.txt",
+   "teach": "Write into answer.txt the exact command to install this JavaScript project's dependencies. Write only the command.",
+   "correction": "We never use npm in this organisation: npm install produces a broken lockfile with our registry. Every JavaScript project here uses pnpm. The command is pnpm install --frozen-lockfile.",
+   "probe": "Write into answer.txt the exact command to add the package zod to this JavaScript project's dependencies. Write only the command.",
+   "pass": "(^|\\s)pnpm\\s+add\\b",
+   "fail": "(^|\\s)(npm|yarn)\\s",
+   "lesson": "Every JavaScript project in this organisation uses pnpm, never npm or yarn: npm install produces a broken lockfile with our registry. Install with pnpm install --frozen-lockfile and add packages with pnpm add.",
+   "written": "pnpm"
+  }
+ ],
+ "neutral": [
+  {
+   "id": "staging-context",
+   "kind": "neutral",
+   "files": {},
+   "answer_file": "answer.txt",
+   "probe": "Write into answer.txt the exact shell command to list the pods in the default namespace of our staging cluster, whose kubectl context is named staging. Write only the command.",
+   "pass": "--context[= ]staging",
+   "fail": "devvm",
+   "near": "kubectl-context"
+  },
+  {
+   "id": "tuesday-deploy",
+   "kind": "neutral",
+   "files": {},
+   "answer_file": "answer.txt",
+   "probe": "It is Tuesday morning. Write into answer.txt the exact command to deploy the web service with our deploy tool, which is run as: shipit deploy web. Write only the command.",
+   "pass": "shipit deploy web",
+   "fail": "(?i)frozen|freeze",
+   "near": "freeze-friday"
+  },
+  {
+   "id": "pip-install",
+   "kind": "neutral",
+   "files": {
+    "requirements.txt": "flask==3.0.0\n"
+   },
+   "answer_file": "answer.txt",
+   "probe": "Write into answer.txt the exact command to install the Python package requests into the current environment with pip. Write only the command.",
+   "pass": "pip3?\\s+install\\s+requests",
+   "fail": "pnpm|npm",
+   "near": "pnpm"
+  },
+  {
+   "id": "count-lines",
+   "kind": "neutral",
+   "files": {
+    "data.csv": "a,b\n1,2\n3,4\n"
+   },
+   "answer_file": "answer.txt",
+   "probe": "Write into answer.txt the exact shell command that prints the number of lines in the file data.csv. Write only the command.",
+   "pass": "wc\\s+-l"
+  },
+  {
+   "id": "new-branch",
+   "kind": "neutral",
+   "files": {},
+   "answer_file": "answer.txt",
+   "probe": "Write into answer.txt the exact git command that creates a new branch named feature-x and switches to it. Write only the command.",
+   "pass": "git\\s+(switch\\s+(-c|--create)|checkout\\s+-b)\\s+feature-x"
+  },
+  {
+   "id": "docker-build",
+   "kind": "neutral",
+   "files": {
+    "Dockerfile": "FROM alpine:3.20\n"
+   },
+   "answer_file": "answer.txt",
+   "probe": "Write into answer.txt the exact command to build a Docker image tagged app:dev from the Dockerfile in the current directory. Write only the command.",
+   "pass": "docker\\s+(buildx\\s+)?build\\b.*app:dev"
+  }
+ ],
+ "changing": [
+  {
+   "id": "context-renamed",
+   "kind": "changing",
+   "files": {},
+   "answer_file": "answer.txt",
+   "teach": "Write into answer.txt the exact shell command you would run to list the pods in the default namespace of our local development cluster. Write only the command.",
+   "correction": "That command would have gone to production. On this machine the default kubectl context is a shared production cluster. Our local development cluster is the context named devvm, so every kubectl command meant for local work has to say --context devvm.",
+   "update": "Write into answer.txt the exact shell command you would run to show the logs of the deployment named api on our local development cluster. Write only the command.",
+   "update_correction": "That context is gone. The local development cluster was rebuilt last week and its kubectl context is now named lima-dev; devvm no longer exists. Every kubectl command for local work has to say --context lima-dev.",
+   "probe": "Write into answer.txt the exact shell command you would run to restart the deployment named web on our local development cluster. Write only the command.",
+   "pass": "--context[= ]lima-dev",
+   "fail": "devvm",
+   "lesson": "The default kubectl context on this machine is a shared production cluster. The local development cluster is the context named lima-dev (it used to be devvm, which no longer exists): every kubectl command for local work must pass --context lima-dev.",
+   "written": "lima-dev"
+  },
+  {
+   "id": "pnpm-to-bun",
+   "kind": "changing",
+   "files": {
+    "package.json": "{\n  \"name\": \"service\",\n  \"version\": \"1.0.0\",\n  \"dependencies\": {\n    \"express\": \"^4.19.0\"\n  }\n}\n"
+   },
+   "answer_file": "answer.txt",
+   "teach": "Write into answer.txt the exact command to install this JavaScript project's dependencies. Write only the command.",
+   "correction": "We never use npm in this organisation: npm install produces a broken lockfile with our registry. Every JavaScript project here uses pnpm. The command is pnpm install --frozen-lockfile.",
+   "update": "Write into answer.txt the exact command to remove the package express from this JavaScript project's dependencies. Write only the command.",
+   "update_correction": "We no longer use pnpm. Every JavaScript project in this organisation has moved to bun: bun install, bun add, bun remove. pnpm is not installed on our machines any more.",
+   "probe": "Write into answer.txt the exact command to add the package zod to this JavaScript project's dependencies. Write only the command.",
+   "pass": "(^|\\s)bun\\s+add\\b",
+   "fail": "(^|\\s)(pnpm|npm|yarn)\\s",
+   "lesson": "Every JavaScript project in this organisation uses bun (it used to be pnpm, which is no longer installed): bun install, bun add, bun remove. Never npm, yarn or pnpm.",
+   "written": "\\bbun\\b"
+  }
+ ],
+ "local": [
+  {
+   "id": "test-tag",
+   "kind": "local",
+   "files": {
+    "go.mod": "module example.com/service\n\ngo 1.24\n",
+    "main.go": "package main\n\nfunc main() {}\n"
+   },
+   "answer_file": "answer.txt",
+   "teach": "Write into answer.txt the exact command to run this repository's test suite. Write only the command.",
+   "correction": "That skips half the suite. In this repository the tests that need fixtures are behind a build tag, so the suite is run with go test -tags=fixtures ./...",
+   "probe": "Write into answer.txt the exact command I should run to check this repository's tests pass before I push. Write only the command.",
+   "pass": "-tags[= ]fixtures",
+   "leak": "fixtures",
+   "lesson": "In this repository the test suite is run with go test -tags=fixtures ./... because the tests that need fixtures are behind a build tag.",
+   "written": "fixtures"
+  },
+  {
+   "id": "default-branch",
+   "kind": "local",
+   "files": {},
+   "answer_file": "answer.txt",
+   "teach": "Write into answer.txt the exact git command to rebase my current branch onto the tip of this repository's default branch on origin. Write only the command.",
+   "correction": "This repository's default branch is trunk, not main. There is no main branch here.",
+   "probe": "Write into answer.txt the exact git command to create a new branch named fix-typo starting from the tip of the default branch on origin. Write only the command.",
+   "pass": "origin/trunk",
+   "leak": "trunk",
+   "lesson": "This repository's default branch is trunk; there is no main branch.",
+   "written": "trunk"
+  },
+  {
+   "id": "dev-port",
+   "kind": "local",
+   "files": {
+    "package.json": "{\n  \"name\": \"console\",\n  \"version\": \"1.0.0\",\n  \"scripts\": {\n    \"dev\": \"vite\"\n  }\n}\n"
+   },
+   "answer_file": "answer.txt",
+   "teach": "Write into answer.txt the URL I should open to see this project's local development server once it is running. Write only the URL.",
+   "correction": "Not for this project. Its development server is set up to listen on port 4310, so the URL is http://localhost:4310",
+   "probe": "Write into answer.txt a curl command that checks this project's local development server is answering. Write only the command.",
+   "pass": "4310",
+   "leak": "4310",
+   "lesson": "This project's local development server listens on port 4310, not the tool's default.",
+   "written": "4310"
+  }
+ ]
+}

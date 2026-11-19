@@ -1,0 +1,349 @@
+{
+  "about": "A memory in the state working agents leave it in: lessons that changed, the same thing noted twice, a first guess that was corrected, and things that look alike but are not. The consolidation routine is run on it and the result is checked.",
+  "crowd": [
+    "helm-pending",
+    "pdb-rollout",
+    "registry-mirror",
+    "dns-ttl",
+    "secrets-rotation",
+    "api-port",
+    "flaky-payments",
+    "n-plus-one",
+    "feature-flags",
+    "idempotency",
+    "node-cache",
+    "e2e-seed",
+    "small-commits",
+    "no-force-push",
+    "ci-on-pr",
+    "linter"
+  ],
+  "entries": [
+    {
+      "key": "ctx-old",
+      "kind": "pitfall",
+      "human": "user",
+      "text": "On this machine the default kubectl context is a shared production cluster. The local development cluster is the context named devvm, so every kubectl command for local work must include --context devvm.",
+      "flag": "Outdated: the devvm context no longer exists; the local cluster was rebuilt and its context is now lima-dev (told by user)"
+    },
+    {
+      "key": "ctx-new",
+      "kind": "pitfall",
+      "human": "user",
+      "text": "On this machine the default kubectl context is a shared production cluster. The local development cluster's context is lima-dev (renamed from devvm after a rebuild), so every kubectl command for local work must include --context lima-dev."
+    },
+    {
+      "key": "ctx-staging",
+      "kind": "fact",
+      "human": "user",
+      "text": "The staging cluster's kubectl context is named stage-eu. Read-only commands there need no approval; anything that changes state does."
+    },
+    {
+      "key": "pnpm-old",
+      "kind": "procedure",
+      "human": "user",
+      "text": "All JavaScript projects in this organisation use pnpm, never npm (npm install produces a broken lockfile with the registry). Install command: pnpm install --frozen-lockfile",
+      "flag": "Outdated: the organisation moved from pnpm to bun (user said so); pnpm is no longer installed"
+    },
+    {
+      "key": "bun-new",
+      "kind": "procedure",
+      "human": "user",
+      "text": "All JavaScript projects in this organisation use bun, not pnpm or npm. Commands: bun install, bun add, bun remove. pnpm is not installed on the machines any more."
+    },
+    {
+      "key": "spread-guess",
+      "kind": "procedure",
+      "evidence": "Wrote this into the manifest for the checkout deployment.",
+      "text": "Spread replicas across zones with a hard topology spread constraint (whenUnsatisfiable: DoNotSchedule) so two replicas never share a zone.",
+      "flag": "Wrong: the user says hard spread constraints left pods pending here; use soft constraints"
+    },
+    {
+      "key": "spread",
+      "kind": "pitfall",
+      "human": "user",
+      "text": "Keep topology spread constraints soft (whenUnsatisfiable: ScheduleAnyway). Hard constraints left pods pending because the cluster autoscaler ignores pod topology."
+    },
+    {
+      "key": "tz-a",
+      "kind": "pitfall",
+      "evidence": "go test failed on three date tests until I exported TZ=UTC.",
+      "text": "The api test suite fails unless TZ=UTC is set."
+    },
+    {
+      "key": "tz-b",
+      "kind": "pitfall",
+      "human": "user",
+      "text": "Set the TZ environment variable to UTC before running the api tests; three date tests assume it and fail in any other zone."
+    },
+    {
+      "key": "freeze-a",
+      "kind": "preference",
+      "human": "user",
+      "text": "Production deploys are frozen on Fridays from 14:00."
+    },
+    {
+      "key": "freeze-b",
+      "kind": "preference",
+      "human": "user",
+      "text": "No production deploys on Friday afternoons, or on the day before a public holiday."
+    },
+    {
+      "key": "cache",
+      "kind": "fact",
+      "human": "user",
+      "text": "The build cache lives on the shared volume at /mnt/cache and is wiped every Sunday night.",
+      "flag": "It was not wiped on the last two Sundays; has the schedule changed?"
+    },
+    {
+      "key": "tf-staging",
+      "kind": "pitfall",
+      "human": "user",
+      "text": "Terraform plan runs against production unless the staging workspace is selected first."
+    },
+    {
+      "key": "tf-local",
+      "kind": "pitfall",
+      "human": "user",
+      "text": "Terraform for the local cluster has no remote state: run it from the infra/local directory or it plans against the staging state."
+    },
+    {
+      "key": "concl-a",
+      "kind": "preference",
+      "human": "user",
+      "scope": [
+        "repo:alpha"
+      ],
+      "text": "The owner prefers answers that open with the conclusion and put the supporting evidence after it."
+    },
+    {
+      "key": "concl-b",
+      "kind": "preference",
+      "human": "user",
+      "scope": [
+        "repo:beta"
+      ],
+      "text": "Start every answer with the conclusion, then the evidence; the owner reads the first line and may stop there."
+    },
+    {
+      "key": "buf-a",
+      "kind": "procedure",
+      "human": "user",
+      "scope": [
+        "repo:alpha"
+      ],
+      "text": "Protobuf code in this repository is generated with buf generate; never edit the files under gen/proto by hand."
+    },
+    {
+      "key": "buf-b",
+      "kind": "procedure",
+      "human": "user",
+      "scope": [
+        "repo:beta"
+      ],
+      "text": "Regenerate the protobuf code with buf generate. The files under gen/proto are generated and must not be edited by hand."
+    },
+    {
+      "key": "push-alpha",
+      "kind": "preference",
+      "human": "user",
+      "scope": [
+        "repo:alpha"
+      ],
+      "text": "Do not force push to a shared branch; make a revert commit instead."
+    },
+    {
+      "key": "seed-1",
+      "kind": "pitfall",
+      "human": "user",
+      "scope": [
+        "repo:alpha"
+      ],
+      "text": "The integration tests fail on a fresh database until scripts/seed.sh has been run."
+    },
+    {
+      "key": "seed-2",
+      "kind": "pitfall",
+      "evidence": "The integration suite failed with missing fixtures until I ran the seed script.",
+      "scope": [
+        "repo:alpha"
+      ],
+      "text": "Run scripts/seed.sh before the integration tests; they need its fixtures."
+    },
+    {
+      "key": "commit-free",
+      "kind": "preference",
+      "human": "user",
+      "scope": [
+        "repo:alpha"
+      ],
+      "text": "The agent may commit and push to feature branches without asking first."
+    }
+  ],
+  "checks": [
+    {
+      "name": "the renamed context's old entry is gone",
+      "gone": [
+        "ctx-old"
+      ]
+    },
+    {
+      "name": "the replaced package manager's old entry is gone",
+      "gone": [
+        "pnpm-old"
+      ]
+    },
+    {
+      "name": "the corrected first guess is gone",
+      "gone": [
+        "spread-guess"
+      ]
+    },
+    {
+      "name": "the new context is still there and trusted",
+      "facts": [
+        "--context lima-dev",
+        "production"
+      ],
+      "trusted": true
+    },
+    {
+      "name": "bun is still there and trusted",
+      "facts": [
+        "bun add",
+        "bun install",
+        "bun remove"
+      ],
+      "trusted": true
+    },
+    {
+      "name": "soft spread is still there with its reason",
+      "facts": [
+        "ScheduleAnyway",
+        "pending",
+        "autoscaler"
+      ],
+      "trusted": true
+    },
+    {
+      "name": "the staging context was not merged into the local one",
+      "facts": [
+        "stage-eu",
+        "approval"
+      ],
+      "trusted": true
+    },
+    {
+      "name": "no current entry still tells agents to use devvm",
+      "absent": [
+        "--context devvm"
+      ]
+    },
+    {
+      "name": "no current entry still tells agents to use pnpm",
+      "absent": [
+        "pnpm install --frozen-lockfile"
+      ]
+    },
+    {
+      "name": "the two TZ notes became one, keeping the detail and the person's backing",
+      "facts": [
+        "TZ",
+        "UTC",
+        "three date tests"
+      ],
+      "count": [
+        "\\bTZ\\b",
+        1
+      ],
+      "trusted": true
+    },
+    {
+      "name": "the two freeze notes, merged or left for the owner, kept both details",
+      "somewhere": [
+        "14:00",
+        "holiday"
+      ]
+    },
+    {
+      "name": "the flagged entry nobody corrected was left alone",
+      "kept": [
+        "cache"
+      ]
+    },
+    {
+      "name": "the two Terraform pitfalls stayed separate",
+      "kept": [
+        "tf-staging",
+        "tf-local"
+      ]
+    },
+    {
+      "name": "the unrelated lessons were not touched",
+      "kept_crowd": true
+    },
+    {
+      "name": "a preference learned in two repositories became one entry that applies everywhere",
+      "holder": [
+        "conclusion",
+        "evidence"
+      ],
+      "scope": [],
+      "count": [
+        "conclusion",
+        1
+      ],
+      "trusted": true
+    },
+    {
+      "name": "a tool two repositories share was not shown to every repository",
+      "never_global": [
+        "buf generate"
+      ],
+      "somewhere": [
+        "buf generate",
+        "gen/proto"
+      ]
+    },
+    {
+      "name": "a repository's copy of a global rule is gone, and the global rule stayed global",
+      "gone": [
+        "push-alpha"
+      ],
+      "holder": [
+        "force push",
+        "revert commit"
+      ],
+      "scope": []
+    },
+    {
+      "name": "two notes merged within a repository stayed in that repository",
+      "holder": [
+        "seed.sh",
+        "integration tests"
+      ],
+      "scope": [
+        "repo:alpha"
+      ],
+      "count": [
+        "seed\\.sh",
+        1
+      ],
+      "trusted": true
+    },
+    {
+      "name": "a permission given in one repository was not made global",
+      "kept": [
+        "commit-free"
+      ],
+      "never_global": [
+        "commit and push"
+      ]
+    }
+  ],
+  "probes": [
+    "context-renamed",
+    "pnpm-to-bun",
+    "soft-spread"
+  ]
+}

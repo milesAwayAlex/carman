@@ -1,0 +1,12 @@
+# k3s's service load balancer publishes this on the VM's port 8377, and lima
+# forwards a LoadBalancer's port to the laptop's loopback address, so the
+# laptop reaches the service at http://127.0.0.1:8377 and nothing on the LAN
+# does. Lima skips the forward when the laptop already has something on that
+# port (it logs "failed to listen" in ~/.lima/devvm/ha.stderr.log).
+apiVersion: v1
+kind: Service
+metadata:
+  name: cmem
+  namespace: carman
+spec:
+  type: LoadBalancer

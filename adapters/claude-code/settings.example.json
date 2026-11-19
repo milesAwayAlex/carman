@@ -1,0 +1,31 @@
+{
+  "env": {
+    "CMEM_URL": "http://127.0.0.1:8377",
+    "CMEM_NOTE_SCOPE": "ask"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(cmem recall *)",
+      "Bash(cmem get *)",
+      "Bash(cmem note *)",
+      "Bash(cmem flag *)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "cmem hook claude-code", "timeout": 5 }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "cmem hook claude-code", "timeout": 5 }] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "cmem hook claude-code", "timeout": 5 }] }
+    ],
+    "PostToolUseFailure": [
+      { "hooks": [{ "type": "command", "command": "cmem hook claude-code", "timeout": 5 }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "cmem hook claude-code", "timeout": 5 }] }
+    ]
+  }
+}

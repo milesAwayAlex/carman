@@ -1,0 +1,101 @@
+# The carman memory service on Kubernetes. Applied through an overlay by
+# scripts/deploy.sh, which fills in the image and creates the token secret;
+# see deploy/README.md.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: carman
+---
+# Inside the cluster the service is http://cmem.carman.svc:8377. How anything
+# outside the cluster reaches it is the overlay's business.
+apiVersion: v1
+kind: Service
+metadata:
+  name: cmem
+  namespace: carman
+spec:
+  selector:
+    app: cmem
+  ports:
+    - name: http
+      port: 8377
+      targetPort: http
+---
+# One replica, and it must stay one: the service keeps the whole library in
+# memory and serializes writes, so two instances on one library would diverge.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cmem
+  namespace: carman
+spec:
+  serviceName: cmem
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cmem
+  template:
+    metadata:
+      labels:
+        app: cmem
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: cmem
+          image: CMEM_IMAGE
+          imagePullPolicy: IfNotPresent
+          env:
+            # A directory inside the volume, so that the service creates it and
+            # owns it; git refuses to work in a repository someone else owns.
+            - name: CMEM_LIBRARY
+              value: /data/library
+            - name: CMEM_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: cmem-tokens
+                  key: CMEM_TOKENS
+          ports:
+            - name: http
+              containerPort: 8377
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
