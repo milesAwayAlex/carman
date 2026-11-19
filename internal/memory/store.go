@@ -197,8 +197,10 @@ func (e Entry) Part(from, limit int) Entry {
 	if end < len(runes) {
 		// Nothing here that a binary from before the relay could not do: it
 		// prints this line as it is.
+		// Counted as --from and --to count: from the first shown, up to the
+		// first not shown.
 		e.Text += fmt.Sprintf("\n… [characters %d to %d of %d; read on from character %d with `cmem get --from %d %s`]",
-			from+1, end, len(runes), end, end, e.ID)
+			from, end, len(runes), end, end, e.ID)
 	}
 	return e
 }
@@ -1307,8 +1309,9 @@ func Passages(text, question string, count, width int) []Passage {
 		at     int
 		text   []rune
 		under  string
-		before bool // the passage starts partway through a paragraph
-		after  bool // and stops before its end
+		over   map[string]int // the question's words in the heading it stands under
+		before bool           // the passage starts partway through a paragraph
+		after  bool           // and stops before its end
 		found  map[string]int
 		score  float64
 	}
@@ -1317,6 +1320,7 @@ func Passages(text, question string, count, width int) []Passage {
 	var blocks []block
 	in := map[string]int{} // how many parts each of the question's stems occurs in
 	heading := ""
+	var headed map[string]int
 	add := func(at int, part []rune) {
 		for whole := part; len(part) > 0; {
 			piece := part
@@ -1340,7 +1344,7 @@ func Passages(text, question string, count, width int) []Passage {
 				}
 			}
 			if len(found) > 0 {
-				blocks = append(blocks, block{at: at, text: piece, found: found, under: heading,
+				blocks = append(blocks, block{at: at, text: piece, found: found, under: heading, over: headed,
 					before: len(part) < len(whole), after: len(piece) < len(part)})
 			}
 			at += len(piece)
@@ -1354,6 +1358,12 @@ func Passages(text, question string, count, width int) []Passage {
 		if trimmed := strings.TrimSpace(paragraph); strings.HasPrefix(trimmed, "#") {
 			first, _, _ := strings.Cut(trimmed, "\n")
 			heading = clipRunes(strings.Join(strings.Fields(first), " "), 110)
+			headed = map[string]int{}
+			for stem := range stems(first) {
+				if query[stem] > 0 {
+					headed[stem] = 1
+				}
+			}
 		}
 		if len(runes)-lead <= width {
 			add(at+lead, runes[lead:])
@@ -1368,10 +1378,23 @@ func Passages(text, question string, count, width int) []Passage {
 	}
 	// A word of the question that the text uses everywhere says little about
 	// where to look; one it uses in a single place says exactly where.
+	// A heading says what the part under it is about, so the question's words
+	// in a heading count for the heading, twice over, and for what stands
+	// under it, by half.
 	for i, b := range blocks {
+		isHeading := strings.HasPrefix(strings.TrimSpace(string(b.text)), "#")
 		for stem, n := range b.found {
 			rarity := math.Log(1 + float64(len(blocks))/float64(in[stem]))
-			blocks[i].score += rarity * (1 + 0.25*float64(min(n, 4)-1))
+			score := rarity * (1 + 0.25*float64(min(n, 4)-1))
+			if isHeading {
+				score *= 2
+			}
+			blocks[i].score += score
+		}
+		for stem := range b.over {
+			if b.found[stem] == 0 && !isHeading && in[stem] > 0 {
+				blocks[i].score += 0.5 * math.Log(1+float64(len(blocks))/float64(in[stem]))
+			}
 		}
 	}
 	best := slices.Clone(blocks)
@@ -1439,6 +1462,9 @@ func (s *Store) Flashback(q FlashbackQuery) []Entry {
 	}
 	query := stems(string(moment))
 	policy := policyFor(q.Event)
+	// Where the moment's words do not decide whether an entry comes up, they
+	// still decide which comes first.
+	said := query
 	if !policy.words {
 		query = nil
 	}
@@ -1446,6 +1472,8 @@ func (s *Store) Flashback(q FlashbackQuery) []Entry {
 	type hit struct {
 		entry   Entry
 		named   bool
+		at      int // how many words into the opening the program is named
+		shared  int // how many of the moment's words the opening has
 		matched int
 		share   float64
 	}
@@ -1460,13 +1488,15 @@ func (s *Store) Flashback(q FlashbackQuery) []Entry {
 		// A command such as `kubectl get nodes` shares one word with the
 		// lesson about kubectl, which is too few for the overlap rule. An
 		// entry whose opening names the program is about that program.
-		named := namesProgram(e.Text, programs)
+		at := programAt(e.Text, programs)
+		named := at >= 0
 		matched, share := s.corpus.overlap(id, query)
 		if len(query) > 0 && float64(matched)/float64(len(query)) < momentShare {
 			matched, share = 0, 0
 		}
 		if named || (matched >= q.MinMatched && share >= q.MinShare) {
-			hits = append(hits, hit{e, named, matched, share})
+			shared, _ := s.corpus.overlap(id, said)
+			hits = append(hits, hit{e, named, at, shared, matched, share})
 		}
 	}
 	slices.SortFunc(hits, func(a, b hit) int {
@@ -1475,6 +1505,16 @@ func (s *Store) Flashback(q FlashbackQuery) []Entry {
 				return -1
 			}
 			return 1
+		}
+		// Among entries that name the program, the one that shares most with
+		// the rest of the command is about this use of it; after that, one
+		// that names the program in its first words is about the program,
+		// and one that reaches it in the third line mentions it.
+		if a.named && a.shared != b.shared {
+			return b.shared - a.shared
+		}
+		if a.named && a.at != b.at {
+			return a.at - b.at
 		}
 		if a.share != b.share {
 			if a.share > b.share {
@@ -1546,8 +1586,14 @@ func programNames(names []string) []string {
 // namesProgram reports whether the entry's opening paragraph names one of the
 // programs, as a word of its own.
 func namesProgram(text string, programs []string) bool {
+	return programAt(text, programs) >= 0
+}
+
+// programAt is how many words into the entry's opening paragraph one of the
+// programs is first named, as a word of its own, or -1 if none is.
+func programAt(text string, programs []string) int {
 	if len(programs) == 0 {
-		return false
+		return -1
 	}
 	opening, _, _ := strings.Cut(strings.TrimSpace(text), "\n\n")
 	if runes := []rune(opening); len(runes) > headLength {
@@ -1556,12 +1602,12 @@ func namesProgram(text string, programs []string) bool {
 	words := strings.FieldsFunc(strings.ToLower(opening), func(r rune) bool {
 		return !(r == '-' || r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z')
 	})
-	for _, word := range words {
+	for i, word := range words {
 		if slices.Contains(programs, strings.Trim(word, "-_")) {
-			return true
+			return i
 		}
 	}
-	return false
+	return -1
 }
 
 // Index returns the compact list for the start of a session: the current

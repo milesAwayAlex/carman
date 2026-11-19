@@ -1377,6 +1377,14 @@ func TestM5_EachKindOfMomentHasItsOwnFlashbackPolicy(t *testing.T) {
 	if got := before("a", "kubectl get nodes", "kubectl"); !equal(got, []string{pitfall.Text}) {
 		t.Errorf("before a kubectl command: %q, want the pitfall about kubectl and not the document that mentions it", got)
 	}
+	// When several entries name the program, the one that shares most with
+	// the rest of the command comes first: it is about this use of it.
+	add(KindPreference, "Reports on spend include live figures; when the billing export is late, fall back to gcloud for them.")
+	add(KindPreference, "Check a cloud feature against the live API, and never offer changes made by hand with gcloud for managed infrastructure.")
+	teleport := add(KindProcedure, "Shell access to the bastion goes through Teleport: `tsh ssh ops@bastion-1`. Do not use `gcloud compute ssh`.")
+	if got := before("g", "gcloud compute ssh bastion-2", "gcloud"); len(got) != 2 || got[0] != teleport.Text {
+		t.Errorf("before gcloud compute ssh: %q, want the entry about ssh to the bastion first", got)
+	}
 	// Not the words of the command or of a script inside it...
 	if got := before("b", "python3 - <<E\n# deploy the cluster migration plan to each context on this machine, by wave and node pool\nE", "python3"); len(got) != 0 {
 		t.Errorf("a script's words brought up %q", got)

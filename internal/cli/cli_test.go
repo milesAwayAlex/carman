@@ -186,9 +186,10 @@ func TestM8_EveryMemoryOperationIsReachableFromTheCLI(t *testing.T) {
 		"Deploy the api by running the migration job, then the rollout.")
 	expectContains(t, out, "procedure  [repo:api]", "replaces "+noted.ID)
 
-	// A question that shares no words with any note still shows what memory holds.
+	// A question that shares no words with any note says how much memory
+	// holds, so that a miss in wording is not taken for an empty memory.
 	expectContains(t, laptop.ok("", "recall", "--everywhere", "kubernetes", "ingress"),
-		"Nothing in memory shares words with that", "Deploy the api by running the migration job", "Deploys are frozen on Thursdays")
+		"None of the 3 entries anywhere shares a word with that", "cmem index")
 }
 
 // hookContext runs the Claude Code hook with the given input and returns the
@@ -536,7 +537,7 @@ func TestImportStoresTheFilesNamedGlobalWithNoScope(t *testing.T) {
 	fresh, _, _ := newService(t)
 	out = fresh.ok("", "import", "--globals-only", "--global", "profile.md", "claude-code", dir)
 	expectContains(t, out, "imported  profile.md", "left out  deploys.md", "left out  queue.md", "1 imported, 0 already there, 0 refused, 3 left out.")
-	if got := fresh.ok("", "recall", "deploy", "staging", "queue"); !strings.Contains(got, "Nothing in memory shares words") {
+	if got := fresh.ok("", "recall", "deploy", "staging", "queue"); !strings.Contains(got, "None of the 1 entries here shares a word") {
 		t.Errorf("--globals-only imported a file that was not named:\n%s", got)
 	}
 
@@ -709,7 +710,7 @@ func TestALongEntryIsReadAPageAtATime(t *testing.T) {
 		}
 	}
 	// A search result says how long the entry is, and how to read it.
-	expectContains(t, laptop.ok("", "recall", "cache", "migration"), long.ID, "characters in all", "cmem get --find WORDS ID")
+	expectContains(t, laptop.ok("", "recall", "cache", "migration"), long.ID, "its opening; the entry is 51121 characters", "cmem get --find WORDS ID")
 	// Looking for words inside it shows where they are, not the whole text.
 	deep := laptop.ok("", "note", "--kind", "fact", "--human", "alex", "--separate",
 		"Rollout notes.\n\n"+strings.Repeat("Nothing of interest happened on this day of the rollout. ", 300)+

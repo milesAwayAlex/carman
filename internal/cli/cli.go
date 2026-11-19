@@ -40,10 +40,11 @@ Find:
   cmem get ID
         Read one entry. A long one comes a page at a time; each page ends with
         the command for the next. --from N starts at character N, and --to M
-        stops at M.
+        stops before character M.
   cmem get --find WORDS ID
         Show only the parts of a long entry that the words point at, in the
-        order they come. The words need no quotes.
+        order they come. The words need no quotes; a part need not have all
+        of them, and rarer words and words in headings count for more.
   cmem get --outline ID
         A map of a long entry: where each part starts and how it begins.
 
@@ -67,7 +68,8 @@ Remember:
         --separate  yours says something else, or adds a rule beside it.
         To correct one thing in a long entry without replacing all of it:
         --amends ID     your note stands beside that entry, which is kept and
-                    marked as corrected in part, pointing at your note.
+                    marked as corrected in part, pointing at your note. The
+                    note is for whoever the entry is for; no --here or --global.
   cmem flag ID REASON...
         An entry is wrong or out of date and you do not know what is right.
 
@@ -395,35 +397,38 @@ func (c *command) recall(args []string) error {
 	}
 	if len(found.Entries) == 0 {
 		// Search is by shared words, so a note phrased differently from the
-		// question is missed. Show what memory does hold, so that a miss in
+		// question is missed. Say how much memory holds, so that a miss in
 		// wording is not mistaken for an empty memory.
 		var held server.IndexResponse
-		if err := c.call(http.MethodPost, "/v1/index", server.IndexRequest{Scope: scope, Budget: missBudget}, &held); err != nil {
+		if err := c.call(http.MethodPost, "/v1/index", server.IndexRequest{Scope: scope, Budget: 1}, &held); err != nil {
 			return err
 		}
-		if held.Total == 0 {
+		pointed := elsewhere()
+		switch {
+		case held.Total == 0:
 			fmt.Fprintf(c.stdout, "Nothing in memory matches, and memory holds no entries %s.\n", where)
-			elsewhere()
-			return nil
+		case pointed:
+			fmt.Fprintf(c.stdout, "None of the %d entries that apply here shares a word with that.\n", held.Total)
+		default:
+			fmt.Fprintf(c.stdout, "None of the %d entries %s shares a word with that. Search is by shared words: try the words "+
+				"the entry itself would use. `cmem index` lists what memory holds.\n", held.Total, where)
 		}
-		fmt.Fprintf(c.stdout, "Nothing in memory shares words with that. Memory holds %d entries %s; these come first in its list:\n", held.Total, where)
-		for _, e := range held.Entries {
-			fmt.Fprint(c.stdout, entryLine(e))
-		}
-		elsewhere()
 		return nil
 	}
+	// The pointer to other repositories comes first: it is the likelier
+	// answer, and under a list of lesser matches it was passed over.
+	pointed := elsewhere()
 	if found.Weak {
-		// The pointer to other repositories comes first here: it is the
-		// likelier answer, and under a list of near misses it was passed over.
-		if elsewhere() {
+		if pointed {
 			// And the near misses, which were read as noise, are left out.
 			fmt.Fprintln(c.stdout, "Nothing in memory that applies here matches that well.")
 			return nil
 		}
-		elsewhere = func() bool { return false }
 		found.Entries = found.Entries[:min(len(found.Entries), 3)]
 		fmt.Fprintln(c.stdout, "Nothing in memory that applies here matches that well. The nearest, which share only a few of its words:")
+	}
+	if pointed {
+		fmt.Fprintln(c.stdout, "What applies here:")
 	}
 	for _, e := range found.Entries {
 		printFound(c.stdout, e)
@@ -438,7 +443,6 @@ func (c *command) recall(args []string) error {
 		footer += fmt.Sprintf("; %d others share only a word or two with this and are left out", far)
 	}
 	fmt.Fprintf(c.stdout, "%s. %s\n", footer, howToRead)
-	elsewhere()
 	return nil
 }
 
@@ -451,10 +455,10 @@ func printFound(w io.Writer, e memory.Entry) {
 	fmt.Fprintf(w, "    %s\n", strings.Join(strings.Fields(e.Text), " "))
 	printFlags(w, e)
 	for _, p := range e.Passages {
-		fmt.Fprintf(w, "    at character %d: …%s…\n", p.At, strings.Join(strings.Fields(p.Text), " "))
+		fmt.Fprintf(w, "    at character %d: %s\n", p.At, strings.Join(strings.Fields(p.Text), " "))
 	}
 	if e.TextLength > 0 {
-		fmt.Fprintf(w, "    (%d characters in all)\n", e.TextLength)
+		fmt.Fprintf(w, "    (its opening; the entry is %d characters)\n", e.TextLength)
 	}
 }
 
@@ -479,12 +483,37 @@ func entryHeading(e memory.Entry) string {
 	return line + "  recorded " + e.CreatedAt.Format("2006-01-02")
 }
 
-// missBudget is how much of memory a recall that matched nothing lists.
-const missBudget = 2000
-
 // amendment is how the reason of a flag begins when the flag was raised by a
 // note that corrects part of the entry (`cmem note --amends`).
 const amendment = "Corrected in part by "
+
+// clipWords is the opening paragraph of a text on one line, cut between
+// words when it is longer than limit.
+func clipWords(text string, limit int) string {
+	opening, _, _ := strings.Cut(strings.TrimSpace(text), "\n\n")
+	line := strings.Join(strings.Fields(opening), " ")
+	if runes := []rune(line); len(runes) > limit {
+		line = string(runes[:limit])
+		if cut := strings.LastIndex(line, " "); cut > limit/2 {
+			line = line[:cut]
+		}
+		line = strings.TrimRight(line, " ,;:(") + " …"
+	}
+	return line
+}
+
+// whose says who raised a flag, in words a reader need not know the roles for.
+func whose(origin memory.Origin) string {
+	switch string(origin) {
+	case "laptop":
+		return "a session with a person in it"
+	case "worker":
+		return "an unattended agent"
+	case "dreamer":
+		return "consolidation"
+	}
+	return string(origin)
+}
 
 // standing is what the flags against an entry come to, in a word or two: it
 // is said to be wrong, or one thing in it has been corrected and the note
@@ -514,7 +543,7 @@ func printFlags(w io.Writer, e memory.Entry) {
 		if !strings.HasPrefix(reason, amendment) {
 			reason = "Flagged as wrong: " + reason
 		}
-		fmt.Fprintf(w, "    %s (%s, %s)\n", reason, f.Origin, f.CreatedAt.Format("2006-01-02"))
+		fmt.Fprintf(w, "    %s (from %s, %s)\n", reason, whose(f.Origin), f.CreatedAt.Format("2006-01-02"))
 	}
 }
 
@@ -723,7 +752,7 @@ func (c *command) note(args []string) error {
 	amended := ""
 	if *amends != "" {
 		var flagged memory.Entry
-		reason := fmt.Sprintf("Corrected in part by %s: %s", entry.ID, summaryLine(entry.Text))
+		reason := fmt.Sprintf("Corrected in part by %s: %s", entry.ID, clipWords(entry.Text, 200))
 		if err := c.call(http.MethodPost, "/v1/entries/"+url.PathEscape(*amends)+"/flag", server.FlagRequest{Reason: reason}, &flagged); err != nil {
 			return fmt.Errorf("the note is stored as %s, but %s could not be marked as corrected: %w", entry.ID, *amends, err)
 		}
@@ -735,7 +764,8 @@ func (c *command) note(args []string) error {
 		var old memory.Entry
 		if err := c.call(http.MethodGet, "/v1/entries/"+url.PathEscape(req.Replaces)+"?from=0&limit=400", nil, &old); err == nil {
 			old.Text, _, _ = strings.Cut(old.Text, "\n… [characters ")
-			replaced = summaryLine(old.Text)
+			old.Text, _, _ = strings.Cut(strings.TrimSpace(old.Text), "\n\n")
+			replaced = strings.Join(strings.Fields(old.Text), " ")
 		}
 	}
 	return c.print(entry, func() {
