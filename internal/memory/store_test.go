@@ -1183,6 +1183,57 @@ func TestM5_FlashbackVolunteersOnlyCloseMatchesAndNeverRepeats(t *testing.T) {
 	}
 }
 
+// What a moment may bring up depends on the moment. Seen in use: in one long
+// session 19 entries were brought up before shell commands, matched on the
+// words of scripts and the parts of file names, and almost none bore on the
+// command being run.
+func TestM5_EachKindOfMomentHasItsOwnFlashbackPolicy(t *testing.T) {
+	s := newStore(t)
+	add := func(kind Kind, text string) Entry {
+		t.Helper()
+		e, err := s.Remember(NewNote{Separate: true, Entry: NewEntry{CreatedBy: AuthorAgent, Kind: kind, Text: text, Sources: []Source{{Human: "alex"}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	pitfall := add(KindPitfall, "On this machine kubectl points at a shared cluster by default; name the local context on every command.")
+	document := add(KindFact, "Cluster migration plan: how kubectl contexts, node pools and deploy scripts change in each wave.\n\nWave one moves the batch pools.")
+	add(KindPreference, "Deploys are frozen on Fridays; ask before running a deploy script then.")
+	purge := add(KindProcedure, "After deploying the web app, purge the CDN cache for the index page, or users keep the old bundle.")
+
+	before := func(session, command string, names ...string) []string {
+		return texts(s.Flashback(FlashbackQuery{SessionID: session, Event: "pre-tool", Text: command, Names: names}))
+	}
+	// Before a command: guidance that names a program it runs, and nothing else.
+	if got := before("a", "kubectl get nodes", "kubectl"); !equal(got, []string{pitfall.Text}) {
+		t.Errorf("before a kubectl command: %q, want the pitfall about kubectl and not the document that mentions it", got)
+	}
+	// Not the words of the command or of a script inside it...
+	if got := before("b", "python3 - <<E\n# deploy the cluster migration plan to each context on this machine, by wave and node pool\nE", "python3"); len(got) != 0 {
+		t.Errorf("a script's words brought up %q", got)
+	}
+	// ...and not the parts of a script's file name.
+	if got := before("c", "scripts/deploy.sh devvm", "deploy.sh"); len(got) != 0 {
+		t.Errorf("a script named deploy.sh brought up %q", got)
+	}
+	// A prompt is prose, and may bring up a document about what it asks.
+	if got := texts(s.Flashback(FlashbackQuery{SessionID: "d", Event: "prompt", Text: "what is the cluster migration plan for the node pools in each wave?"})); !equal(got, []string{document.Text}) {
+		t.Errorf("a prompt about the plan brought up %q", got)
+	}
+	// The end of a reply makes the turn go on, so only what might change the
+	// answer counts there: a procedure the reply skipped, not a document on
+	// the same subject.
+	reply := "The cluster migration plan is done for wave one: the node pools moved and each kubectl context was changed. I deployed the web app as well."
+	if got := texts(s.Flashback(FlashbackQuery{SessionID: "e", Event: "proposal", Text: reply})); len(got) != 0 {
+		t.Errorf("a reply on the plan's subject was interrupted with %q", got)
+	}
+	done := "The deploy of the web app finished. Users may need a hard refresh to get the new bundle from the index page."
+	if got := texts(s.Flashback(FlashbackQuery{SessionID: "f", Event: "proposal", Text: done})); !equal(got, []string{purge.Text}) {
+		t.Errorf("a reply that skipped the purge was answered with %q", got)
+	}
+}
+
 func TestM5_TheSessionIndexFitsABudgetAndPutsTrustedEntriesFirst(t *testing.T) {
 	s := newStore(t)
 	passed, unverified := mustEpisode(t, s, OutcomePassed), mustEpisode(t, s, OutcomeUnverified)

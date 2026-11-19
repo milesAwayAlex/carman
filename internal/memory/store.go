@@ -1154,7 +1154,11 @@ func (s *Store) Flashback(q FlashbackQuery) []Entry {
 		moment = moment[:momentLength]
 	}
 	query := stems(string(moment))
-	names := stems(strings.Join(q.Names, " "))
+	policy := policyFor(q.Event)
+	if !policy.words {
+		query = nil
+	}
+	programs := programNames(q.Names)
 	type hit struct {
 		entry   Entry
 		named   bool
@@ -1166,16 +1170,19 @@ func (s *Store) Flashback(q FlashbackQuery) []Entry {
 		if !s.current(e, time.Time{}) || !applies(e, q.Scope) || s.shown[q.SessionID][id] {
 			continue
 		}
+		if !policy.kinds[e.Kind] {
+			continue
+		}
 		// A command such as `kubectl get nodes` shares one word with the
 		// lesson about kubectl, which is too few for the overlap rule. An
-		// entry that mentions the command by name is about that command.
-		named, _ := s.corpus.overlap(id, names)
+		// entry whose opening names the program is about that program.
+		named := namesProgram(e.Text, programs)
 		matched, share := s.corpus.overlap(id, query)
 		if len(query) > 0 && float64(matched)/float64(len(query)) < momentShare {
 			matched, share = 0, 0
 		}
-		if named > 0 || (matched >= q.MinMatched && share >= q.MinShare) {
-			hits = append(hits, hit{e, named > 0, matched, share})
+		if named || (matched >= q.MinMatched && share >= q.MinShare) {
+			hits = append(hits, hit{e, named, matched, share})
 		}
 	}
 	slices.SortFunc(hits, func(a, b hit) int {
@@ -1197,11 +1204,80 @@ func (s *Store) Flashback(q FlashbackQuery) []Entry {
 		return newestFirst(a.entry, b.entry)
 	})
 	out := []Entry{}
-	for _, h := range hits[:min(q.Limit, len(hits))] {
+	for _, h := range hits[:min(q.Limit, policy.limit, len(hits))] {
 		out = append(out, s.view(h.entry))
 	}
 	s.markShown(q.SessionID, q.Event, out)
 	return out
+}
+
+// flashbackPolicy is what a kind of moment may bring up. The moments differ
+// in what their text is and in what an interruption costs, and one rule for
+// all of them was noisy in use: in one long session, 19 entries were brought
+// up before shell commands and almost none bore on the command.
+type flashbackPolicy struct {
+	kinds map[Kind]bool // the kinds of entry worth volunteering at this moment
+	words bool          // whether the moment's text is prose to match by its words
+	limit int
+}
+
+var (
+	anyKind = map[Kind]bool{KindFact: true, KindProcedure: true, KindPitfall: true, KindPreference: true}
+	// What can change what the agent is about to do, as against what it
+	// could look up: a pitfall, a preference, a procedure.
+	guidance = map[Kind]bool{KindProcedure: true, KindPitfall: true, KindPreference: true}
+)
+
+func policyFor(event string) flashbackPolicy {
+	switch event {
+	case "pre-tool":
+		// A command is not prose: its words are flags, paths and whatever a
+		// script in it happens to contain. Only the programs it runs say what
+		// it is about, and only guidance about one of them is worth a pause.
+		return flashbackPolicy{kinds: guidance, words: false, limit: 2}
+	case "proposal":
+		// Here a match makes the agent's turn go on for another round. That
+		// is worth it for something that might change its answer, and not
+		// for a document on the same subject.
+		return flashbackPolicy{kinds: guidance, words: true, limit: 2}
+	}
+	// A prompt, a failure, or a caller that does not say.
+	return flashbackPolicy{kinds: anyKind, words: true, limit: DefaultFlashbackLimit}
+}
+
+// programNames keeps the names that are plainly a program: kubectl, terraform,
+// pnpm. A path or a script name (deploy.sh) is not something an entry would
+// be "about" in the same way, and matching its parts matched half the library.
+func programNames(names []string) []string {
+	var out []string
+	for _, name := range names {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if len(name) >= 3 && strings.Trim(name, "abcdefghijklmnopqrstuvwxyz0123456789_-") == "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// namesProgram reports whether the entry's opening paragraph names one of the
+// programs, as a word of its own.
+func namesProgram(text string, programs []string) bool {
+	if len(programs) == 0 {
+		return false
+	}
+	opening, _, _ := strings.Cut(strings.TrimSpace(text), "\n\n")
+	if runes := []rune(opening); len(runes) > headLength {
+		opening = string(runes[:headLength])
+	}
+	words := strings.FieldsFunc(strings.ToLower(opening), func(r rune) bool {
+		return !(r == '-' || r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z')
+	})
+	for _, word := range words {
+		if slices.Contains(programs, strings.Trim(word, "-_")) {
+			return true
+		}
+	}
+	return false
 }
 
 // Index returns the compact list for the start of a session: the current
