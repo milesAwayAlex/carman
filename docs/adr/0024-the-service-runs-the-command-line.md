@@ -31,6 +31,17 @@ them in what the client prints.
   running a brief command, saying at session start that the service cannot be
   reached, and the commands that act on local files (`serve`, `check`,
   `scope`, `import`).
+- **A hook takes text from the service and nothing else.** A harness reads
+  more from a hook's output than text. Claude Code lets a hook allow or deny a
+  tool call, rewrite the call's input, block a prompt or a stop, and reads the
+  hook's exit code as a verdict. If the binary printed the service's answer
+  as it came, whatever answered at the service's address could approve or
+  rewrite the commands of every session on the machine. So for `cmem hook`
+  the binary keeps the form: it takes the context text from the answer, up to
+  the harness's limit, builds the hook's output itself for the event it was
+  given, and exits 0. Any other field, the answer's error text and its exit
+  code are dropped. Other commands are printed as answered; their output is
+  read by whoever ran them and decides nothing by its form.
 - **A binary meeting an older service** (no `/v1/cli`) runs the command with
   its own copy of the logic. `CMEM_LOCAL=1` asks for that on purpose.
 - **The JSON API stays.** Binaries from before this decision keep working
@@ -49,6 +60,15 @@ them in what the client prints.
 - Every command is now one HTTP round trip to the service plus the in-process
   requests it makes there. For the hook, which runs at every prompt and tool
   call, that is the same single round trip as before.
+- What the service can do to a session is what memory could always do: put
+  text in front of the agent, at the moments the hook runs. That text is
+  written by the service as deployed, not by the binary pinned on the
+  machine, so the pin no longer fixes the wording of the session index or of
+  a flashback. It still fixes what a hook is able to do. Changing that (a
+  hook that could deny a command, say) needs a client update, on purpose.
+- The address is trusted for text. If something else answers there while the
+  service is down, it can add text to sessions that hold the token's
+  environment; it cannot do more. The token is sent to whatever answers.
 - The service executes argument parsing on text from callers. It runs only an
   allow-list of commands, none of which opens a path or starts a process, and
   the brief command is never taken from a caller.

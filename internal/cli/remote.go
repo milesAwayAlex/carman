@@ -22,7 +22,8 @@ import (
 //
 // What stays in the binary is what only the caller's machine can do: read the
 // repository it is in to find its scope, read standard input, and say that
-// the service could not be reached. A binary talking to a service too old to
+// the service could not be reached; and what the service must not be able to
+// change, which is the form of a hook's output (see relayHook). A binary talking to a service too old to
 // have /v1/cli runs the command with its own copy of the logic.
 
 // RemoteRequest is the body of POST /v1/cli.
@@ -136,10 +137,46 @@ func runRemote(ctx context.Context, args []string, getenv func(string) string, e
 		fmt.Fprintf(stderr, "cmem %s: the memory service answered %s\n", name, resp.Status)
 		return 1, true
 	}
+	if name == "hook" {
+		relayHook(req.Stdin, out.Stdout, stdout)
+		return 0, true
+	}
 	io.WriteString(stdout, out.Stdout)
 	io.WriteString(stderr, out.Stderr)
 	return out.Code, true
 }
+
+// relayHook prints a hook's answer. The service decides what text a hook
+// adds to the session and when; this binary decides what a hook is. A
+// harness reads more from a hook's output than text: Claude Code lets one
+// allow or deny a tool call, rewrite its input, or block a prompt, and reads
+// a hook's exit code as a verdict. None of that is memory's business, so the
+// only thing taken from the service's answer is the text, and the output is
+// built here. Whatever answers at the service's address can then say things
+// to a session, as memory always could, and can do nothing else to it.
+func relayHook(event, answer string, stdout io.Writer) {
+	var in claudeCodeInput
+	var said struct {
+		Output struct {
+			Context string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if json.Unmarshal([]byte(event), &in) != nil || in.Event == "" ||
+		json.Unmarshal([]byte(answer), &said) != nil || strings.TrimSpace(said.Output.Context) == "" {
+		return
+	}
+	text := said.Output.Context
+	if runes := []rune(text); len(runes) > relayedHookLimit {
+		text = string(runes[:relayedHookLimit])
+	}
+	json.NewEncoder(stdout).Encode(map[string]any{
+		"hookSpecificOutput": map[string]string{"hookEventName": in.Event, "additionalContext": text},
+	})
+}
+
+// relayedHookLimit is the most text a hook passes on from the service: what
+// Claude Code keeps of one hook's context.
+const relayedHookLimit = 10000
 
 // unreachableNotice prints, for a session that is starting, the line that
 // tells the agent its memory is not there.
