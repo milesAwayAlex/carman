@@ -283,7 +283,7 @@ func (s *Server) getEntry(r *http.Request, _ Role) (any, error) {
 	if words := params.Get("find"); words != "" {
 		// Not the text, but the places in it that the words point at.
 		// The few parts of the text that best match, in the order they come.
-		passages := memory.Passages(entry.Text, words, 3, 2*passageText)
+		passages := memory.Passages(entry.Text, words, 3, findText)
 		entry.TextLength = len([]rune(entry.Text))
 		entry.Text = ""
 		entry.Passages = passages
@@ -382,8 +382,8 @@ func (s *Server) recall(r *http.Request, _ Role) (any, error) {
 	if q.Limit == 0 {
 		q.Limit = foundCount
 	}
-	entries, total, weak := s.store.Search(q)
-	found := Found{Entries: make([]memory.Entry, len(entries)), Total: total, Weak: weak}
+	entries, total, near, weak := s.store.Search(q)
+	found := Found{Entries: make([]memory.Entry, len(entries)), Total: total, Near: near, Weak: weak}
 	for i, e := range entries {
 		opening, rest, _ := strings.Cut(strings.TrimSpace(e.Text), "\n\n")
 		length := len([]rune(e.Text))
@@ -405,6 +405,10 @@ func (s *Server) recall(r *http.Request, _ Role) (any, error) {
 	return found, nil
 }
 
+// findText is the most characters of one part that `get ?find=` returns: a
+// paragraph of ordinary length whole, so that the part often is the answer.
+const findText = 1000
+
 // foundCount is how many entries a recall made with found=1 returns when
 // the caller names no limit.
 const foundCount = 5
@@ -413,6 +417,7 @@ const foundCount = 5
 type Found struct {
 	Entries []memory.Entry `json:"entries"`
 	Total   int            `json:"total"` // how many entries matched at all
+	Near    int            `json:"near"`  // how many of those match about as well as the best
 	Weak    bool           `json:"weak"`  // even the best match shares few of the question's words
 }
 

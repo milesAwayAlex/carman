@@ -11,6 +11,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -147,7 +149,7 @@ func TestM8_EveryMemoryOperationIsReachableFromTheCLI(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &told); err != nil {
 		t.Fatalf("note --json: %v\n%s", err, out)
 	}
-	expectContains(t, worker.ok("", "flag", told.ID, "The", "freeze", "moved", "to", "Thursdays."), "flagged as wrong 1 time(s)")
+	expectContains(t, worker.ok("", "flag", told.ID, "The", "freeze", "moved", "to", "Thursdays."), "Flagged "+told.ID, "shown as disputed")
 
 	// What the person said changes. The corrected note is close to the old
 	// one, so it is held until the agent says which it is, and then replaces it.
@@ -650,6 +652,25 @@ func TestARepositoryHasOneScopeWhereverItIsCheckedOut(t *testing.T) {
 	if strings.Contains(index(other), "rounded half-even") {
 		t.Errorf("a note made --here is shown in a different repository")
 	}
+	// `cmem index`, typed by hand, lists what applies where it is typed too.
+	svc.env["CMEM_DIR"] = other
+	// A search there does not look in this repository's entries, and says
+	// so when one of them is the best match there is.
+	elsewhere := svc.ok("", "recall", "how", "are", "invoices", "rounded")
+	expectContains(t, elsewhere, "entries about other repositories", "repo:github.com/acme/billing", "cmem recall --everywhere")
+	if lines := strings.Count(elsewhere, "\n"); lines > 4 {
+		t.Errorf("a search whose answer is elsewhere printed %d lines:\n%s", lines, elsewhere)
+	}
+	if strings.Contains(elsewhere, "rounded half-even") {
+		t.Errorf("a search shows another repository's entry without being asked to:\n%s", elsewhere)
+	}
+	expectContains(t, svc.ok("", "recall", "--everywhere", "how", "are", "invoices", "rounded"), "rounded half-even")
+	if out := svc.ok("", "index"); strings.Contains(out, "rounded half-even") {
+		t.Errorf("cmem index in a different repository lists the note:\n%s", out)
+	}
+	expectContains(t, svc.ok("", "index", "--everywhere"), "rounded half-even")
+	svc.env["CMEM_DIR"] = tree
+	expectContains(t, svc.ok("", "index"), "rounded half-even")
 
 	// A harness can require every new note to say who it is for.
 	svc.env["CMEM_NOTE_SCOPE"] = "ask"
@@ -711,22 +732,33 @@ func TestALongEntryIsReadAPageAtATime(t *testing.T) {
 	if _, stderr, code := laptop.run("", "get", "quota", deepID); code == 0 || !strings.Contains(stderr, "--find") {
 		t.Errorf("stray words beside an ID: exit %d, %q", code, stderr)
 	}
+	// One part of it can be read, from one place to another.
+	if part := laptop.ok("", "get", "--from", "16", "--to", "216", deepID); len(part) > 700 || !strings.Contains(part, "Nothing of interest") || strings.Contains(part, "Rollout notes") {
+		t.Errorf("get --from 16 --to 216 printed %d characters:\n%.300s", len(part), part)
+	}
+	// Asking a command for help gets the help, not the flag package's list.
+	if out := laptop.ok("", "get", "--help"); !strings.Contains(out, "cmem get --find WORDS ID") || strings.Contains(out, "-find string") {
+		t.Errorf("cmem get --help:\n%.400s", out)
+	}
 	// And its map says where each part starts.
-	expectContains(t, laptop.ok("", "get", "--outline", deepID), "in parts starting at", "       0  Rollout notes.", "cmem get --from CHARACTER "+deepID)
+	expectContains(t, laptop.ok("", "get", "--outline", deepID), "in parts starting at", "       0  Rollout notes.", "cmem get --from START --to NEXT-START "+deepID)
 
 	// get reads it a page at a time, each page naming the next, and the pages make the whole.
 	var read strings.Builder
+	next := regexp.MustCompile("read on from character ([0-9]+) with")
 	for from, pages := 0, 0; from < len(full); pages++ {
 		out := laptop.ok("", "get", "--from", fmt.Sprint(from), long.ID)
 		text := out[strings.Index(out, "\n    ")+5:]
 		text = text[:strings.Index(text, "\n    sources:")]
 		if i := strings.Index(text, "\n… [characters "); i >= 0 {
+			from, _ = strconv.Atoi(next.FindStringSubmatch(text[i:])[1])
 			text = text[:i]
 		} else if from+8000 < len(full) {
 			t.Fatalf("page from %d does not say how to continue", from)
+		} else {
+			from = len(full)
 		}
 		read.WriteString(text)
-		from += 8000
 		if pages > 20 {
 			t.Fatal("get never reached the end")
 		}
@@ -794,7 +826,29 @@ func TestANoteCanCorrectPartOfAnEntry(t *testing.T) {
 	// The entry is still there, in full, and says where its correction is.
 	expectContains(t, laptop.ok("", "get", "--from", "0", planID), "Region capacity plan.", "Corrected in part by "+correction, "6,000 vCPU")
 	// So does a search that finds it.
-	expectContains(t, laptop.ok("", "recall", "quota", "ceiling", "eu", "region"), planID, "disputed: Corrected in part by "+correction)
+	expectContains(t, laptop.ok("", "recall", "quota", "ceiling", "eu", "region"), planID, "fact, corrected in part", "Corrected in part by "+correction)
+
+	// The pointer comes before the text, wherever the entry is read.
+	for _, view := range [][]string{{"get", planID}, {"get", "--outline", planID}, {"get", "--find", "background", planID}} {
+		out := laptop.ok("", view...)
+		if pointer, body := strings.Index(out, "Corrected in part by "+correction), strings.Index(out, "Background"); pointer < 0 || (body >= 0 && pointer > body) {
+			t.Errorf("cmem %s does not say the entry is corrected before showing it:\n%.600s", strings.Join(view, " "), out)
+		}
+	}
+	// The correction is for whoever the entry was for, without being told.
+	laptop.env["CMEM_NOTE_SCOPE"] = "ask"
+	scoped := strings.Fields(laptop.ok("", "note", "--kind", "fact", "--human", "alex", "--scope", "repo:fleet", "Fleet plan.\n\n"+strings.Repeat("History of the fleet. ", 150)))[1]
+	expectContains(t, laptop.ok("", "note", "--kind", "fact", "--human", "alex", "--amends", scoped, "The fleet now has nine clusters."), "[repo:fleet]")
+	delete(laptop.env, "CMEM_NOTE_SCOPE")
+
+	// A short note in place of a long entry is questioned: it is usually one
+	// fact corrected, and --replaces would drop everything else.
+	stdout, stderr, code := laptop.run("", "note", "--kind", "fact", "--human", "alex", "--replaces", planID, "The eu ceiling is 6,500 vCPU.")
+	if code == 0 || !strings.Contains(stdout, "--amends "+planID) || !strings.Contains(stdout, "--whole") || !strings.Contains(stderr, "not recorded") {
+		t.Errorf("a short note replacing a long entry: exit %d\n%s\n%s", code, stdout, stderr)
+	}
+	expectContains(t, laptop.ok("", "note", "--kind", "fact", "--human", "alex", "--replaces", scoped, "--whole", "The fleet plan is withdrawn; there is no fleet."),
+		"It takes the place of: Fleet plan.")
 
 	// Flagging answers in a line or two, not with the entry's text again.
 	flagged := worker.ok("", "flag", planID, "the us figure is out of date too")

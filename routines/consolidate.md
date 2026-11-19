@@ -14,7 +14,9 @@ it with one command, so make changes they would agree with on sight.
 1. Run `cmem consolidate entries`. It prints every current entry with its
    scope in square brackets, its sources, and the flags raised against it.
    Read all of it. A long entry is shown cut, with a line saying so; read the
-   whole of it with `cmem get ID` before you merge or retire it.
+   whole of it with `cmem get ID` before you merge or retire it. An entry
+   shown without that line is already whole. "Disputed" beside an entry's
+   kind means it has been flagged as wrong; the flags are listed with it.
 2. Decide what to change, using the rules below. If nothing needs changing,
    say so and stop without opening a run.
 3. Run `cmem consolidate start PURPOSE`, where PURPOSE is one line saying what
@@ -48,6 +50,19 @@ newer entry carries the correction. Retire the older one:
 
 Do the same for a first guess that was later corrected: an unverified entry,
 flagged as wrong, where another entry states what is right.
+
+**An entry corrected in part.** It is marked "corrected in part" and its flag
+reads "Corrected in part by NEW_ID", where NEW_ID is a note that states the
+one thing that changed. The entry is otherwise good. If the entry is short (a few paragraphs at most) and the
+correcting note is at least as well backed as the entry (both told by a
+person, or the entry itself unverified), write the entry again with the
+correction worked in, and nothing else changed, keeping the entry's kind:
+
+    cmem supersede ID --run RUN --kind KIND --absorb NEW_ID --from ID --from NEW_ID 'TEXT'
+
+If the entry is a long document, or it was told by a person and the
+correction is only an agent's unverified observation, leave both. The pointer
+already sends a reader from one to the other. List the pair in your report.
 
 ## Scope: who sees an entry
 

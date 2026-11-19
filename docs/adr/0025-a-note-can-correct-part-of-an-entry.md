@@ -20,7 +20,16 @@ wrong" and had to search for the correction.
 `cmem note --amends ID ...` stores the note beside the entry it corrects and
 flags that entry with a reason that names the new note and quotes its opening:
 "Corrected in part by NEW-ID: ...". The amended entry is kept whole. Wherever
-it is shown, in `get` and in a search result, the pointer is shown with it.
+it is shown (read, mapped, searched within, or found by a search) the pointer
+comes before its text, and lists mark it "corrected in part" where an entry
+flagged for any other reason is marked "disputed". The note takes the scope
+of the entry it amends unless it names its own.
+
+A short note given with `--replaces` against a long entry (2,000 characters
+or more, and at least four times the note's length) is not stored. The agent
+is told what replacing would discard and offered `--amends`, or `--whole` if
+the note really does stand for all of it. The same offer is made when a new
+note is held as close to an existing entry.
 
 This adds no kind of record. It is the two writes the agent made by hand,
 made together, with the pointer the agent left out. Any role that may flag
@@ -31,13 +40,17 @@ The acknowledgement of a plain `cmem flag` now suggests `--amends` and
 
 ## Consequences
 
-- The amended entry counts as disputed: it is marked so in lists and sorts
-  after undisputed entries of its kind. That is accurate, but coarse. An
-  entry that is right in ninety-nine places and corrected in one is treated
-  like one that is wrong throughout.
-- Merging a correction into the entry it corrects is left to consolidation,
-  which can supersede the long entry with a corrected text. The routine does
-  not do this yet for very long entries.
+- Underneath, the pointer is a flag. The amended entry therefore sorts after
+  unflagged entries of its kind in the session index, like one that is said
+  to be wrong throughout. That is coarse: it may be right in ninety-nine
+  places and corrected in one.
+- The marker is recognised by how the flag's reason begins. A flag written
+  by hand with the same opening words is read as an amendment.
+- Merging a correction into the entry it corrects is left to consolidation.
+  The routine does it for a short entry when the correction is at least as
+  well backed as the entry, and leaves long documents and corrections an
+  agent only observed as they are. Tried once on a copy of a real library:
+  it merged the one case that qualified and left the two that did not.
 - If the pointer cannot be written after the note has been stored, the
   command says so and names the stored note; the note is not taken back.
 

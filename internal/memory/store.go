@@ -176,6 +176,22 @@ func (e Entry) Part(from, limit int) Entry {
 	}
 	from = max(0, min(from, len(runes)))
 	end := min(from+limit, len(runes))
+	if end < len(runes) && limit >= 200 {
+		// Stop between lines, or failing that between words, not inside one.
+		floor := end - limit/5
+		for cut := end; cut > floor; cut-- {
+			if runes[cut-1] == '\n' {
+				end = cut
+				break
+			}
+		}
+		for cut := end; cut > floor && runes[end-1] != '\n'; cut-- {
+			if runes[cut-1] == ' ' {
+				end = cut
+				break
+			}
+		}
+	}
 	e.TextLength = len(runes)
 	e.Text = string(runes[from:end])
 	if end < len(runes) {
@@ -1110,20 +1126,22 @@ func (s *Store) CurrentEntries(asOf time.Time) []Entry {
 // matches when it shares any word stem with the query; ranking (see search.go)
 // then rewards entries that share more of them.
 func (s *Store) Recall(q RecallQuery) []Entry {
-	entries, _, _ := s.Search(q)
+	entries, _, _, _ := s.Search(q)
 	return entries
 }
 
 // Search is Recall with an account of how the search went: how many entries
-// matched at all, and whether even the best of them is a poor match, so that
-// a caller can say "nothing in memory is about that" where that is the truth.
+// matched at all, how many of those match about as well as the best (near,
+// which may be more than were returned), and whether even the best is a poor
+// match, so that a caller can say "nothing in memory is about that" where
+// that is the truth.
 //
 // A scope keeps the entries that apply in it: its own, and those with no
 // scope, which apply everywhere. Matches in an entry's opening count for
 // more than matches in its body, because the opening says what the entry is
 // about and a long body mentions many things in passing. Entries that match
 // far less well than the best one are left out.
-func (s *Store) Search(q RecallQuery) (entries []Entry, total int, weak bool) {
+func (s *Store) Search(q RecallQuery) (entries []Entry, total, near int, weak bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	query := stems(q.Text)
@@ -1161,16 +1179,18 @@ func (s *Store) Search(q RecallQuery) (entries []Entry, total int, weak bool) {
 		limit = DefaultRecallLimit
 	}
 	entries = []Entry{}
-	for i, h := range hits {
-		if i >= limit || (len(query) > 0 && h.score < recallFloor*hits[0].score) {
+	for _, h := range hits {
+		if len(query) > 0 && h.score < recallFloor*hits[0].score {
 			break
 		}
-		entries = append(entries, s.view(h.entry))
+		if near++; near <= limit {
+			entries = append(entries, s.view(h.entry))
+		}
 	}
 	// A best match that shares under half of the question's words is more
 	// likely a coincidence of vocabulary than an answer.
 	weak = len(hits) > 0 && len(query) >= 2 && 2*hits[0].matched < len(query)
-	return entries, total, weak
+	return entries, total, near, weak
 }
 
 // recallFloor is how well, against the best match, an entry must match to be
@@ -1181,6 +1201,9 @@ const recallFloor = 0.35
 type Passage struct {
 	At   int    `json:"at"` // characters from the start of the text
 	Text string `json:"text"`
+	// Under is the heading the passage stands under, when the text has
+	// headings: it says which part of a long document this is.
+	Under string `json:"under,omitempty"`
 }
 
 // Outline is a map of a long text: where each of its parts starts, and how
@@ -1281,22 +1304,31 @@ func Passages(text, question string, count, width int) []Passage {
 		return nil
 	}
 	type block struct {
-		at    int
-		text  []rune
-		found map[string]int
-		score float64
+		at     int
+		text   []rune
+		under  string
+		before bool // the passage starts partway through a paragraph
+		after  bool // and stops before its end
+		found  map[string]int
+		score  float64
 	}
 	// The text's own parts: its paragraphs, and within an over-long paragraph
 	// its lines, so that a passage starts where a thought does.
 	var blocks []block
 	in := map[string]int{} // how many parts each of the question's stems occurs in
+	heading := ""
 	add := func(at int, part []rune) {
-		for len(part) > 0 {
+		for whole := part; len(part) > 0; {
 			piece := part
 			if len(piece) > width {
+				// Stop where a sentence does, or failing that between words.
 				cut := width
-				for cut > width/2 && piece[cut-1] != ' ' && piece[cut-1] != '\n' {
+				for cut > width/2 && !(piece[cut-1] == '\n' || piece[cut-1] == ' ' && strings.ContainsRune(".;:!?", piece[cut-2])) {
 					cut--
+				}
+				if cut == width/2 {
+					for cut = width; cut > width/2 && piece[cut-1] != ' '; cut-- {
+					}
 				}
 				piece = piece[:cut]
 			}
@@ -1308,7 +1340,8 @@ func Passages(text, question string, count, width int) []Passage {
 				}
 			}
 			if len(found) > 0 {
-				blocks = append(blocks, block{at: at, text: piece, found: found})
+				blocks = append(blocks, block{at: at, text: piece, found: found, under: heading,
+					before: len(part) < len(whole), after: len(piece) < len(part)})
 			}
 			at += len(piece)
 			part = part[len(piece):]
@@ -1318,6 +1351,10 @@ func Passages(text, question string, count, width int) []Passage {
 	for _, paragraph := range strings.Split(text, "\n\n") {
 		runes := []rune(paragraph)
 		lead := len(runes) - len([]rune(strings.TrimLeft(paragraph, " \t\n")))
+		if trimmed := strings.TrimSpace(paragraph); strings.HasPrefix(trimmed, "#") {
+			first, _, _ := strings.Cut(trimmed, "\n")
+			heading = clipRunes(strings.Join(strings.Fields(first), " "), 110)
+		}
 		if len(runes)-lead <= width {
 			add(at+lead, runes[lead:])
 		} else {
@@ -1352,9 +1389,27 @@ func Passages(text, question string, count, width int) []Passage {
 	slices.SortFunc(best, func(a, b block) int { return a.at - b.at })
 	var out []Passage
 	for _, b := range best {
-		out = append(out, Passage{At: b.at, Text: strings.TrimSpace(string(b.text))})
+		passage := strings.TrimSpace(string(b.text))
+		if b.before {
+			passage = "… " + passage
+		}
+		if b.after {
+			passage += " …"
+		}
+		if strings.HasPrefix(passage, strings.TrimSuffix(b.under, "…")) {
+			b.under = "" // the heading itself
+		}
+		out = append(out, Passage{At: b.at, Text: passage, Under: b.under})
 	}
 	return out
+}
+
+// clipRunes cuts a line to at most limit characters, marking the cut.
+func clipRunes(line string, limit int) string {
+	if runes := []rune(line); len(runes) > limit {
+		return string(runes[:limit]) + "…"
+	}
+	return line
 }
 
 // Flashback returns the few entries that are close enough to the text of the

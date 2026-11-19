@@ -188,9 +188,9 @@ repository a session is in.
 
 | Operation | CLI | Roles |
 |---|---|---|
-| Find entries | `cmem recall WORDS...` | all |
+| Find entries that apply to the session (`--everywhere`: any) | `cmem recall WORDS...` | all |
 | Show an entry or episode | `cmem get ID` | all |
-| Read a long entry: a page, the parts that match, a map | `cmem get --from N ID`, `cmem get --find WORDS ID`, `cmem get --outline ID` | all |
+| Read a long entry: a page or a stretch, the parts that match, a map | `cmem get --from N [--to M] ID`, `cmem get --find WORDS ID`, `cmem get --outline ID` | all |
 | Remember one thing mid-task | `cmem note --kind K (--human NAME \| --evidence E) TEXT` | laptop, worker |
 | Correct or update an entry | `cmem note ... --replaces ID TEXT` | laptop, worker |
 | Correct one thing in a long entry, keeping the entry | `cmem note ... --amends ID TEXT` | laptop, worker |
@@ -222,7 +222,11 @@ Rules the service enforces:
 - A note close to an entry memory already holds is not stored until the agent
   says whether it replaces that entry or is a separate thing (ADR 0017).
 - A note that amends an entry is stored beside it, and the entry is flagged
-  with a pointer to the note (ADR 0025, proposed).
+  with a pointer to the note. A short note may not replace a long entry
+  unless it says it stands for the whole (ADR 0025, proposed).
+- A search made in a session looks at what applies there. When another
+  repository's entry matches better than anything found, the answer names
+  that repository and how to search it, and shows none of its text.
 - The consolidation role can add, supersede (which includes merging) and
   retire, and nothing else. Every change names a run. A run is capped at 20
   changed entries, its changes can be read back, and one revert undoes all of

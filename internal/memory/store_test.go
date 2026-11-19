@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -374,15 +376,21 @@ func TestALongEntryIsJudgedByItsOpeningAndShownInPart(t *testing.T) {
 	// In part: the opening, and a line saying how to go on.
 	part := long.Part(0, 300)
 	if part.TextLength != len([]rune(long.Text)) || !strings.HasPrefix(part.Text, "Cache migration plan") ||
-		!strings.Contains(part.Text, "read on from character 300 with `cmem get --from 300 "+long.ID+"`") || len(part.Text) > 600 {
+		!regexp.MustCompile("read on from character (2[4-9][0-9]|300) with `cmem get --from (2[4-9][0-9]|300) "+long.ID+"`").MatchString(part.Text) || len(part.Text) > 600 {
 		t.Errorf("part of a long entry = %d characters, length reported %d:\n%.400s", len(part.Text), part.TextLength, part.Text)
 	}
 	// Reading on from there reaches the end, and the pieces make the whole.
+	// A page stops between words, and says where the next one starts.
 	var whole strings.Builder
-	for from := 0; from < len([]rune(long.Text)); from += 20000 {
+	next := regexp.MustCompile("read on from character ([0-9]+) with")
+	for from := 0; from < len([]rune(long.Text)); {
 		piece := long.Part(from, 20000).Text
+		from = len([]rune(long.Text))
 		if i := strings.Index(piece, "\n… [characters "); i >= 0 {
-			piece = piece[:i]
+			from, _ = strconv.Atoi(next.FindStringSubmatch(piece[i:])[1])
+			if piece = piece[:i]; !strings.HasSuffix(piece, " ") && !strings.HasSuffix(piece, "\n") {
+				t.Errorf("a page stops inside a word: %q", piece[len(piece)-30:])
+			}
 		}
 		whole.WriteString(piece)
 	}
@@ -1224,7 +1232,7 @@ func TestM5_SearchReturnsWhatAppliesAndSaysHowWellItMatched(t *testing.T) {
 	// The entry whose opening is about the question comes before a long one
 	// that mentions the same words somewhere in its body.
 	here := []string{"repo:infra"}
-	found, total, weak := s.Search(RecallQuery{Text: "spot plan commitment constraint", Scope: here})
+	found, total, _, weak := s.Search(RecallQuery{Text: "spot plan commitment constraint", Scope: here})
 	if len(found) == 0 || found[0].ID != plan.ID || weak {
 		t.Fatalf("searching for the spot plan: first is %q, weak %v", texts(found)[:1], weak)
 	}
@@ -1238,17 +1246,17 @@ func TestM5_SearchReturnsWhatAppliesAndSaysHowWellItMatched(t *testing.T) {
 			t.Errorf("a search in repo:infra returned repo:billing's entry")
 		}
 	}
-	if got, _, _ := s.Search(RecallQuery{Text: "small commits", Scope: here}); len(got) == 0 || !strings.HasPrefix(got[0].Text, "Prefer small commits") {
+	if got, _, _, _ := s.Search(RecallQuery{Text: "small commits", Scope: here}); len(got) == 0 || !strings.HasPrefix(got[0].Text, "Prefer small commits") {
 		t.Errorf("a search in repo:infra did not find the entry that applies everywhere: %q", texts(got))
 	}
-	if got, _, _ := s.Search(RecallQuery{Text: "spot plan commitment constraint"}); !slices.ContainsFunc(got, func(e Entry) bool { return e.ID == elsewhere.ID }) {
+	if got, _, _, _ := s.Search(RecallQuery{Text: "spot plan commitment constraint"}); !slices.ContainsFunc(got, func(e Entry) bool { return e.ID == elsewhere.ID }) {
 		t.Errorf("a search with no scope did not reach repo:billing: %q", texts(got))
 	}
 	// A question nothing is about still returns the nearest, and says they are weak.
-	if got, _, weak := s.Search(RecallQuery{Text: "preferred answer length for short replies with node details", Scope: here}); len(got) == 0 || !weak {
+	if got, _, _, weak := s.Search(RecallQuery{Text: "preferred answer length for short replies with node details", Scope: here}); len(got) == 0 || !weak {
 		t.Errorf("a question nothing is about: %d results, weak %v", len(got), weak)
 	}
-	if got, total, _ := s.Search(RecallQuery{Text: "kangaroo marsupial", Scope: here}); len(got) != 0 || total != 0 {
+	if got, total, _, _ := s.Search(RecallQuery{Text: "kangaroo marsupial", Scope: here}); len(got) != 0 || total != 0 {
 		t.Errorf("a question sharing no words with anything returned %q", texts(got))
 	}
 }
@@ -1317,6 +1325,15 @@ func TestPassagesFindsThePlaceInALongText(t *testing.T) {
 	got = Passages(notes, "eu region quota ceiling", 2, 300)
 	if len(got) != 2 || got[0].Text != "The ceiling was 4,200 vCPU in March." || !strings.HasPrefix(got[1].Text, "On November 10") {
 		t.Fatalf("passages of a text with paragraphs = %+v", got)
+	}
+	// Each says which part of the document it is in.
+	if got[0].Under != "## March" || got[1].Under != "## November" {
+		t.Errorf("passages stand under %q and %q", got[0].Under, got[1].Under)
+	}
+	// A paragraph too long to show whole stops where a sentence does, and says it goes on.
+	long := strings.Repeat("The quota ceiling was discussed at length. ", 30)
+	if cut := Passages(long, "quota ceiling", 1, 300); len(cut) != 1 || !strings.HasSuffix(cut[0].Text, "at length. …") {
+		t.Errorf("a passage of a long paragraph = %+v", cut)
 	}
 	for _, p := range got {
 		if at := strings.Index(notes, p.Text); len([]rune(notes[:at])) != p.At {
