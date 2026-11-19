@@ -449,11 +449,11 @@ Decisions are recorded one per file in `docs/adr/`. The index,
 6. The task-stream benchmark (M7), if the transfer benchmark stops being
    enough to decide on.
 7. The dreamer, as the first agent carman runs by itself: the consolidation
-   routine in a container, on a schedule, beside the memory (ADR 0027,
-   proposed). Built: the agent image, the routine runner, the CronJob, and
-   the commands that switch it on and run it once. Not yet: its model
-   credential in the cluster (ADR 0028, proposed), distilling long
-   documents, a check on unattended runs.
+   routine in a container, on a schedule, beside the memory (ADR 0027). Built: the agent image, the routine runner, the CronJob, and
+   the commands that switch it on and run it once, and its model credential
+   as a secret in the cluster (ADR 0028). It has run once on a real library.
+   Not yet: distilling long documents, a comparison of models, a check on
+   unattended runs.
 8. Walking skeleton of the task path: one trigger, one worker, one verifier,
    `cmem record` at the end. The dreamer's pieces are its start.
 9. Dispatcher pacing and the task ledger's wait-and-wake routing.

@@ -1,6 +1,6 @@
 # 0027: The dreamer is the first agent, and it runs on the cluster beside the memory
 
-Status: Proposed
+Status: Accepted (2026-11-19). Built; the schedule is switched off.
 
 ## Context
 
@@ -53,17 +53,29 @@ should be native to Kubernetes and run beside the memory, starting with it.
 
 ## Open
 
-- **Long documents.** The routine lists them and leaves them. The owner's
-  rule: distil a document into the lessons worth keeping, keep the original
-  in history marked as replaced, and leave a short entry saying what it was
-  and how to read it. This needs a way for a distilled lesson to keep the
-  document's backing, a rule for telling finished work from work in
-  progress, and a benchmark case, and is the next slice.
-- **An archive.** Separating active memory from past projects is deferred
+The owner's answers of the same day are folded in.
+
+- **Long documents: to be built next.** The routine lists them and leaves
+  them. The rule: distil a document into the lessons worth keeping, keep
+  the original in history marked as replaced, and leave a short entry
+  saying what it was and how to read it. This needs a way for a distilled
+  lesson to keep the document's backing, a rule for telling finished work
+  from work in progress, and a benchmark case.
+- **Which model does which processing: to be measured.** The existing
+  consolidation test is passed in full by the smallest model tried, so it
+  cannot tell models apart. Distilling is where a stronger model is likely
+  to matter; its benchmark is to be run across models, with what each
+  costs, before one is chosen.
+- **A check on unattended runs, and whether the dreamer earns its keep: to
+  be designed.** Candidates for the check: the library's own check after
+  the run; a mechanical test that no number, name or command in a merged
+  entry's sources is missing from the entry that replaced them, with the
+  run reverted when it fails; a second model reading the run's log.
+  Candidates for the measure: entries current and the size of the session
+  index over time, corrections and flags left standing, runs the owner
+  reverted, and the transfer benchmark on a library before and after.
+- **An archive**, separating active memory from past projects: deferred
   until there is a need.
-- **A check on unattended runs.** For example: the run is reverted
-  automatically if the library fails its own check afterwards, or if it
-  retired more than it replaced.
 
 ## Alternatives considered
 

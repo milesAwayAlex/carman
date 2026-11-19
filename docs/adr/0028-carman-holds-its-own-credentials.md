@@ -1,6 +1,6 @@
 # 0028: carman holds its own credentials, as secrets in its cluster
 
-Status: Proposed
+Status: Accepted (2026-11-19). Built for the model credential.
 
 ## Context
 
@@ -55,14 +55,21 @@ made at the first deploy and live in a Kubernetes Secret in its namespace.
 
 ## Open
 
-- **Which source of record**, and whether the copy is made by hand or by an
-  operator in the cluster that follows the source (External Secrets and the
-  like). By hand is enough for one secret on one cluster.
-- **Which model credential.** A subscription token is what exists. An API
-  key from the provider's console is the usual thing for unattended
-  workloads and can be capped and revoked separately.
-- **Encryption at rest** in the cluster's store, which the local cluster
-  does not have switched on.
+The owner's answers of the same day are folded in.
+
+- **Copying by hand is the start; in the cloud it is automated.** An
+  operator in the cluster that follows the source of record (External
+  Secrets and the like) is wanted there. Which source, a password manager
+  or a cloud secret store, is not chosen.
+- **The model credential is the subscription test token for now**, the one
+  already used for benchmark runs. An API key made for unattended use can
+  replace it without any other change.
+- **Encryption at rest** in the cluster's own store is not switched on for
+  the local cluster. The machine's disk is encrypted, which the owner
+  takes as enough there; k3s can encrypt its secrets with a server option
+  if that is wanted later.
+- **Credentials for other services**, attached to an agent's requests to
+  the tools it uses, are the hard part and are not designed.
 
 ## Alternatives considered
 

@@ -37,5 +37,5 @@ To change a decision, add a new record and mark the old one superseded.
 | [0024](0024-the-service-runs-the-command-line.md) | The service runs the command line; the installed binary relays | Accepted |
 | [0025](0025-a-note-can-correct-part-of-an-entry.md) | A note can correct part of an entry, which is kept and points at the correction | Accepted |
 | [0026](0026-here-does-not-narrow-a-replacement.md) | `--here` does not change who a replacement is for | Accepted |
-| [0027](0027-the-dreamer-is-the-first-agent.md) | The dreamer is the first agent, and it runs on the cluster beside the memory | Proposed |
-| [0028](0028-carman-holds-its-own-credentials.md) | carman holds its own credentials, as secrets in its cluster | Proposed |
+| [0027](0027-the-dreamer-is-the-first-agent.md) | The dreamer is the first agent, and it runs on the cluster beside the memory | Accepted |
+| [0028](0028-carman-holds-its-own-credentials.md) | carman holds its own credentials, as secrets in its cluster | Accepted |
