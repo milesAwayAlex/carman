@@ -700,7 +700,19 @@ func TestALongEntryIsReadAPageAtATime(t *testing.T) {
 		t.Errorf("find printed %d characters", len(found))
 	}
 	expectContains(t, laptop.ok("", "recall", "quota", "ceiling", "eu", "region"), deepID, "at character", "4,200 vCPU")
-	expectContains(t, laptop.ok("", "get", deepID, "--find", "unicorns"), "No passage of this entry has those words")
+	expectContains(t, laptop.ok("", "get", deepID, "--find", "unicorns"), "No part of this entry has those words", "cmem get --outline "+deepID)
+	// The words need no quoting, and the ID may come before or after them.
+	for _, args := range [][]string{
+		{"get", "--find", "quota", "ceiling", "eu", "region", deepID},
+		{"get", deepID, "--find", "quota", "ceiling", "eu", "region"},
+	} {
+		expectContains(t, laptop.ok("", args...), "at character", "4,200 vCPU")
+	}
+	if _, stderr, code := laptop.run("", "get", "quota", deepID); code == 0 || !strings.Contains(stderr, "--find") {
+		t.Errorf("stray words beside an ID: exit %d, %q", code, stderr)
+	}
+	// And its map says where each part starts.
+	expectContains(t, laptop.ok("", "get", "--outline", deepID), "in parts starting at", "       0  Rollout notes.", "cmem get --from CHARACTER "+deepID)
 
 	// get reads it a page at a time, each page naming the next, and the pages make the whole.
 	var read strings.Builder
@@ -748,6 +760,8 @@ func TestTheCLISaysWhatWentWrong(t *testing.T) {
 		{"a worker opening a run", worker, []string{"consolidate", "start", "x"}, 1, "may not"},
 		{"a worker undoing a run", worker, []string{"consolidate", "revert", "some-run", "x"}, 1, "may not"},
 		{"an ID that does not exist", laptop, []string{"get", "20200101-000000-aaaa"}, 1, "not found"},
+		{"a note with evidence and no text", worker, []string{"note", "--kind", "fact", "--evidence", "the thing itself"}, 1, "the text to remember"},
+		{"a note that both replaces and amends", worker, []string{"note", "--kind", "fact", "--evidence", "e", "--replaces", "a", "--amends", "b", "x"}, 1, "Choose one"},
 		{"a note holding a secret", worker, []string{"note", "--kind", "fact", "--evidence", "e", "key", "AKIAIOSFODNN7EXAMPLE"}, 1, "AWS access key"},
 		{"no service configured", shell{t, map[string]string{}}, []string{"recall", "x"}, 1, "CMEM_URL and CMEM_TOKEN"},
 	}
@@ -760,6 +774,32 @@ func TestTheCLISaysWhatWentWrong(t *testing.T) {
 
 	if out := laptop.ok("", "help"); !strings.Contains(out, "cmem recall") {
 		t.Errorf("help does not describe recall:\n%s", out)
+	}
+}
+
+// A long entry that is wrong in one place is not replaced by the agent that
+// notices: the correction is stored beside it, and the entry points at it.
+func TestANoteCanCorrectPartOfAnEntry(t *testing.T) {
+	laptop, worker, _ := newService(t)
+	plan := laptop.ok("", "note", "--kind", "fact", "--human", "alex",
+		"Region capacity plan.\n\n"+strings.Repeat("Background on how the regions were sized. ", 200)+
+			"\n\nThe quota ceiling for the eu region is 4,200 vCPU.")
+	planID := strings.Fields(plan)[1]
+
+	out := worker.ok("", "note", "--kind", "fact", "--evidence", "the quota page showed 6,000 today", "--amends", planID,
+		"The quota ceiling for the eu region is 6,000 vCPU, raised from 4,200.")
+	correction := strings.Fields(out)[1]
+	expectContains(t, out, "Remembered:", planID+" is now marked as corrected in part")
+
+	// The entry is still there, in full, and says where its correction is.
+	expectContains(t, laptop.ok("", "get", "--from", "0", planID), "Region capacity plan.", "Corrected in part by "+correction, "6,000 vCPU")
+	// So does a search that finds it.
+	expectContains(t, laptop.ok("", "recall", "quota", "ceiling", "eu", "region"), planID, "disputed: Corrected in part by "+correction)
+
+	// Flagging answers in a line or two, not with the entry's text again.
+	flagged := worker.ok("", "flag", planID, "the us figure is out of date too")
+	if expectContains(t, flagged, "Flagged "+planID, "cmem note --amends "+planID); len(flagged) > 400 {
+		t.Errorf("flag printed %d characters:\n%s", len(flagged), flagged)
 	}
 }
 

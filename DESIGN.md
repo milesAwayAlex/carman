@@ -190,8 +190,10 @@ repository a session is in.
 |---|---|---|
 | Find entries | `cmem recall WORDS...` | all |
 | Show an entry or episode | `cmem get ID` | all |
+| Read a long entry: a page, the parts that match, a map | `cmem get --from N ID`, `cmem get --find WORDS ID`, `cmem get --outline ID` | all |
 | Remember one thing mid-task | `cmem note --kind K (--human NAME \| --evidence E) TEXT` | laptop, worker |
 | Correct or update an entry | `cmem note ... --replaces ID TEXT` | laptop, worker |
+| Correct one thing in a long entry, keeping the entry | `cmem note ... --amends ID TEXT` | laptop, worker |
 | Report an entry as wrong | `cmem flag ID REASON` | laptop, worker |
 | Record a finished task | `cmem record --outcome O < body` | laptop, worker |
 | The list for a session's start | `cmem index` | laptop, worker |
@@ -219,6 +221,8 @@ Rules the service enforces:
   verified task showed; it flags that entry instead (ADR 0017).
 - A note close to an entry memory already holds is not stored until the agent
   says whether it replaces that entry or is a separate thing (ADR 0017).
+- A note that amends an entry is stored beside it, and the entry is flagged
+  with a pointer to the note (ADR 0025, proposed).
 - The consolidation role can add, supersede (which includes merging) and
   retire, and nothing else. Every change names a run. A run is capped at 20
   changed entries, its changes can be read back, and one revert undoes all of
