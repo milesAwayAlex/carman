@@ -23,7 +23,25 @@ var secretShapes = []struct {
 	{"a Google API key", regexp.MustCompile(`\bAIza[0-9A-Za-z_-]{35}\b`)},
 	{"a JSON web token", regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}`)},
 	{"a bearer token", regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._~+/-]{20,}`)},
-	{"a URL with a password", regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^/\s:@]+:[^/\s:@]{3,}@`)},
+}
+
+// A URL that carries a password, checked separately because documentation
+// writes the same shape with a stand-in where the password goes:
+// rediss://default:<token>@host is how to connect, not a credential.
+var urlWithPassword = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^/\s:@]+:([^/\s:@]{3,})@`)
+
+// placeholder reports whether what stands where a password would is a
+// stand-in for one: <token>, $PASSWORD, ${PASS}, {{secret}}, [password],
+// ***, or one of the words people write there.
+func placeholder(value string) bool {
+	if strings.ContainsAny(value[:1], "<$[{%") || strings.Trim(value, "*xX.") == "" {
+		return true
+	}
+	switch strings.ToLower(strings.Trim(value, "_-")) {
+	case "password", "passwd", "pass", "pw", "pwd", "token", "secret", "key", "redacted", "changeme":
+		return true
+	}
+	return false
 }
 
 // An assignment such as password=..., checked separately because ordinary
@@ -35,6 +53,11 @@ func findSecret(text string) (kind string, found bool) {
 	for _, shape := range secretShapes {
 		if shape.pattern.MatchString(text) {
 			return shape.name, true
+		}
+	}
+	for _, match := range urlWithPassword.FindAllStringSubmatch(text, -1) {
+		if !placeholder(match[1]) {
+			return "a URL with a password", true
 		}
 	}
 	for _, match := range assignment.FindAllStringSubmatch(text, -1) {

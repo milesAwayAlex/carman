@@ -1279,6 +1279,27 @@ func TestFlagCountsAContradictionAndLeavesTheEntryAsItWas(t *testing.T) {
 	}
 }
 
+// A stand-in where a password would go is how documentation shows the shape
+// of a connection string. It is not a credential, and M6 is not a reason to
+// refuse a document that explains how to connect to something.
+func TestM6_AConnectionStringWithAStandInForItsPasswordIsStored(t *testing.T) {
+	s := newStore(t)
+	episode := mustEpisode(t, s, OutcomePassed)
+	for _, text := range []string{
+		"Connect with rediss://default:<token>@<PSC address>:6379 once the IAM binding exists.",
+		"The URL is postgres://app:$DB_PASSWORD@db.internal/app and the password comes from the secret manager.",
+		"Use amqp://user:${AMQP_PASS}@broker and https://deploy:***@registry.example for the examples; redis://default:PASSWORD@host works too.",
+	} {
+		if _, err := s.AddEntry(newEntry(text, episode)); err != nil {
+			t.Errorf("a URL with a stand-in for its password was refused: %v\n%s", err, text)
+		}
+	}
+	// The same shape with something real in that place is still refused.
+	if _, err := s.AddEntry(newEntry("Connect with rediss://default:Zx81kq0vT3mPw9@10.0.0.5:6379 for now.", episode)); !errors.Is(err, ErrSecret) {
+		t.Errorf("a URL with a real-looking password: %v, want ErrSecret", err)
+	}
+}
+
 func TestM6_AWriteThatLooksLikeItHoldsACredentialIsRefused(t *testing.T) {
 	s := newStore(t)
 	episode := mustEpisode(t, s, OutcomePassed)
