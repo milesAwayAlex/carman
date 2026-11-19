@@ -464,9 +464,18 @@ func (s *Server) flashback(r *http.Request, _ Role) (any, error) {
 	if err := decode(r, &req); err != nil {
 		return nil, err
 	}
-	return parts(s.store.Flashback(memory.FlashbackQuery{
+	entries := s.store.Flashback(memory.FlashbackQuery{
 		SessionID: req.SessionID, Event: req.Event, Text: req.Text, Scope: req.Scope, Names: req.Names, Limit: req.Limit,
-	}), listedText), nil
+	})
+	// What a moment brought up, and that a moment brought up nothing: the
+	// record from which the policy can be judged in use. Never the moment's
+	// text, which may be a command with a credential in it.
+	shown := make([]string, len(entries))
+	for i, e := range entries {
+		shown[i] = e.ID
+	}
+	s.log.Info("flashback", "event", req.Event, "session", req.SessionID, "programs", req.Names, "shown", shown)
+	return parts(entries, listedText), nil
 }
 
 // BriefRequest is the body of POST /v1/brief, which serves a harness that has

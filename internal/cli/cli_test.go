@@ -858,6 +858,27 @@ func TestANoteCanCorrectPartOfAnEntry(t *testing.T) {
 	}
 }
 
+// M5: before a command, memory brings up what is about a program the command
+// runs. What the command feeds to a program is not a program.
+func TestM5_OnlyWhatTheShellRunsCountsAsAProgram(t *testing.T) {
+	for command, want := range map[string]string{
+		"kubectl get pods | grep api":          "kubectl",
+		"cd /srv && terraform plan; helm list": "terraform helm",
+		"KUBECONFIG=/tmp/k kubectl get nodes":  "kubectl",
+		"python3 - <<'E'\nfrom pathlib import Path\nwith open('x') as f:\n    print(f.read())\nE\nkubectl get pods":         "python3 kubectl",
+		"cat > notes.md <<EOF\nWhen stuck, call the user.\nRather than guess, measure.\nEOF":                                "",
+		"cat <<-END | docker build -\n\tFROM alpine\n\tCOPY . /app\n\tEND\nhelm lint":                                       "docker helm",
+		"python3 -c '\nimport json\nprint(json.dumps({}))\n' && pnpm test":                                                  "python3 pnpm",
+		"git commit -m \"Fix the relay\n\nWhen a hook answers, take only its text.\nRather than print it all.\"\nnix build": "",
+		"echo \"a << b\" && tofu fmt  # then <<EOF is not a here-document\nkubectl version":                                 "tofu kubectl",
+		"grep -c 'x' <<<\"$text\"\nterraform validate":                                                                      "terraform",
+	} {
+		if got := strings.Join(programNames(command), " "); got != want {
+			t.Errorf("programs of %q = %q, want %q", command, got, want)
+		}
+	}
+}
+
 // The installed binary is a relay: it sends its command line to the service,
 // which runs the command and says what to print. A change to what a command
 // does then reaches every machine when the service is deployed.

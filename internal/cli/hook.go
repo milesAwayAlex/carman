@@ -346,7 +346,7 @@ var everydayPrograms = map[string]bool{
 // first word of each part of a pipeline or command list.
 func programNames(command string) []string {
 	var names []string
-	parts := strings.FieldsFunc(command, func(r rune) bool { return r == '|' || r == '&' || r == ';' || r == '\n' })
+	parts := strings.FieldsFunc(shellLines(command), func(r rune) bool { return r == '|' || r == '&' || r == ';' || r == '\n' })
 	for _, part := range parts {
 		for _, word := range strings.Fields(part) {
 			if strings.Contains(word, "=") { // VAR=value before the program
@@ -360,6 +360,66 @@ func programNames(command string) []string {
 		}
 	}
 	return names
+}
+
+// shellLines keeps the lines of a command that the shell reads as commands,
+// and drops what it reads as data: the body of a here-document and the inner
+// lines of a quoted string that runs over several lines. Seen in use: a
+// script fed to python on standard input had lines beginning `from`, `with`
+// and `open`, each was taken for a program, and entries whose opening
+// happened to contain those words were brought up before the command.
+func shellLines(command string) string {
+	var kept []string
+	heredoc, quote := "", rune(0)
+	for _, line := range strings.Split(command, "\n") {
+		if heredoc != "" {
+			if strings.TrimSpace(line) == heredoc {
+				heredoc = ""
+			}
+			continue
+		}
+		// A line that begins inside a string counts from where the string ends.
+		from := 0
+		if quote != 0 {
+			from = -1
+		}
+		runes := []rune(line)
+		for i := 0; i < len(runes); i++ {
+			r := runes[i]
+			switch {
+			case quote == '"' && r == '\\':
+				i++
+			case quote != 0:
+				if r == quote {
+					quote = 0
+					if from < 0 {
+						from = i + 1
+					}
+				}
+			case r == '\\':
+				i++
+			case r == '\'' || r == '"':
+				quote = r
+			case r == '#' && (i == 0 || runes[i-1] == ' ' || runes[i-1] == '\t'):
+				i = len(runes) // a comment: no quote or here-document opens in it
+			case r == '<' && i+2 < len(runes) && runes[i+1] == '<' && runes[i+2] != '<' && (i == 0 || runes[i-1] != '<'):
+				// <<WORD, <<-WORD, <<'WORD', << "WORD": what follows is data up to WORD.
+				word := strings.TrimLeft(string(runes[i+2:]), "- \t")
+				word = strings.TrimLeft(word, "'\"\\")
+				if end := strings.IndexFunc(word, func(r rune) bool {
+					return !(r == '_' || r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z')
+				}); end >= 0 {
+					word = word[:end]
+				}
+				heredoc = word
+				i++
+			}
+		}
+		if from >= 0 {
+			kept = append(kept, string(runes[from:]))
+		}
+	}
+	return strings.Join(kept, "\n")
 }
 
 // sessionScope works out what a session is about: CMEM_SCOPE when set, or
