@@ -1,6 +1,6 @@
 # 0026: `--here` does not change who a replacement is for
 
-Status: Proposed
+Status: Accepted (2026-11-19). Built.
 
 ## Context
 

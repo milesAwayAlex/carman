@@ -1,6 +1,6 @@
 # 0024. The service runs the command line; the installed binary relays
 
-Status: Proposed (2026-11-19). Built. The owner asked that the memory be
+Status: Accepted (2026-11-19). Built. The owner asked that the memory be
 improvable by shipping the service alone, without updating clients.
 
 ## Context

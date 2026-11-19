@@ -223,11 +223,10 @@ Rules the service enforces:
   says whether it replaces that entry or is a separate thing (ADR 0017).
 - A note that amends an entry is stored beside it, and the entry is flagged
   with a pointer to the note. A note shorter than three quarters of a long
-  entry may not replace it unless it says it stands for the whole (ADR 0025,
-  proposed).
+  entry may not replace it unless it says it stands for the whole (ADR 0025).
 - A replacement by a working agent is for whoever the old entry was for.
-  `--global` widens it and `--scope` narrows it; `--here` does neither (ADR
-  0021, and ADR 0026, proposed).
+  `--global` widens it and `--scope` narrows it; `--here` does neither (ADRs
+  0021 and 0026).
 - A search made in a session looks at what applies there. When another
   repository's entry matches better than anything found, the answer names
   that repository and how to search it, and shows none of its text.

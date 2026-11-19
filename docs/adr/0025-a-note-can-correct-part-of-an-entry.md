@@ -1,6 +1,6 @@
 # 0025: A note can correct part of an entry
 
-Status: Proposed
+Status: Accepted (2026-11-19). Built.
 
 ## Context
 
