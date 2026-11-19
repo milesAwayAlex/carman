@@ -39,7 +39,8 @@ held. What changed the outcome was the question above, asked at that moment;
 every agent that was asked switched to `--amends` at once. The first
 threshold, a quarter of the entry's length, let summaries of a quarter to
 under half through (5 of 6 on one entry, one of them losing the fact the
-benchmark then asked for), which is why it is three quarters.
+benchmark then asked for), which is why it is three quarters. Run again at
+three quarters, all six entries were kept and amended.
 
 This adds no kind of record. It is the two writes the agent made by hand,
 made together, with the pointer the agent left out. Any role that may flag

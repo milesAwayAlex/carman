@@ -39,7 +39,7 @@ Three runs of each case per arm.
   command, and the session asked for it answered with a command that does
   not exist. The others kept it by luck of what the summary chose to keep.
   The question is now asked of any note under three quarters of a long
-  entry's length. Not yet re-run.
+  entry's length. Re-run below.
 - Cost was the same in both arms: about $0.12 a case.
 
 The two changing-lesson cases, two runs per arm, were identical in both arms:
@@ -72,6 +72,12 @@ the runs above, so this is not a like-for-like re-run):
   agent replaced with `--global` of its own accord and the rule reached the
   other repository; the other agent recorded nothing in either session,
   which is the one failure.
+
+**The document cases again on Sonnet 5.5, three runs each:** changed fact
+6/6, untouched fact 6/6, and all six entries kept and amended (it was 4 of 6,
+with 2 replaced by a summary). Every agent's first move was still
+`--replaces` with a summary; every one was asked, and every one ran it again
+with `--amends`. Cost unchanged at about $0.12 a case.
 
 **The kubectl-context case again on Sonnet 5.5, four runs:** same repository
 4/4, other repository 4/4 (it was 0/4). All four agents did what they did
