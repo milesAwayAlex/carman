@@ -21,47 +21,70 @@ import (
 	"carman/internal/server"
 )
 
-const usage = `cmem is the carman memory.
+// usage is what `cmem help` prints: what an agent at work needs, and no more.
+// The rest is under `cmem help all`. It was one page once; agents asked to
+// use the memory read eighty lines to find the four commands they wanted.
+const usage = `cmem is your long-term memory: what is learned in one session is there in
+the next, in every repository.
 
-Reading:
-  cmem recall [--scope TAG]... [--kind KIND]... [--as-of TIME] [--limit N] WORDS...
-        Find entries. Describe what you are doing or looking for in plain words.
-  cmem get [--from N] ID
-        Show one entry or episode. A long entry comes a page at a time; the
-        page ends with the command that continues it.
+Find:
+  cmem recall WORDS...
+        Search what applies in this repository and everywhere. Say what you are
+        doing or looking for, in plain words:
+            cmem recall arm node pools
+        A result shows what the entry is about and, for a long entry, the
+        passage that matched. --everywhere also searches other repositories.
+  cmem get ID
+        Read one entry. A long one comes a page at a time; each page ends with
+        the command for the next.
+  cmem get --find WORDS ID
+        Show only the passages of a long entry that the words point at.
 
-Writing:
-  cmem note --kind KIND [--here | --global | --scope TAG]...
-            (--human NAME | --evidence "what you observed")
-            [--replaces ID | --separate] TEXT...
-        Remember one thing. KIND is fact, procedure, pitfall or preference.
-        --here keeps it to the repository you are in; --global, or no scope,
-        shows it to every session everywhere.
-        Say where it came from: --human NAME when a person told you or
-        corrected you (laptop only; "user" will do for a name), or --evidence
-        when you found it out yourself. What a person told you is trusted;
-        your own observation is stored as unverified.
-        --replaces ID puts the note in place of an entry it corrects or
-        updates. The old entry stays in history and stops being current. An
-        unverified note cannot replace a trusted entry; flag that instead.
-        The replacement keeps the old entry's scope unless you give --scope,
-        or --global to make it apply everywhere.
-        When memory already holds something close, the note is not stored
-        until you say which it is: --replaces ID, or --separate.
+Remember:
+  cmem note --kind KIND (--here | --global) (--human NAME | --evidence "...") TEXT...
+        Record one thing, in a sentence or two that will make sense on its own
+        months from now:
+            cmem note --kind pitfall --here --human Alex "Run tofu fmt -recursive before every commit."
+        KIND        preference (how someone wants things done), pitfall (a
+                    mistake to avoid), procedure (how to do something), or fact.
+        --here      it is true of this repository only.
+        --global    it would also hold in another repository.
+        --human NAME    the user told you or corrected you. Use their name, or
+                    "user". Only a session with a person in it can say this.
+        --evidence "what you saw"    you found it out yourself. It is stored as
+                    unverified until something confirms it.
+        If memory already holds something close, the note is held and you are
+        shown what it is close to. Say which it is and run it again:
+        --replaces ID   yours corrects or updates that entry. The old one stays
+                    in history; yours takes its place and keeps its scope.
+        --separate  yours says something else, or adds a rule beside it.
   cmem flag ID REASON...
-        Report that an entry is wrong or out of date.
+        An entry is wrong or out of date and you do not know what is right.
+
+Flags may come before or after the other words. Add --json for machine output.
+` + "`cmem help all`" + ` lists the rest: recording a finished task, consolidation, the
+session hook, importing another memory, and running the service.
+`
+
+// usageRest is what `cmem help all` adds.
+const usageRest = `
+Other writing:
   cmem record --outcome passed|failed|unverified [--task-id ID] [--session-id ID]
               [--scope TAG]... [--cost USD]
         Store the record of a finished task, read from standard input.
+  cmem note ... --scope TAG
+        A scope by name, where --here and --global will not do.
   cmem import [--scope TAG]... [--global FILE]... [--globals-only]
               [--human NAME] [--separate] [--dry-run] claude-code DIR
         Copy the memories in a Claude Code memory directory
         (~/.claude/projects/PROJECT/memory) into cmem, as told by NAME.
         Files named with --global apply everywhere and get no scope; the rest
-        get --scope, or are left out with --globals-only. Laptop only. Safe
-        to run twice: what is close to an entry already here is skipped.
-        --separate stores such a memory anyway, for two that are alike in
-        their opening lines and different in substance.
+        get --scope, or are left out with --globals-only. Safe to run twice:
+        what is close to an entry already here is skipped. --separate stores
+        such a memory anyway.
+
+Other reading:
+  cmem recall [--scope TAG]... [--kind KIND]... [--as-of TIME] [--limit N] [--long] WORDS...
 
 Consolidation role only. Every change belongs to a run, which is logged,
 capped, and can be reverted as a unit:
@@ -114,6 +137,7 @@ Service:
 
 Client commands need CMEM_URL and CMEM_TOKEN. Add --json for machine output.
 A scope tag names what an entry is about, for example repo:carman.
+
 `
 
 // Run executes one cmem command and returns its exit code.
@@ -141,6 +165,9 @@ func runLocal(ctx context.Context, args []string, getenv func(string) string, st
 func run(ctx context.Context, args []string, getenv func(string) string, stdin io.Reader, stdout, stderr io.Writer, api http.Handler) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 		fmt.Fprint(stdout, usage)
+		if len(args) > 1 && args[1] == "all" {
+			fmt.Fprint(stdout, usageRest)
+		}
 		return 0
 	}
 	c := &command{
@@ -191,10 +218,38 @@ func (l *list) Set(v string) error { *l = append(*l, v); return nil }
 // parse reads the flags and returns the remaining words joined as text.
 func (c *command) parse(args []string) (string, error) {
 	c.flags.BoolVar(&c.json, "json", false, "print JSON")
-	if err := c.flags.Parse(args); err != nil {
+	if err := c.flags.Parse(c.flagsFirst(args)); err != nil {
 		return "", err
 	}
 	return strings.Join(c.flags.Args(), " "), nil
+}
+
+// flagsFirst moves flags in front of the other words, so that
+// `cmem get ID --from 700` means what `cmem get --from 700 ID` means. The
+// flag package stops at the first word that is not a flag, and an agent
+// that typed the flag last was told that no such entry exists. Everything
+// after a lone -- is left as it is.
+func (c *command) flagsFirst(args []string) []string {
+	var flags, words []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			words = append(words, args[i:]...)
+			break
+		}
+		name, _, hasValue := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+		known := c.flags.Lookup(name)
+		if !strings.HasPrefix(arg, "-") || arg == "-" || known == nil {
+			words = append(words, arg)
+			continue
+		}
+		flags = append(flags, arg)
+		if boolean, ok := known.Value.(interface{ IsBoolFlag() bool }); (!ok || !boolean.IsBoolFlag()) && !hasValue && i+1 < len(args) {
+			i++
+			flags = append(flags, args[i])
+		}
+	}
+	return append(flags, words...)
 }
 
 func (c *command) serve(args []string) error {
@@ -246,13 +301,23 @@ func (c *command) serve(args []string) error {
 
 func (c *command) recall(args []string) error {
 	var scope, kinds list
-	c.flags.Var(&scope, "scope", "keep entries with this scope tag (repeatable)")
+	c.flags.Var(&scope, "scope", "search what applies in this scope, not the session's (repeatable)")
 	c.flags.Var(&kinds, "kind", "keep entries of this kind (repeatable)")
+	everywhere := c.flags.Bool("everywhere", false, "search every repository's entries, not only what applies here")
+	long := c.flags.Bool("long", false, "show more of each entry's text")
 	asOf := c.flags.String("as-of", "", "what was current at this RFC 3339 time")
 	limit := c.flags.Int("limit", 0, "how many entries to return")
 	text, err := c.parse(args)
 	if err != nil {
 		return err
+	}
+	// A session searches what applies to it: its repository's entries and
+	// those that apply everywhere. Another repository's rules are not its
+	// business unless it asks.
+	if len(scope) == 0 && !*everywhere {
+		if dir, err := c.workingDir(); err == nil {
+			scope = c.sessionScope(dir)
+		}
 	}
 	params := url.Values{"q": {text}, "scope": scope, "kind": kinds}
 	if *asOf != "" {
@@ -261,34 +326,92 @@ func (c *command) recall(args []string) error {
 	if *limit > 0 {
 		params.Set("limit", strconv.Itoa(*limit))
 	}
-	var entries []memory.Entry
-	if err := c.call(http.MethodGet, "/v1/recall?"+params.Encode(), nil, &entries); err != nil {
-		return err
-	}
-	// Search is by shared words, so a note phrased differently from the
-	// question is missed. When nothing matches, show what memory does hold,
-	// so that a miss in wording is not mistaken for an empty memory.
-	var held server.IndexResponse
-	if len(entries) == 0 && !c.json {
-		if err := c.call(http.MethodPost, "/v1/index", server.IndexRequest{Scope: scope, Budget: missBudget}, &held); err != nil {
+	if c.json || *long {
+		var entries []memory.Entry
+		if err := c.call(http.MethodGet, "/v1/recall?"+params.Encode(), nil, &entries); err != nil {
 			return err
 		}
-	}
-	return c.print(entries, func() {
-		switch {
-		case len(entries) > 0:
+		return c.print(entries, func() {
 			for _, e := range entries {
 				printEntry(c.stdout, e)
 			}
-		case held.Total == 0:
-			fmt.Fprintln(c.stdout, "Nothing in memory matches, and memory holds no entries here.")
-		default:
-			fmt.Fprintf(c.stdout, "Nothing in memory shares words with that. Memory holds %d entries here; these are the most trusted and newest:\n", held.Total)
-			for _, e := range held.Entries {
-				fmt.Fprint(c.stdout, entryLine(e))
+			if len(entries) == 0 {
+				fmt.Fprintln(c.stdout, "Nothing in memory matches.")
 			}
+		})
+	}
+	params.Set("found", "1")
+	var found server.Found
+	if err := c.call(http.MethodGet, "/v1/recall?"+params.Encode(), nil, &found); err != nil {
+		return err
+	}
+	where := "here"
+	if *everywhere {
+		where = "anywhere"
+	}
+	if len(found.Entries) == 0 {
+		// Search is by shared words, so a note phrased differently from the
+		// question is missed. Show what memory does hold, so that a miss in
+		// wording is not mistaken for an empty memory.
+		var held server.IndexResponse
+		if err := c.call(http.MethodPost, "/v1/index", server.IndexRequest{Scope: scope, Budget: missBudget}, &held); err != nil {
+			return err
 		}
-	})
+		if held.Total == 0 {
+			fmt.Fprintf(c.stdout, "Nothing in memory matches, and memory holds no entries %s.\n", where)
+			return nil
+		}
+		fmt.Fprintf(c.stdout, "Nothing in memory shares words with that. Memory holds %d entries %s; these come first in its list:\n", held.Total, where)
+		for _, e := range held.Entries {
+			fmt.Fprint(c.stdout, entryLine(e))
+		}
+		return nil
+	}
+	if found.Weak {
+		fmt.Fprintln(c.stdout, "Nothing in memory matches that well. The nearest, which share only a few of its words:")
+	}
+	for _, e := range found.Entries {
+		printFound(c.stdout, e)
+	}
+	switch rest := found.Total - len(found.Entries); {
+	case rest > 0:
+		fmt.Fprintf(c.stdout, "%d shown, best first; %d more match less well. `cmem get ID` reads one; `cmem get --find WORDS ID` finds a passage in a long one.\n", len(found.Entries), rest)
+	default:
+		fmt.Fprintf(c.stdout, "%d shown, best first. `cmem get ID` reads one; `cmem get --find WORDS ID` finds a passage in a long one.\n", len(found.Entries))
+	}
+	return nil
+}
+
+// printFound is one search result: enough to tell whether it is the entry
+// wanted, and for a long entry, where in it the question's words are.
+func printFound(w io.Writer, e memory.Entry) {
+	fmt.Fprintln(w, entryHeading(e))
+	fmt.Fprintf(w, "    %s\n", strings.Join(strings.Fields(e.Text), " "))
+	for _, p := range e.Passages {
+		fmt.Fprintf(w, "    at character %d: …%s…\n", p.At, strings.Join(strings.Fields(p.Text), " "))
+	}
+	if e.TextLength > 0 {
+		fmt.Fprintf(w, "    (%d characters in all)\n", e.TextLength)
+	}
+}
+
+// entryHeading is the line that identifies an entry: its ID, kind, whether it
+// is unverified or disputed (nothing is said when it is neither), where it
+// applies and when it was written.
+func entryHeading(e memory.Entry) string {
+	line := e.ID + "  " + string(e.Kind)
+	if e.Status == memory.StatusUnverified {
+		line += ", unverified"
+	}
+	if e.Contradictions > 0 {
+		line += ", disputed"
+	}
+	if len(e.Scope) > 0 {
+		line += "  [" + strings.Join(e.Scope, ", ") + "]"
+	} else {
+		line += "  [everywhere]"
+	}
+	return line + "  " + e.CreatedAt.Format("2006-01-02")
 }
 
 // missBudget is how much of memory a recall that matched nothing lists.
@@ -300,6 +423,7 @@ const getPage = 8000
 
 func (c *command) get(args []string) error {
 	from := c.flags.Int("from", 0, "start this many characters into the entry's text")
+	find := c.flags.String("find", "", "show the passages of the entry that these words point at, not its whole text")
 	id, err := c.parse(args)
 	if err != nil {
 		return err
@@ -310,11 +434,29 @@ func (c *command) get(args []string) error {
 	// An entry can be very long. It is read a page at a time, and the page
 	// ends with the command for the next. --json gives the whole of it.
 	query := ""
-	if !c.json {
+	switch {
+	case *find != "":
+		query = "?find=" + url.QueryEscape(*find)
+	case !c.json:
 		query = fmt.Sprintf("?from=%d&limit=%d", max(*from, 0), getPage)
 	}
 	var entry memory.Entry
 	err = c.call(http.MethodGet, "/v1/entries/"+url.PathEscape(id)+query, nil, &entry)
+	if err == nil && *find != "" {
+		return c.print(entry, func() {
+			fmt.Fprintln(c.stdout, entryHeading(entry))
+			fmt.Fprintf(c.stdout, "    %s\n", strings.Join(strings.Fields(entry.Text), " "))
+			if len(entry.Passages) == 0 {
+				fmt.Fprintf(c.stdout, "No passage of this entry has those words. `cmem get %s` reads it from the start.\n", entry.ID)
+			}
+			for _, p := range entry.Passages {
+				fmt.Fprintf(c.stdout, "\nat character %d:\n    …%s…\n", p.At, strings.Join(strings.Fields(p.Text), " "))
+			}
+			if len(entry.Passages) > 0 {
+				fmt.Fprintf(c.stdout, "\nTo read on from a passage: `cmem get --from CHARACTER %s`.\n", entry.ID)
+			}
+		})
+	}
 	if err == nil {
 		return c.print(entry, func() { printEntry(c.stdout, entry) })
 	}
@@ -374,8 +516,9 @@ func (c *command) note(args []string) error {
 			fmt.Fprint(c.stdout, entryLine(e))
 		}
 		fmt.Fprintln(c.stdout, "If your note corrects or updates one of these, run the same command again with "+
-			"--replaces ID. The old entry stays in history and yours becomes the current one.\n"+
-			"If it is a different thing, run the same command again with --separate.")
+			"--replaces ID. The old entry stays in history, yours becomes the current one, and it keeps the old one's "+
+			"scope.\nIf it says a different thing, or adds a rule to one of these without replacing it, run the "+
+			"same command again with --separate.\n`cmem get ID` shows an entry in full.")
 		return errors.New("not recorded: say --replaces ID or --separate")
 	case isStatus(err, http.StatusConflict) && strings.Contains(err.Error(), "cannot replace a trusted entry"):
 		return fmt.Errorf("%w. Entry %s rests on what a person said or a verified task showed, and this note on "+
@@ -668,7 +811,11 @@ func entryLine(e memory.Entry) string {
 	opening, _, _ := strings.Cut(strings.TrimSpace(e.Text), "\n\n")
 	text := strings.Join(strings.Fields(opening), " ")
 	if runes := []rune(text); len(runes) > memory.IndexLineLimit {
-		text = string(runes[:memory.IndexLineLimit]) + "…"
+		text = string(runes[:memory.IndexLineLimit])
+		if cut := strings.LastIndex(text, " "); cut > memory.IndexLineLimit/2 {
+			text = text[:cut]
+		}
+		text = strings.TrimRight(text, " ,;:(") + " …"
 	}
 	mark := ""
 	if e.Status == memory.StatusUnverified {
@@ -817,18 +964,21 @@ func (c *command) call(method, path string, in, out any) error {
 }
 
 func printEntry(w io.Writer, e memory.Entry) {
-	fmt.Fprintf(w, "%s  %s  %s", e.ID, e.Kind, e.Status)
-	if len(e.Scope) > 0 {
-		fmt.Fprintf(w, "  [%s]", strings.Join(e.Scope, ", "))
-	}
-	fmt.Fprintf(w, "\n    %s\n", e.Text)
+	fmt.Fprintln(w, entryHeading(e))
+	fmt.Fprintf(w, "    %s\n", e.Text)
 
+	// Where it came from, in words that say how far to trust it. A note's
+	// own evidence is an episode too, but calling it "unverified" beside
+	// "told by Alex" read as if the entry were in doubt.
 	sources := make([]string, len(e.Sources))
 	for i, src := range e.Sources {
-		if src.Human != "" {
+		switch {
+		case src.Human != "":
 			sources[i] = "told by " + src.Human
-		} else {
+		case src.Outcome == memory.OutcomePassed || src.Outcome == memory.OutcomeFailed:
 			sources[i] = fmt.Sprintf("episode %s (%s)", src.EpisodeID, src.Outcome)
+		default:
+			sources[i] = fmt.Sprintf("what an agent saw (episode %s)", src.EpisodeID)
 		}
 	}
 	fmt.Fprintf(w, "    sources: %s\n", strings.Join(sources, "; "))

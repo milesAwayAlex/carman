@@ -93,11 +93,19 @@ func TestM8_EveryMemoryOperationIsReachableFromTheCLI(t *testing.T) {
 		t.Errorf("noted = %+v", noted)
 	}
 
-	// The laptop recalls it, with its ID, status and source.
+	// The laptop recalls it: what it is, that nothing has checked it, and
+	// where it applies. Reading the entry says where it came from.
 	out = laptop.ok("", "recall", "--scope", "repo:api", "what", "should", "I", "do", "before", "deploying?")
-	expectContains(t, out, noted.ID, "pitfall", "unverified", "[repo:api]",
-		"Run the migration job before deploying the api.",
-		"episode "+noted.Sources[0].EpisodeID+" (unverified)")
+	expectContains(t, out, noted.ID, "pitfall, unverified", "[repo:api]", "Run the migration job before deploying the api.", "1 shown")
+	expectContains(t, laptop.ok("", "get", noted.ID), "what an agent saw (episode "+noted.Sources[0].EpisodeID+")")
+	// A session searches what applies to it. This one is not in repo:api, so
+	// it finds the note only by asking for everywhere.
+	if got := laptop.ok("", "recall", "before", "deploying", "the", "api"); strings.Contains(got, noted.ID) {
+		t.Errorf("a session in another repository found repo:api's note without asking:\n%s", got)
+	}
+	expectContains(t, laptop.ok("", "recall", "--everywhere", "before", "deploying", "the", "api"), noted.ID)
+	// Flags may follow the words they go with.
+	expectContains(t, laptop.ok("", "recall", "before", "deploying", "the", "api", "--scope", "repo:api"), noted.ID)
 
 	// get shows an entry, and the episode behind it.
 	expectContains(t, laptop.ok("", "get", noted.ID), noted.ID, "Run the migration job")
@@ -122,8 +130,11 @@ func TestM8_EveryMemoryOperationIsReachableFromTheCLI(t *testing.T) {
 	expectContains(t, dreamer.ok("", "consolidate", "entries"), "1 current entries", noted.ID)
 	out = dreamer.ok("", "supersede", noted.ID, "--run", run.ID, "--kind", "procedure", "--scope", "repo:api", "--source", episode.ID,
 		"Deploy the api by running the migration job, then the rollout.")
-	expectContains(t, out, "procedure", "active", "episode "+episode.ID+" (passed)")
-	out = laptop.ok("", "recall", "deploying", "the", "api")
+	expectContains(t, out, "procedure  [repo:api]", "episode "+episode.ID+" (passed)")
+	if strings.Contains(out, "unverified") {
+		t.Errorf("an entry resting on a passed task is shown as unverified:\n%s", out)
+	}
+	out = laptop.ok("", "recall", "--everywhere", "deploying", "the", "api")
 	expectContains(t, out, "Deploy the api by running the migration job, then the rollout.")
 	if strings.Contains(out, noted.Text) {
 		t.Errorf("recall still returns the superseded note:\n%s", out)
@@ -171,10 +182,10 @@ func TestM8_EveryMemoryOperationIsReachableFromTheCLI(t *testing.T) {
 	second := dreamer.ok("", "consolidate", "start", "Do", "it", "again.")
 	out = dreamer.ok("", "supersede", noted.ID, "--run", strings.Fields(second)[1], "--kind", "procedure", "--scope", "repo:api", "--from", noted.ID, "--source", episode.ID,
 		"Deploy the api by running the migration job, then the rollout.")
-	expectContains(t, out, "active", "replaces "+noted.ID)
+	expectContains(t, out, "procedure  [repo:api]", "replaces "+noted.ID)
 
 	// A question that shares no words with any note still shows what memory holds.
-	expectContains(t, laptop.ok("", "recall", "kubernetes", "ingress"),
+	expectContains(t, laptop.ok("", "recall", "--everywhere", "kubernetes", "ingress"),
 		"Nothing in memory shares words with that", "Deploy the api by running the migration job", "Deploys are frozen on Thursdays")
 }
 
@@ -444,8 +455,11 @@ func TestImportCopiesAClaudeCodeMemoryDirectoryOnce(t *testing.T) {
 		t.Errorf("the refusal repeats the secret:\n%s", out)
 	}
 	// The header is left out, the text is whole, and it is recorded as told by the person.
-	out = laptop.ok("", "recall", "kubectl", "context")
-	expectContains(t, out, "preference  active  [repo:infra]", "always pass --context devvm", "**Why:** The default context", "told by alex")
+	out = laptop.ok("", "recall", "--scope", "repo:infra", "kubectl", "context")
+	expectContains(t, out, "preference  [repo:infra]", "kubectl must name the local context")
+	imported := strings.Fields(out)[0]
+	out = laptop.ok("", "get", imported)
+	expectContains(t, out, "always pass --context devvm", "**Why:** The default context", "told by alex")
 	if strings.Contains(out, "name: local-context") {
 		t.Errorf("the header was imported as text:\n%s", out)
 	}
@@ -673,7 +687,20 @@ func TestALongEntryIsReadAPageAtATime(t *testing.T) {
 			t.Errorf("%s printed %d characters for an entry of %d", name, len(out), len(full))
 		}
 	}
-	expectContains(t, laptop.ok("", "recall", "cache", "migration"), "`cmem get "+long.ID+" --from 700` continues")
+	// A search result says how long the entry is, and how to read it.
+	expectContains(t, laptop.ok("", "recall", "cache", "migration"), long.ID, "characters in all", "cmem get --find WORDS ID")
+	// Looking for words inside it shows where they are, not the whole text.
+	deep := laptop.ok("", "note", "--kind", "fact", "--human", "alex", "--separate",
+		"Rollout notes.\n\n"+strings.Repeat("Nothing of interest happened on this day of the rollout. ", 300)+
+			"The quota ceiling for the eu region is 4,200 vCPU and was raised by ticket. "+
+			strings.Repeat("Nothing of interest happened on this day either. ", 300))
+	deepID := strings.Fields(deep)[1]
+	found := laptop.ok("", "get", "--find", "quota ceiling eu region", deepID)
+	if expectContains(t, found, "at character", "4,200 vCPU", "cmem get --from CHARACTER "+deepID); len(found) > 4000 {
+		t.Errorf("find printed %d characters", len(found))
+	}
+	expectContains(t, laptop.ok("", "recall", "quota", "ceiling", "eu", "region"), deepID, "at character", "4,200 vCPU")
+	expectContains(t, laptop.ok("", "get", deepID, "--find", "unicorns"), "No passage of this entry has those words")
 
 	// get reads it a page at a time, each page naming the next, and the pages make the whole.
 	var read strings.Builder
@@ -814,7 +841,7 @@ func TestTheBinaryRelaysItsCommandToTheService(t *testing.T) {
 	// with its own copy of the logic, and nothing is lost on the way.
 	old := httptest.NewServer(api)
 	defer old.Close()
-	legacy := shell{t, map[string]string{"CMEM_URL": old.URL, "CMEM_TOKEN": "l"}}
+	legacy := shell{t, map[string]string{"CMEM_URL": old.URL, "CMEM_TOKEN": "l", "CMEM_DIR": dir}}
 	expectContains(t, legacy.ok("", "recall", "alpha", "port"), "listens on port 9100")
 	var episode memory.Episode
 	if err := json.Unmarshal([]byte(legacy.ok("Finished the alpha task.\n", "record", "--json", "--outcome", "passed")), &episode); err != nil || episode.Body != "Finished the alpha task." {

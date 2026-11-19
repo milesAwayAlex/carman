@@ -62,6 +62,7 @@ type document struct {
 	stems  map[string]int
 	length int            // number of stemmed words
 	head   map[string]int // the stems of the entry's opening; see headLength
+	title  map[string]int // the stems of its first paragraph, which says what it is
 }
 
 // headLength is how much of an entry counts when judging whether it is about
@@ -80,6 +81,13 @@ func newDocument(text string) document {
 	d.head = d.stems
 	if runes := []rune(text); len(runes) > headLength {
 		d.head = stems(string(runes[:headLength]))
+	}
+	d.title = d.head
+	if first, _, cut := strings.Cut(strings.TrimSpace(text), "\n\n"); cut {
+		if runes := []rune(first); len(runes) > headLength {
+			first = string(runes[:headLength])
+		}
+		d.title = stems(first)
 	}
 	return d
 }
@@ -123,6 +131,27 @@ func (c *corpus) score(id string, query map[string]int) float64 {
 		total += idf * tf * (k1 + 1) / (tf + k1*(1-b+b*float64(d.length)/math.Max(average, 1)))
 	}
 	return total
+}
+
+// rank is score with two additions for search: a stem found in the entry's
+// first paragraph counts again, weighted by how rare it is, and the number of
+// distinct query stems the entry contains is reported. The first paragraph
+// says what an entry is; a long body mentions many things in passing, and
+// without this an unrelated document outranked the one that was asked for.
+func (c *corpus) rank(id string, query map[string]int) (score float64, matched int) {
+	score = c.score(id, query)
+	d := c.documents[id]
+	n := float64(len(c.documents))
+	for stem := range query {
+		if d.stems[stem] > 0 {
+			matched++
+		}
+		if d.title[stem] > 0 {
+			df := float64(c.frequency[stem])
+			score += 1.5 * math.Log(1+(n-df+0.5)/(df+0.5))
+		}
+	}
+	return score, matched
 }
 
 // overlap measures how closely a document and a query are about the same

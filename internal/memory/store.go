@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -155,6 +156,9 @@ type Entry struct {
 	Status         Status     `json:"status"`
 	Contradictions int        `json:"contradictions"`
 	Flags          []Flag     `json:"flags,omitempty"`
+	// Passages are the parts of the text a search or a `find` matched, when
+	// the caller asked for them.
+	Passages []Passage `json:"passages,omitempty"`
 	// TextLength is the length of the whole text, in characters, when Text
 	// holds only part of it; zero when Text is whole.
 	TextLength int `json:"text_length,omitempty"`
@@ -175,7 +179,10 @@ func (e Entry) Part(from, limit int) Entry {
 	e.TextLength = len(runes)
 	e.Text = string(runes[from:end])
 	if end < len(runes) {
-		e.Text += fmt.Sprintf("\n… [characters %d to %d of %d; `cmem get %s --from %d` continues]", from+1, end, len(runes), e.ID, end)
+		// Nothing here that a binary from before the relay could not do: it
+		// prints this line as it is.
+		e.Text += fmt.Sprintf("\n… [characters %d to %d of %d; read on from character %d with `cmem get --from %d %s`]",
+			from+1, end, len(runes), end, end, e.ID)
 	}
 	return e
 }
@@ -534,7 +541,7 @@ func (s *Store) entryNote(e NewEntry, supersedes string, with ...note) (note, er
 	}
 	// A text that ends in the line Part adds was copied from a list or a
 	// search result, and is only the beginning of an entry.
-	if strings.Contains(e.Text, "\n… [characters ") && strings.Contains(e.Text, "` continues]") {
+	if strings.Contains(e.Text, "\n… [characters ") && strings.Contains(e.Text, "; read on from character ") {
 		return note{}, fmt.Errorf("%w: this text is part of an entry, cut where a list showed it; read the whole with cmem get first", ErrInvalid)
 	}
 	fields := append([]string{e.Text}, e.Scope...)
@@ -715,7 +722,13 @@ func (s *Store) similar(text string, scope []string) []Entry {
 		if !s.current(e, time.Time{}) || !applies(e, scope) {
 			continue
 		}
-		if matched, share := s.corpus.overlap(id, query); closeEnough(matched, share) {
+		// Close both ways. A short note whose few words all occur in a long
+		// entry's opening is covered by it and still says something else: seen
+		// in use, a one-line rule about formatting was held as close to a
+		// page about how pull requests merge.
+		matched, share := s.corpus.overlap(id, query)
+		longer := max(len(query), len(s.corpus.documents[id].head))
+		if closeEnough(matched, share) && float64(matched) >= 0.25*float64(longer) {
 			hits = append(hits, hit{e, share})
 		}
 	}
@@ -1086,27 +1099,41 @@ func (s *Store) CurrentEntries(asOf time.Time) []Entry {
 // matches when it shares any word stem with the query; ranking (see search.go)
 // then rewards entries that share more of them.
 func (s *Store) Recall(q RecallQuery) []Entry {
+	entries, _, _ := s.Search(q)
+	return entries
+}
+
+// Search is Recall with an account of how the search went: how many entries
+// matched at all, and whether even the best of them is a poor match, so that
+// a caller can say "nothing in memory is about that" where that is the truth.
+//
+// A scope keeps the entries that apply in it: its own, and those with no
+// scope, which apply everywhere. Matches in an entry's opening count for
+// more than matches in its body, because the opening says what the entry is
+// about and a long body mentions many things in passing. Entries that match
+// far less well than the best one are left out.
+func (s *Store) Search(q RecallQuery) (entries []Entry, total int, weak bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	query := stems(q.Text)
 	type hit struct {
-		entry Entry
-		score float64
+		entry   Entry
+		score   float64
+		matched int
 	}
 	var hits []hit
 	for id, e := range s.entries {
-		if !s.current(e, q.AsOf) ||
-			(len(q.Scope) > 0 && !overlaps(e.Scope, q.Scope)) ||
+		if !s.current(e, q.AsOf) || !applies(e, q.Scope) ||
 			(len(q.Kinds) > 0 && !slices.Contains(q.Kinds, e.Kind)) {
 			continue
 		}
-		score := 0.0
+		score, matched := 0.0, 0
 		if len(query) > 0 {
-			if score = s.corpus.score(id, query); score == 0 {
+			if score, matched = s.corpus.rank(id, query); score == 0 {
 				continue
 			}
 		}
-		hits = append(hits, hit{e, score})
+		hits = append(hits, hit{e, score, matched})
 	}
 	slices.SortFunc(hits, func(a, b hit) int {
 		if a.score != b.score {
@@ -1117,13 +1144,101 @@ func (s *Store) Recall(q RecallQuery) []Entry {
 		}
 		return newestFirst(a.entry, b.entry)
 	})
+	total = len(hits)
 	limit := q.Limit
 	if limit <= 0 {
 		limit = DefaultRecallLimit
 	}
-	out := []Entry{}
-	for _, h := range hits[:min(limit, len(hits))] {
-		out = append(out, s.view(h.entry))
+	entries = []Entry{}
+	for i, h := range hits {
+		if i >= limit || (len(query) > 0 && h.score < recallFloor*hits[0].score) {
+			break
+		}
+		entries = append(entries, s.view(h.entry))
+	}
+	// A best match that shares under half of the question's words is more
+	// likely a coincidence of vocabulary than an answer.
+	weak = len(hits) > 0 && len(query) >= 2 && 2*hits[0].matched < len(query)
+	return entries, total, weak
+}
+
+// recallFloor is how well, against the best match, an entry must match to be
+// returned with it.
+const recallFloor = 0.35
+
+// Passage is a stretch of an entry's text, and where in the text it starts.
+type Passage struct {
+	At   int    `json:"at"` // characters from the start of the text
+	Text string `json:"text"`
+}
+
+// Passages finds the stretches of a text that share the most words with a
+// question: where in a long entry the thing asked about is. They come best
+// first and do not overlap.
+func Passages(text, question string, count, width int) []Passage {
+	query := stems(question)
+	runes := []rune(text)
+	if len(query) == 0 || len(runes) == 0 {
+		return nil
+	}
+	type window struct {
+		at    int
+		found map[string]int
+		score float64
+	}
+	var windows []window
+	in := map[string]int{} // how many windows each of the question's stems occurs in
+	step := max(width/2, 1)
+	for at := 0; at < len(runes); at += step {
+		end := min(at+width, len(runes))
+		found := map[string]int{}
+		for stem, n := range stems(string(runes[at:end])) {
+			if query[stem] > 0 {
+				found[stem] = n
+				in[stem]++
+			}
+		}
+		if len(found) > 0 {
+			windows = append(windows, window{at: at, found: found})
+		}
+		if end == len(runes) {
+			break
+		}
+	}
+	// A word of the question that the text uses everywhere says little about
+	// where to look; one it uses in a single place says exactly where.
+	for i, w := range windows {
+		for stem, n := range w.found {
+			rarity := math.Log(1 + float64(len(windows))/float64(in[stem]))
+			windows[i].score += rarity * (1 + 0.25*float64(min(n, 4)-1))
+		}
+	}
+	slices.SortStableFunc(windows, func(a, b window) int {
+		switch {
+		case a.score > b.score:
+			return -1
+		case a.score < b.score:
+			return 1
+		}
+		return 0
+	})
+	var out []Passage
+	for _, w := range windows {
+		if len(out) == count {
+			break
+		}
+		if slices.ContainsFunc(out, func(p Passage) bool { return w.at < p.At+width && p.At < w.at+width }) {
+			continue
+		}
+		// Start and end on whole words.
+		at, end := w.at, min(w.at+width, len(runes))
+		for at > 0 && at < end && runes[at-1] != ' ' && runes[at-1] != '\n' {
+			at++
+		}
+		for end < len(runes) && end > at && runes[end-1] != ' ' && runes[end-1] != '\n' {
+			end--
+		}
+		out = append(out, Passage{At: at, Text: strings.TrimSpace(string(runes[at:end]))})
 	}
 	return out
 }

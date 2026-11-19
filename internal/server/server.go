@@ -272,6 +272,23 @@ func (s *Server) getEntry(r *http.Request, _ Role) (any, error) {
 		return nil, err
 	}
 	params := r.URL.Query()
+	if words := params.Get("find"); words != "" {
+		// Not the text, but the places in it that the words point at.
+		// The opening is shown anyway; passages are from what follows it.
+		var passages []memory.Passage
+		for _, p := range memory.Passages(entry.Text, words, 5, 2*passageText) {
+			if p.At >= openingText/2 && len(passages) < 4 {
+				passages = append(passages, p)
+			}
+		}
+		entry = entry.Part(0, openingText)
+		entry.Text, _, _ = strings.Cut(entry.Text, "\n… [characters ")
+		entry.Passages = passages
+		if entry.Passages == nil {
+			entry.Passages = []memory.Passage{}
+		}
+		return entry, nil
+	}
 	if params.Get("limit") == "" {
 		return entry, nil
 	}
@@ -350,8 +367,47 @@ func (s *Server) recall(r *http.Request, _ Role) (any, error) {
 		}
 		q.Limit = limit
 	}
-	return parts(s.store.Recall(q), foundText), nil
+	// The plain answer, a list of entries, is what clients have always had.
+	// With found=1 the answer also says how the search went, and each entry
+	// carries its opening and the passage that matched rather than as much
+	// text as fits: enough to pick the entry, which is then read with get.
+	if params.Get("found") == "" {
+		return parts(s.store.Recall(q), foundText), nil
+	}
+	entries, total, weak := s.store.Search(q)
+	found := Found{Entries: make([]memory.Entry, len(entries)), Total: total, Weak: weak}
+	for i, e := range entries {
+		opening, rest, _ := strings.Cut(strings.TrimSpace(e.Text), "\n\n")
+		length := len([]rune(e.Text))
+		if len([]rune(opening)) > openingText {
+			opening = string([]rune(opening)[:openingText])
+		}
+		if strings.TrimSpace(rest) != "" || len([]rune(opening)) < length {
+			e.TextLength = length
+			// Where in the rest of it the question's words are.
+			for _, p := range memory.Passages(e.Text, q.Text, 1, passageText) {
+				if p.At > len([]rune(opening)) {
+					e.Passages = append(e.Passages, p)
+				}
+			}
+		}
+		e.Text = opening
+		found.Entries[i] = e
+	}
+	return found, nil
 }
+
+// Found is the answer to a recall made with found=1.
+type Found struct {
+	Entries []memory.Entry `json:"entries"`
+	Total   int            `json:"total"` // how many entries matched at all
+	Weak    bool           `json:"weak"`  // even the best match shares few of the question's words
+}
+
+const (
+	openingText = 400 // how much of an entry's first paragraph a search result shows
+	passageText = 320 // how long a matched passage is
+)
 
 // IndexRequest is the body of POST /v1/index: the list for a session's start.
 type IndexRequest struct {

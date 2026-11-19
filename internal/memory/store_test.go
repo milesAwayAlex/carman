@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -373,7 +374,7 @@ func TestALongEntryIsJudgedByItsOpeningAndShownInPart(t *testing.T) {
 	// In part: the opening, and a line saying how to go on.
 	part := long.Part(0, 300)
 	if part.TextLength != len([]rune(long.Text)) || !strings.HasPrefix(part.Text, "Cache migration plan") ||
-		!strings.Contains(part.Text, "`cmem get "+long.ID+" --from 300` continues") || len(part.Text) > 500 {
+		!strings.Contains(part.Text, "read on from character 300 with `cmem get --from 300 "+long.ID+"`") || len(part.Text) > 600 {
 		t.Errorf("part of a long entry = %d characters, length reported %d:\n%.400s", len(part.Text), part.TextLength, part.Text)
 	}
 	// Reading on from there reaches the end, and the pieces make the whole.
@@ -679,6 +680,16 @@ func TestANoteCloseToAnExistingEntryIsHeldUntilTheCallerSaysWhich(t *testing.T) 
 		if got := s.CurrentEntries(time.Time{}); len(got) != 2 {
 			t.Errorf("%s: after a separate note, current = %q", c.name, texts(got))
 		}
+	}
+
+	// Close has to hold both ways. A one-line rule whose few words all occur
+	// in the opening of a page about something else is not a version of it.
+	page := newStore(t)
+	if _, err := page.Remember(told("How pull requests merge in this repository: the bot labels a change, the format check runs before every commit is accepted, and tofu plans are attached to the pull request by the pipeline once the labels are in place and the reviewers have signed off on the change.")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := page.Remember(told("Run tofu fmt before every commit.")); err != nil {
+		t.Errorf("a short rule was held as close to a page that happens to contain its words: %v", err)
 	}
 
 	// A lesson about something else is stored without a question, and so is a
@@ -1187,6 +1198,82 @@ func TestM5_FlashbackVolunteersOnlyCloseMatchesAndNeverRepeats(t *testing.T) {
 // session 19 entries were brought up before shell commands, matched on the
 // words of scripts and the parts of file names, and almost none bore on the
 // command being run.
+// What agents asked to use the memory ran into, searching a library of real
+// documents: an unrelated long entry ranked first, ten results came back for
+// every question whether or not anything matched, and the entries of another
+// repository were among them.
+func TestM5_SearchReturnsWhatAppliesAndSaysHowWellItMatched(t *testing.T) {
+	s := newStore(t)
+	add := func(scope, text string) Entry {
+		t.Helper()
+		e, err := s.Remember(NewNote{Separate: true, Entry: NewEntry{CreatedBy: AuthorAgent, Kind: KindFact, Text: text, Scope: strings.Fields(scope), Sources: []Source{{Human: "alex"}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	body := strings.Repeat("The weekly notes mention the spot plan, a commitment, a constraint or two, node pools and prices in passing. ", 60)
+	plan := add("repo:infra", "Spot plan for the quarter: the baseline, the commitment constraint, and the waves.\n\nThe commitment is fully used every day, so on-demand should sit on that line.")
+	add("repo:infra", "Tenant isolation review, with weekly notes.\n\n"+body)
+	add("", "Prefer small commits with one logical change each.")
+	elsewhere := add("repo:billing", "Spot plan notes for billing: the commitment constraint does not apply to invoices.")
+	for i := 0; i < 12; i++ {
+		add("repo:infra", fmt.Sprintf("Service %d restarts cleanly after a node pool upgrade when its readiness probe is patient.", i))
+	}
+
+	// The entry whose opening is about the question comes before a long one
+	// that mentions the same words somewhere in its body.
+	here := []string{"repo:infra"}
+	found, total, weak := s.Search(RecallQuery{Text: "spot plan commitment constraint", Scope: here})
+	if len(found) == 0 || found[0].ID != plan.ID || weak {
+		t.Fatalf("searching for the spot plan: first is %q, weak %v", texts(found)[:1], weak)
+	}
+	// Results that match far less well than the best are not padded in.
+	if len(found) > 3 || total < len(found) {
+		t.Errorf("%d results for a question with one good answer (of %d matching at all): %q", len(found), total, texts(found))
+	}
+	// A scope keeps what applies there: its own entries and the ones that apply everywhere.
+	for _, e := range found {
+		if e.ID == elsewhere.ID {
+			t.Errorf("a search in repo:infra returned repo:billing's entry")
+		}
+	}
+	if got, _, _ := s.Search(RecallQuery{Text: "small commits", Scope: here}); len(got) == 0 || !strings.HasPrefix(got[0].Text, "Prefer small commits") {
+		t.Errorf("a search in repo:infra did not find the entry that applies everywhere: %q", texts(got))
+	}
+	if got, _, _ := s.Search(RecallQuery{Text: "spot plan commitment constraint"}); !slices.ContainsFunc(got, func(e Entry) bool { return e.ID == elsewhere.ID }) {
+		t.Errorf("a search with no scope did not reach repo:billing: %q", texts(got))
+	}
+	// A question nothing is about still returns the nearest, and says they are weak.
+	if got, _, weak := s.Search(RecallQuery{Text: "preferred answer length for short replies with node details", Scope: here}); len(got) == 0 || !weak {
+		t.Errorf("a question nothing is about: %d results, weak %v", len(got), weak)
+	}
+	if got, total, _ := s.Search(RecallQuery{Text: "kangaroo marsupial", Scope: here}); len(got) != 0 || total != 0 {
+		t.Errorf("a question sharing no words with anything returned %q", texts(got))
+	}
+}
+
+// Where in a long entry is the thing asked about?
+func TestPassagesFindsThePlaceInALongText(t *testing.T) {
+	filler := strings.Repeat("The plan was discussed again and nothing about the plan changed that week. ", 120)
+	text := "Capacity plan.\n\n" + filler + "The quota ceiling for the eu region is 4,200 vCPU, raised by ticket in March. " + filler +
+		"The plan for the us region has no ceiling. " + filler
+	got := Passages(text, "what is the quota ceiling in the eu region plan", 2, 300)
+	if len(got) == 0 || !strings.Contains(got[0].Text, "4,200 vCPU") {
+		t.Fatalf("the best passage is %+v", got)
+	}
+	// It says where, so that reading can go on from there.
+	if at := strings.Index(text, "The quota ceiling"); got[0].At > at || got[0].At < at-300 {
+		t.Errorf("the passage is reported at character %d; the sentence is at %d", got[0].At, at)
+	}
+	if len(got) == 2 && got[1].At < got[0].At+300 && got[0].At < got[1].At+300 {
+		t.Errorf("two passages overlap: %d and %d", got[0].At, got[1].At)
+	}
+	if got := Passages(text, "kangaroo", 2, 300); len(got) != 0 {
+		t.Errorf("a word the text does not have found %+v", got)
+	}
+}
+
 func TestM5_EachKindOfMomentHasItsOwnFlashbackPolicy(t *testing.T) {
 	s := newStore(t)
 	add := func(kind Kind, text string) Entry {

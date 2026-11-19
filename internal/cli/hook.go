@@ -234,7 +234,8 @@ func indexParts(resp server.IndexResponse, scope []string, parts, limit int, hel
 	case resp.Total == 0:
 		head = fmt.Sprintf("Long-term memory (cmem) has no entries%s yet.\n", about)
 	case count < resp.Total:
-		head = fmt.Sprintf("Long-term memory (cmem): %d of %d entries%s. The rest are not shown here; search them with `cmem recall`.\n", count, resp.Total, about)
+		head = fmt.Sprintf("Long-term memory (cmem): %d of %d entries%s. How to work here and what to avoid come first; "+
+			"documents and older entries are not shown, and `cmem recall WORDS` finds them.\n", count, resp.Total, about)
 	case resp.Total == 1:
 		head = fmt.Sprintf("Long-term memory (cmem): 1 entry%s.\n", about)
 	default:
