@@ -88,8 +88,10 @@ func (c *command) claudeCodeHook(raw []byte) {
 	case "SessionStart":
 		// A resumed session still has the index in its transcript. Adding it
 		// again on every resume would bloat the context, most of all under a
-		// harness that resumes the session for each turn.
-		if in.Source == "resume" {
+		// harness that resumes the session for each turn. The exception is a
+		// session that never had one: begun before the hook was installed, or
+		// while the service was down. It gets the index when it is resumed.
+		if in.Source == "resume" && c.sessionHasSeenMemory(in.SessionID, scope) {
 			return
 		}
 		// Claude Code keeps at most 10,000 characters of what one hook adds;
@@ -247,6 +249,19 @@ func indexParts(resp server.IndexResponse, scope []string, parts, limit int, hel
 		}
 	}
 	return texts, shown
+}
+
+// sessionHasSeenMemory reports whether this session has been shown any entry
+// that applies to it. When the service cannot say, the answer is yes: better
+// to add nothing than to add the index twice.
+func (c *command) sessionHasSeenMemory(session string, scope []string) bool {
+	var all server.IndexResponse
+	var unseen []memory.Entry
+	if c.call(http.MethodPost, "/v1/index", server.IndexRequest{Scope: scope, Budget: 1}, &all) != nil ||
+		c.call(http.MethodPost, "/v1/brief", server.BriefRequest{SessionID: session, Scope: scope}, &unseen) != nil {
+		return true
+	}
+	return len(unseen) < all.Total
 }
 
 const briefLimit = 5

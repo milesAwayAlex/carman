@@ -245,9 +245,16 @@ func (s *Server) getEpisode(r *http.Request, _ Role) (any, error) {
 // whole text is always available from GET /v1/entries/{id}.
 const (
 	listedText = 300  // in the index, a flashback, a brief, or a close-entry answer: one line is shown
-	foundText  = 2000 // in a recall result, or after a flag
+	foundText  = 700  // in a recall result, or after a flag: enough to tell whether it is the one wanted
 	browseText = 600  // in the list of every current entry
+	pageText   = 8000 // the most one request for part of an entry returns
 )
+
+// Why these are small. An agent's harness keeps only so much of a command's
+// output in the conversation (Claude Code: about 30,000 characters) and puts
+// the rest in a file, which the agent then has to go and read. Seen in use:
+// two `cmem get` and a recall in one command came to 49,500 characters. A
+// search is for finding the entry; reading it is a separate, paged step.
 
 func parts(entries []memory.Entry, limit int) []memory.Entry {
 	out := make([]memory.Entry, len(entries))
@@ -273,7 +280,7 @@ func (s *Server) getEntry(r *http.Request, _ Role) (any, error) {
 	if err != nil || limit < 1 || from < 0 {
 		return nil, fmt.Errorf("%w: from and limit count characters and cannot be negative", errBadRequest)
 	}
-	return entry.Part(from, limit), nil
+	return entry.Part(from, min(limit, pageText)), nil
 }
 
 // NoteRequest is the body of POST /v1/notes. A note needs evidence (what the

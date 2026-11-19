@@ -219,6 +219,13 @@ func TestM5_TheClaudeCodeHookVolunteersMemoryAtTheMomentsThatMatter(t *testing.T
 	if strings.Contains(index, "Invoices") {
 		t.Errorf("the index for repo:infra includes an entry from another repository:\n%s", index)
 	}
+	// A session resumed without ever having had the index (it began before
+	// the hook was installed) gets it then, once.
+	late := map[string]any{"hook_event_name": "SessionStart", "session_id": "s-late", "source": "resume"}
+	expectContains(t, hookContext(t, laptop, late), "2 entries for repo:infra", lesson)
+	if again := hookContext(t, laptop, late); again != "" {
+		t.Errorf("the index was added a second time to a resumed session:\n%s", again)
+	}
 	// A resumed session already has the index; it is not added a second time.
 	if again := hookContext(t, laptop, map[string]any{"hook_event_name": "SessionStart", "session_id": "s1", "source": "resume"}); again != "" {
 		t.Errorf("the index was added again on resume:\n%s", again)
@@ -659,7 +666,7 @@ func TestALongEntryIsReadAPageAtATime(t *testing.T) {
 			t.Errorf("%s printed %d characters for an entry of %d", name, len(out), len(full))
 		}
 	}
-	expectContains(t, laptop.ok("", "recall", "cache", "migration"), "`cmem get "+long.ID+" --from 2000` continues")
+	expectContains(t, laptop.ok("", "recall", "cache", "migration"), "`cmem get "+long.ID+" --from 700` continues")
 
 	// get reads it a page at a time, each page naming the next, and the pages make the whole.
 	var read strings.Builder
@@ -669,12 +676,12 @@ func TestALongEntryIsReadAPageAtATime(t *testing.T) {
 		text = text[:strings.Index(text, "\n    sources:")]
 		if i := strings.Index(text, "\n… [characters "); i >= 0 {
 			text = text[:i]
-		} else if from+20000 < len(full) {
+		} else if from+8000 < len(full) {
 			t.Fatalf("page from %d does not say how to continue", from)
 		}
 		read.WriteString(text)
-		from += 20000
-		if pages > 10 {
+		from += 8000
+		if pages > 20 {
 			t.Fatal("get never reached the end")
 		}
 	}

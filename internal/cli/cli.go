@@ -272,8 +272,9 @@ func (c *command) recall(args []string) error {
 // missBudget is how much of memory a recall that matched nothing lists.
 const missBudget = 2000
 
-// getPage is how many characters of an entry one `cmem get` prints.
-const getPage = 20000
+// getPage is how many characters of an entry one `cmem get` asks for. The
+// service may give fewer; the page says where the next one starts.
+const getPage = 8000
 
 func (c *command) get(args []string) error {
 	from := c.flags.Int("from", 0, "start this many characters into the entry's text")
