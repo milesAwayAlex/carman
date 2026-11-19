@@ -6,6 +6,9 @@
 #   scripts/deploy.sh CONTEXT status    what is running, and whether it answers
 #   scripts/deploy.sh CONTEXT env       write the laptop's settings to .local/cmem.env
 #                                       and the consolidation role's to .local/cmem-dreamer.env
+#   scripts/deploy.sh CONTEXT token ROLE | ...
+#                                       write one role's token to a pipe, for handing to a
+#                                       password manager; refuses to write it to a terminal
 #
 # What is applied is an overlay under deploy/k8s; `local` unless CARMAN_OVERLAY
 # names another. CMEM_URL is where this machine reaches the service, and is
@@ -108,7 +111,13 @@ env)
     printf 'export CMEM_URL=%s\nexport CMEM_DREAMER_TOKEN=%s\n' "$url" "$(secret dreamer)" > .local/cmem-dreamer.env
     echo "wrote .local/cmem.env (the laptop role) and .local/cmem-dreamer.env (the consolidation role)"
     ;;
+token)
+    role="${3:-}"
+    case "$role" in laptop | worker | dreamer) ;; *) die "name the role: laptop, worker or dreamer" ;; esac
+    [ ! -t 1 ] || die "this prints a credential; pipe it to the program that stores it"
+    secret "$role"
+    ;;
 *)
-    die "unknown action $action; say deploy, status or env"
+    die "unknown action $action; say deploy, status, env or token"
     ;;
 esac

@@ -11,8 +11,9 @@
       # carman is several components, of which the memory is the first. Each
       # is a file under nix/packages and an attribute here; nothing below
       # needs to change when one is added.
-      components = pkgs: {
+      components = pkgs: rec {
         cmem = pkgs.callPackage ./nix/packages/cmem.nix { };
+        cmem-claude-code-settings = pkgs.callPackage ./nix/packages/cmem-claude-code-settings.nix { inherit cmem; };
       };
     in
     {

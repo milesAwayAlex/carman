@@ -69,10 +69,19 @@ be reached, so this does not fail silently.
 - **Keep its image.** The image exists only in the VM's image store. While the
   pod runs it is safe; under disk pressure the kubelet may remove an image no
   pod is using. Deploying again rebuilds it.
-- **Follow the owner's convention for secrets.** `env` writes the tokens to
-  files that only the owner can read. The machine configuration this will
-  eventually join keeps no secret on disk and reads each one from the password
-  manager when a command starts; the laptop's token should move there with it.
+- **Rotate tokens.** Delete the secret and deploy again, then store the new
+  tokens wherever the old ones were kept.
+
+## Keeping the tokens in a password manager
+
+`env` writes the tokens to files only you can read. To keep them off the disk
+instead, pipe each to the program that stores it:
+
+    scripts/deploy.sh devvm token laptop | your-password-manager ...
+
+`token` refuses to write to a terminal. A shell function can then read the
+token when `claude` starts and pass it as `CMEM_TOKEN`, with the hook settings
+from the flake's `cmem-claude-code-settings` package given to `claude
+--settings`.
 - **Deploy to a cluster with a registry.** Build and push the image yourself,
   set `CARMAN_IMAGE`, and add an overlay that says how the service is reached.
-- **Rotate tokens.** Delete the secret and deploy again, then run `env` again.
