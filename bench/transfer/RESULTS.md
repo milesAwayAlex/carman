@@ -52,6 +52,27 @@ in one repository only. This case had not been run since notes had to say who
 they are for. `--here` no longer changes who a replacement is for (ADR 0026,
 proposed). Not yet re-run.
 
+**After both fixes, on Haiku 5.5** (the installed text; a weaker model than
+the runs above, so this is not a like-for-like re-run):
+
+| Cases | Changed fact | Untouched fact | Other repository | How the correction was stored |
+|---|---|---|---|---|
+| Document, 6 runs | 6/6 | 6/6 | | 2 amended after being asked; 4 a new note beside the entry |
+| Changing, 4 runs | 3/4 | | 3/4 | 3 replaced; 1 stored nothing |
+
+- No long entry was replaced. Two agents tried `--replaces`, were asked, and
+  switched to `--amends`.
+- Four agents did not touch the entry at all: they wrote the new fact as a
+  plain note. It was not close enough to the entry's opening to be held, so
+  memory ended with the stale entry and the correction side by side and
+  nothing joining them. The probes still passed, because the newer note was
+  found first. That is the next gap: a correction that never names what it
+  corrects.
+- The scope fix was not exercised. In the kubectl-context case one agent
+  replaced with `--global` of its own accord and the rule reached the other
+  repository; the other agent recorded nothing in either session, which is
+  the one failure. A Sonnet re-run of that case is still owed.
+
 ## 2026-11-19, who a note is for (Sonnet 5.5, cmem with the hook, one run per cell)
 
 Until now every note an agent wrote had no scope and was shown everywhere.
