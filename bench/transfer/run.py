@@ -22,8 +22,8 @@ kind of mess working agents leave, runs the consolidation routine on it
 (routines/consolidate.md), checks the result, probes the raw and the
 consolidated library with the same tasks, and finally reverts the run.
 
-Sessions run one at a time in containers and call a model on the owner's
-subscription; use scripts/bench-transfer.sh, which supplies the token.
+Sessions run in containers, one case at a time unless --jobs says otherwise,
+and call a model on the owner's subscription; use scripts/bench-transfer.sh, which supplies the token.
 """
 
 from __future__ import annotations
@@ -36,6 +36,7 @@ import shutil
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import cmem_arm
@@ -63,10 +64,12 @@ ARMS = {
     "cmem_hook_wide": (True, "the same, with the index split over five hooks so that it holds every lesson"),
     "cmem_hook_brief": (True, "the same as cmem_hook_crowded, plus a small model that reads what the index left out"),
     "cmem_hook_unscoped": (True, "cmem with the hook as it was before notes had to say who they are for: every note global"),
+    "cmem_hook_amends": (True, "cmem with the hook, and a session-start text that also offers --amends for one fact in a long entry"),
 }
 SHARED = ("builtin_shared", "shared_crowded")
-CMEM = ("cmem", "cmem_hook", "cmem_crowded", "cmem_hook_crowded", "cmem_hook_wide", "cmem_hook_brief", "cmem_hook_unscoped")
-HOOKED = ("cmem_hook", "cmem_hook_crowded", "cmem_hook_wide", "cmem_hook_brief", "cmem_hook_unscoped")
+CMEM = ("cmem", "cmem_hook", "cmem_crowded", "cmem_hook_crowded", "cmem_hook_wide", "cmem_hook_brief", "cmem_hook_unscoped",
+        "cmem_hook_amends")
+HOOKED = ("cmem_hook", "cmem_hook_crowded", "cmem_hook_wide", "cmem_hook_brief", "cmem_hook_unscoped", "cmem_hook_amends")
 
 # The directories a case's sessions run in, and the repository each is a
 # checkout of. repo-a and checkout-2 are two checkouts of one repository under
@@ -168,6 +171,9 @@ class Workspace:
                 if self.arm == "cmem_hook_unscoped":
                     settings["env"].pop("CMEM_NOTE_SCOPE", None)
                     self.env.pop("CMEM_NOTE_SCOPE", None)
+                if self.arm == "cmem_hook_amends":
+                    # The wording on trial; the setting travels with the hook.
+                    settings["env"]["CMEM_INDEX_WORDING"] = "amends"
             else:
                 (self.dir / ".claude" / "CLAUDE.md").write_text(cmem_arm.INSTRUCTION)
         if settings:
@@ -241,7 +247,7 @@ class Workspace:
         self.calls.append(call)
         return call
 
-    def grade(self, repo: str, reply: str, leak: bool = False) -> tuple[bool, str]:
+    def grade(self, repo: str, reply: str, leak: bool = False, kept: bool = False) -> tuple[bool, str]:
         path = self.dir / repo / self.case["answer_file"]
         answer = path.read_text(errors="replace") if path.is_file() else ""
         # The file is what was asked for; an answer given only in the reply
@@ -252,6 +258,9 @@ class Workspace:
             # the lesson was not applied there.
             ok = not re.search(self.case["leak"], text, re.M)
             return ok, answer.strip()[:300] or f"(no {self.case['answer_file']}; reply: {reply[:200]})"
+        if kept:
+            # What the correction did not touch has to be there still.
+            return bool(re.search(self.case["kept_pass"], text, re.M)), answer.strip()[:300] or f"(no answer file; reply: {reply[:200]})"
         ok = bool(re.search(self.case["pass"], text, re.M))
         if ok and self.case.get("fail") and re.search(self.case["fail"], text, re.M):
             ok = False
@@ -266,7 +275,49 @@ def run_case(arm: str, case: dict, out: Path, model: str, lessons: list[tuple[st
         ws.close()
 
 
+def run_document(ws: Workspace, arm: str, case: dict, out: Path, model: str) -> dict:
+    """A long entry is already in memory; a session is corrected on one fact
+    in it. Afterwards a new session is asked for that fact, and another for a
+    fact the correction did not touch."""
+    row = {"arm": arm, "case": case["id"], "model": model, "written": None, "same": None, "other": None, "kept": None}
+    if not ws.service:
+        raise RuntimeError("a document case needs a cmem arm")
+    scope = [f"repo:git.example.com/{CHECKOUTS['repo-a']}"]
+    seeded = ws.service.call("POST", "/v1/notes", {"kind": "fact", "text": case["document"], "human": "bench", "scope": scope})
+    first = ws.claude("update-1-task", "repo-a", case["update"])
+    if first["session"] and not first["error"]:
+        ws.claude("update-2-correction", "repo-a", case["update_correction"], resume=first["session"])
+    memory = ws.memory_text()
+    (out / "memory-after-teach.md").write_text(memory)
+    row["written"] = bool(re.search(case["written"], memory.replace(case["document"], ""), re.I))
+    # How the correction was stored, from what memory holds now.
+    entries = ws.service.call("GET", "/v1/entries")
+    document = next((e for e in entries if e["id"] == seeded["id"]), None)
+    reasons = [f.get("reason", "") for f in (document or {}).get("flags") or []]
+    row["stored"] = {
+        "document": "kept" if document else "replaced",
+        "amended": any(r.startswith("Corrected in part by") for r in reasons),
+        "flagged": sum(1 for r in reasons if not r.startswith("Corrected in part by")),
+        "current": len(entries),
+        "longest": max((e.get("text_length") or len(e.get("text", "")) for e in entries), default=0),
+    }
+    for name, prompt, kept in (("same", case["probe"], False), ("kept", case["kept_probe"], True)):
+        (ws.dir / "repo-a" / case["answer_file"]).unlink(missing_ok=True)
+        ws.forget_sessions()
+        call = ws.claude(f"probe-{name}", "repo-a", prompt)
+        row[name], row[f"{name}_answer"] = ws.grade("repo-a", call["reply"], kept=kept)
+    (out / "memory-at-end.md").write_text(ws.memory_text())
+    row["scopes"] = [e.get("scope") or [] for e in ws.service.call("GET", "/v1/entries")]
+    row["calls"], row["requests"] = ws.calls, ws.service.requests()
+    row["errors"] = sum(1 for c in ws.calls if c["error"])
+    row["cost"] = round(sum(c["cost"] for c in ws.calls), 4)
+    row["input"] = sum(c["input"] for c in ws.calls)
+    return row
+
+
 def run_steps(ws: Workspace, arm: str, case: dict, out: Path, model: str) -> dict:
+    if case.get("kind") == "document":
+        return run_document(ws, arm, case, out, model)
     neutral = case.get("kind") == "neutral"
     row = {"arm": arm, "case": case["id"], "model": model, "written": None, "same": None, "other": None}
     if ARMS[arm][0] and not neutral:
@@ -299,7 +350,13 @@ def run_steps(ws: Workspace, arm: str, case: dict, out: Path, model: str) -> dic
     (out / "memory-at-end.md").write_text(ws.memory_text())
     if ws.service:
         # Who each entry is shown to: [] is every session everywhere.
-        row["scopes"] = [e.get("scope") or [] for e in ws.service.call("GET", "/v1/entries")]
+        entries = ws.service.call("GET", "/v1/entries")
+        row["scopes"] = [e.get("scope") or [] for e in entries]
+        if not neutral:
+            # A lesson that changed should leave one current entry, unflagged.
+            flags = [f.get("reason", "") for e in entries for f in e.get("flags") or []]
+            row["stored"] = {"current": len(entries), "amended": any(r.startswith("Corrected in part by") for r in flags),
+                             "flagged": sum(1 for r in flags if not r.startswith("Corrected in part by"))}
     row["calls"] = ws.calls
     if ws.service:
         row["requests"] = ws.service.requests()
@@ -465,6 +522,7 @@ def consolidate(run_dir: Path, model: str, dreamer_model: str, probes: bool) -> 
 
 def report(run_dir: Path) -> None:
     rows = [json.loads(line) for line in (run_dir / "results.jsonl").read_text().splitlines()]
+    rows.sort(key=lambda r: (r["arm"], r["case"], r.get("run", 0)))
     mark = {True: "pass", False: "FAIL", None: "-"}
     if any("clone" in r for r in rows):
         # With the clone probe: a second checkout of the same repository under
@@ -491,6 +549,29 @@ def report(run_dir: Path) -> None:
         print(f"{arm:<18} written {rate('written'):<6} same repo {rate('same'):<6} {clone}other repo {rate('other'):<6} "
               f"errors {sum(r['errors'] for r in mine)}  est ${sum(r['cost'] for r in mine):.2f}  {tokens:.1f}k input tokens per call"
               + (f"  briefs {sum(r.get('briefs', 0) for r in mine)} costing ${brief:.3f}" if brief else ""))
+    if any(r.get("stored") for r in rows):
+        # How each correction ended up in memory.
+        print()
+        print(f"{'arm':<19}{'case':<18}{'run':>3}  {'changed':<8}{'kept':<6}{'entries':>7}  how the correction was stored")
+        for r in rows:
+            s = r.get("stored")
+            if not s:
+                continue
+            how = []
+            if s.get("document") == "replaced":
+                how.append(f"the document was replaced (longest entry now {s.get('longest')} characters)")
+            if s.get("amended"):
+                how.append("amended: the entry kept, pointing at the note")
+            if s.get("flagged"):
+                how.append(f"{s['flagged']} plain flag(s)")
+            if not how:
+                how.append("replaced" if "document" not in s and s["current"] == 1 else "a note beside the old entry, nothing joining them"
+                           if s["current"] > 1 else "one entry")
+            print(f"{r['arm']:<19}{r['case']:<18}{r.get('run', 0):>3}  {mark[r.get('same')]:<8}{mark[r.get('kept')]:<6}{s['current']:>7}  {'; '.join(how)}")
+        for arm in dict.fromkeys(r["arm"] for r in rows):
+            mine = [r for r in rows if r["arm"] == arm and r.get("kept") is not None]
+            if mine:
+                print(f"{arm:<18} changed fact {sum(1 for r in mine if r['same'])}/{len(mine)}  kept fact {sum(1 for r in mine if r['kept'])}/{len(mine)}")
     print(f"\ntranscripts: {run_dir}/<arm>/<case>/run<N>/*.jsonl   (run.py show FILE)")
 
 
@@ -526,7 +607,8 @@ def main() -> int:
     run = sub.add_parser("run")
     run.add_argument("--arms", default="none,oracle")
     run.add_argument("--cases", default="", help="case or task ids; default all of the chosen kind")
-    run.add_argument("--kind", default="cases", choices=["cases", "changing", "neutral", "local", "all"])
+    run.add_argument("--kind", default="cases", choices=["cases", "changing", "neutral", "local", "document", "all"])
+    run.add_argument("--jobs", type=int, default=1, help="how many arm-and-case runs go on at once; each has its own workspace and service")
     run.add_argument("--probes", default="same,other", help="which of same, clone and other to probe after teaching")
     run.add_argument("--model", default="claude-haiku-5-5")
     run.add_argument("--runs", type=int, default=1)
@@ -564,6 +646,7 @@ def main() -> int:
     data = json.loads((HERE / "cases.json").read_text())
     lessons = [(c["id"], c["lesson"]) for c in data["cases"]]
     cases = {"cases": data["cases"], "neutral": data["neutral"], "changing": data["changing"], "local": data["local"],
+             "document": data["document"],
              "all": data["cases"] + data["changing"] + data["local"] + data["neutral"]}[args.kind]
     if args.cases:
         cases = [c for c in cases if c["id"] in args.cases.split(",")]
@@ -575,18 +658,23 @@ def main() -> int:
     run_dir = ROOT / time.strftime("%Y%m%dT%H%M%S")
     run_dir.mkdir(parents=True)
     print(f"run directory: {run_dir}", flush=True)
-    with open(run_dir / "results.jsonl", "a") as results:
-        for index in range(args.runs):
-            for arm in arms:
-                for case in cases:
-                    out = run_dir / arm / case["id"] / f"run{index}"
-                    out.mkdir(parents=True)
-                    row = run_case(arm, case, out, args.model, lessons)
-                    row["run"] = index
-                    results.write(json.dumps(row) + "\n")
-                    results.flush()
-                    print(f"  {arm} {case['id']} run{index}: written={row['written']} same={row['same']} "
-                          f"other={row['other']} errors={row['errors']}", flush=True)
+    def one(index: int, arm: str, case: dict) -> dict:
+        out = run_dir / arm / case["id"] / f"run{index}"
+        out.mkdir(parents=True)
+        row = run_case(arm, case, out, args.model, lessons)
+        row["run"] = index
+        return row
+
+    todo = [(index, arm, case) for index in range(args.runs) for arm in arms for case in cases]
+    with open(run_dir / "results.jsonl", "a") as results, ThreadPoolExecutor(max_workers=max(args.jobs, 1)) as pool:
+        # Rows are written as runs finish, which with --jobs is not the order
+        # they were started in; the report sorts them.
+        for done in as_completed([pool.submit(one, *item) for item in todo]):
+            row = done.result()
+            results.write(json.dumps(row) + "\n")
+            results.flush()
+            print(f"  {row['arm']} {row['case']} run{row['run']}: written={row['written']} same={row['same']} "
+                  f"other={row['other']} kept={row.get('kept')} errors={row['errors']}", flush=True)
     report(run_dir)
     return 0
 

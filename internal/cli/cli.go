@@ -1099,14 +1099,23 @@ const indexHelpAsk = "then who it is for: `--here` when it is true of this repos
 	"does things everywhere); then where it came from, then the text: `--human NAME` when the user told you or " +
 	"corrected you "
 
+// indexHelpCorrect says how to correct an entry. indexHelpAmends is a wording
+// on trial (CMEM_INDEX_WORDING=amends) that also offers a correction to part
+// of a long entry; the transfer benchmark compares the two.
+const indexHelpCorrect = "If an entry is out of date or wrong and you know what is right, record that in its place: " +
+	"add `--replaces ID` to the note."
+const indexHelpAmends = "If an entry is out of date or wrong and you know what is right, record that in its place: " +
+	"add `--replaces ID` to the note. If it is one thing in a long entry whose rest still holds, add `--amends ID` " +
+	"instead: the entry is kept and points at your note."
+
 const indexHelpWhere = "then where it came from, then the text: `--human NAME` when the user told you or corrected you "
 
 const indexHelp = "Search the rest with `cmem recall WORDS`. `cmem get ID` shows an entry's sources. " +
 	"When you learn something worth keeping, record it with `cmem note --kind fact|procedure|pitfall|preference`, " +
 	indexHelpWhere +
 	"(use `user` if you do not know their name), or `--evidence \"what you saw\"` when you found it out yourself. " +
-	"If an entry is out of date or wrong and you know what is right, record that in its place: " +
-	"add `--replaces ID` to the note. If you only know it is wrong, run `cmem flag ID REASON`. An entry marked unverified is an agent's own observation " +
+	indexHelpCorrect +
+	" If you only know it is wrong, run `cmem flag ID REASON`. An entry marked unverified is an agent's own observation " +
 	"that nothing has checked yet: use it, and check it first when being wrong would be costly.\n"
 
 func indexText(resp server.IndexResponse, scope []string) string {

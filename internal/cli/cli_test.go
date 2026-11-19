@@ -879,6 +879,22 @@ func TestM5_OnlyWhatTheShellRunsCountsAsAProgram(t *testing.T) {
 	}
 }
 
+// The session-start text has a wording on trial, chosen by a setting that
+// travels with the hook's command to the service.
+func TestTheSessionStartWordingOnTrialIsChosenBySetting(t *testing.T) {
+	svc, _, _ := newService(t)
+	svc.ok("", "note", "--kind", "fact", "--human", "alex", "--global", "The office is closed on Fridays.")
+	start := func(session string) string {
+		stdout, _, _ := svc.run(`{"hook_event_name":"SessionStart","session_id":"`+session+`","source":"startup","cwd":"`+t.TempDir()+`"}`, "hook", "claude-code")
+		return stdout
+	}
+	if out := start("a"); !strings.Contains(out, "add `--replaces ID` to the note. If you only know it is wrong") || strings.Contains(out, "--amends") {
+		t.Errorf("the session-start text as installed:\n%s", out)
+	}
+	svc.env["CMEM_INDEX_WORDING"] = "amends"
+	expectContains(t, start("b"), "add `--replaces ID` to the note. If it is one thing in a long entry whose rest still holds, add `--amends ID` instead", "If you only know it is wrong")
+}
+
 // The installed binary is a relay: it sends its command line to the service,
 // which runs the command and says what to print. A change to what a command
 // does then reaches every machine when the service is deployed.

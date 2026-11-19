@@ -120,6 +120,9 @@ func (c *command) claudeCodeHook(raw []byte) {
 		if c.getenv("CMEM_NOTE_SCOPE") == "ask" {
 			help = strings.Replace(indexHelp, indexHelpWhere, indexHelpAsk, 1)
 		}
+		if c.getenv("CMEM_INDEX_WORDING") == "amends" {
+			help = strings.Replace(help, indexHelpCorrect, indexHelpAmends, 1)
+		}
 		texts, shown := indexParts(resp, scope, parts, claudeCodeHookLimit, help)
 		if c.indexPart < 1 || c.indexPart > len(texts) {
 			return
