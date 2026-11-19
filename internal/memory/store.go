@@ -258,6 +258,15 @@ type FlashbackQuery struct {
 
 const DefaultFlashbackLimit = 3
 
+// How much of a moment's text flashback matches, and the least share of its
+// words an entry must account for. Seen in use: a shell command carrying a
+// long script brought up three unrelated preferences, each of whose few
+// opening words happened to occur somewhere in it.
+const (
+	momentLength = 1200
+	momentShare  = 0.05
+)
+
 // IndexQuery asks for the compact list shown at the start of a session.
 type IndexQuery struct {
 	SessionID string
@@ -693,7 +702,10 @@ const similarLimit = 3
 // similar returns the current entries a new note with this text is close to,
 // closest first.
 func (s *Store) similar(text string, scope []string) []Entry {
-	query := stems(text)
+	// Opening against opening. A long document offered as a new note holds
+	// most of the words of every existing entry's opening, and would look
+	// close to all of them if its whole text were the measure.
+	query := newDocument(text).head
 	type hit struct {
 		entry Entry
 		share float64
@@ -1022,8 +1034,14 @@ func overlaps(a, b []string) bool {
 	return slices.ContainsFunc(a, func(tag string) bool { return slices.Contains(b, tag) })
 }
 
-// byTrustThenAge orders entries for a list an agent reads top-down: trusted
-// before unverified, undisputed before flagged, then newest first.
+// byTrustThenAge orders entries for a list an agent reads top-down, of which
+// it may be shown only the top: trusted before unverified, undisputed before
+// flagged, then by kind, then newest first.
+//
+// Kind comes before age because of what each kind is for. A preference or a
+// pitfall changes what an agent does without its knowing to look; a fact or a
+// procedure is something it can search for when the task calls for it. When
+// the list is cut, the first two are the ones that must not be what is cut.
 func byTrustThenAge(a, b Entry) int {
 	if a.Status != b.Status {
 		if a.Status == StatusActive {
@@ -1034,8 +1052,13 @@ func byTrustThenAge(a, b Entry) int {
 	if a.Contradictions != b.Contradictions {
 		return a.Contradictions - b.Contradictions
 	}
+	if ra, rb := kindRank[a.Kind], kindRank[b.Kind]; ra != rb {
+		return ra - rb
+	}
 	return newestFirst(a, b)
 }
+
+var kindRank = map[Kind]int{KindPreference: 0, KindPitfall: 1, KindProcedure: 2, KindFact: 3}
 
 func newestFirst(a, b Entry) int {
 	if c := b.CreatedAt.Compare(a.CreatedAt); c != 0 {
@@ -1122,7 +1145,15 @@ func (s *Store) Flashback(q FlashbackQuery) []Entry {
 	if q.MinShare <= 0 {
 		q.MinShare = 0.4
 	}
-	query := stems(q.Text)
+	// A moment can be long: a reply of several paragraphs, a command with a
+	// script in it. A long text contains the few words of many short entries
+	// without being about any of them, so only its beginning is matched, and
+	// an entry must account for some share of it (momentShare) to count.
+	moment := []rune(q.Text)
+	if len(moment) > momentLength {
+		moment = moment[:momentLength]
+	}
+	query := stems(string(moment))
 	names := stems(strings.Join(q.Names, " "))
 	type hit struct {
 		entry   Entry
@@ -1140,6 +1171,9 @@ func (s *Store) Flashback(q FlashbackQuery) []Entry {
 		// entry that mentions the command by name is about that command.
 		named, _ := s.corpus.overlap(id, names)
 		matched, share := s.corpus.overlap(id, query)
+		if len(query) > 0 && float64(matched)/float64(len(query)) < momentShare {
+			matched, share = 0, 0
+		}
 		if named > 0 || (matched >= q.MinMatched && share >= q.MinShare) {
 			hits = append(hits, hit{e, named > 0, matched, share})
 		}

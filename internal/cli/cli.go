@@ -54,12 +54,14 @@ Writing:
               [--scope TAG]... [--cost USD]
         Store the record of a finished task, read from standard input.
   cmem import [--scope TAG]... [--global FILE]... [--globals-only]
-              [--human NAME] [--dry-run] claude-code DIR
+              [--human NAME] [--separate] [--dry-run] claude-code DIR
         Copy the memories in a Claude Code memory directory
         (~/.claude/projects/PROJECT/memory) into cmem, as told by NAME.
         Files named with --global apply everywhere and get no scope; the rest
         get --scope, or are left out with --globals-only. Laptop only. Safe
-        to run twice: what is already here is skipped.
+        to run twice: what is close to an entry already here is skipped.
+        --separate stores such a memory anyway, for two that are alike in
+        their opening lines and different in substance.
 
 Consolidation role only. Every change belongs to a run, which is logged,
 capped, and can be reverted as a unit:

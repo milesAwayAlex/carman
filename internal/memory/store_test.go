@@ -358,6 +358,18 @@ func TestALongEntryIsJudgedByItsOpeningAndShownInPart(t *testing.T) {
 		t.Errorf("a new note was held as close to a long document: %v", err)
 	}
 
+	// The other way round: a long moment contains the few words of a short
+	// entry without being about it, and must not bring it up.
+	short1, _ := s.Remember(told("Keep code comments short and use American spelling."))
+	script := "python3 - <<'E'\n" + strings.Repeat("for path in files: text = read(path); check(text); report(path, text)\n", 30) +
+		"# keep this short; the code below uses comments and spelling from the old file\n" + strings.Repeat("print(result)\n", 40)
+	if got := s.Flashback(FlashbackQuery{SessionID: "c", Text: script}); len(got) != 0 {
+		t.Errorf("a long script brought up %q", texts(got))
+	}
+	if got := s.Flashback(FlashbackQuery{SessionID: "d", Text: "should the code comments use British or American spelling?"}); len(got) != 1 || got[0].ID != short1.ID {
+		t.Errorf("a short moment about the entry did not bring it up: %q", texts(got))
+	}
+
 	// In part: the opening, and a line saying how to go on.
 	part := long.Part(0, 300)
 	if part.TextLength != len([]rune(long.Text)) || !strings.HasPrefix(part.Text, "Cache migration plan") ||
@@ -376,6 +388,19 @@ func TestALongEntryIsJudgedByItsOpeningAndShownInPart(t *testing.T) {
 	if whole.String() != long.Text {
 		t.Errorf("reading a long entry a page at a time does not give back its text")
 	}
+	// A second long document on another subject, with much the same words
+	// in its body, is not close to the first: openings are compared.
+	other := NewNote{Entry: NewEntry{CreatedBy: AuthorAgent, Kind: KindFact, Sources: []Source{{Human: "alex"}},
+		Text: "Logging cost review: which log buckets are read, by whom, and what each costs a month.\n\n" +
+			strings.Repeat("The log bucket review lists every bucket, its reader and its monthly cost in turn. ", 8) + filler}}
+	if _, err := s.Remember(other); err != nil {
+		t.Errorf("a long document on another subject was held as close to the first: %v", err)
+	}
+	// The same document offered again is.
+	if _, err := s.Remember(other); !errors.Is(err, ErrSimilar) {
+		t.Errorf("a long document offered twice: %v, want ErrSimilar", err)
+	}
+
 	// A short entry is never altered.
 	short := mustAdd(t, s, "Short and whole.", mustEpisode(t, s, OutcomePassed))
 	if p := short.Part(0, 300); p.Text != short.Text || p.TextLength != 0 {
@@ -1191,6 +1216,30 @@ func TestM5_TheSessionIndexFitsABudgetAndPutsTrustedEntriesFirst(t *testing.T) {
 	entries, total = s.Index(IndexQuery{Scope: []string{"repo:api"}, Budget: 60})
 	if total != 4 || len(entries) != 2 || entries[0].ID != everywhere.ID {
 		t.Errorf("index with a budget of 60 characters: total %d, %q", total, texts(entries))
+	}
+
+	// When the index is cut, what an agent must have in front of it comes
+	// before what it can look up: preferences and pitfalls before procedures
+	// and facts, whatever their age.
+	kinds := newStore(t)
+	for _, n := range []struct {
+		kind Kind
+		text string
+	}{
+		{KindPreference, "Old preference: answers start with the conclusion."},
+		{KindFact, "A fact noted later."},
+		{KindProcedure, "A procedure noted later still."},
+		{KindPitfall, "A pitfall noted after that."},
+		{KindFact, "The newest note of all, a fact."},
+	} {
+		if _, err := kinds.Remember(NewNote{Separate: true, Entry: NewEntry{CreatedBy: AuthorAgent, Kind: n.kind, Text: n.text, Sources: []Source{{Human: "alex"}}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ordered, _ := kinds.Index(IndexQuery{})
+	if got := texts(ordered); !strings.HasPrefix(got[0], "Old preference") || !strings.HasPrefix(got[1], "A pitfall") ||
+		!strings.HasPrefix(got[2], "A procedure") || !strings.HasPrefix(got[3], "The newest note") {
+		t.Errorf("index order by kind then age = %q", got)
 	}
 
 	// A long entry costs the budget only what the index shows of it.

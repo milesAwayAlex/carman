@@ -32,6 +32,7 @@ func (c *command) importMemory(args []string) error {
 	var scope, global list
 	c.flags.Var(&global, "global", "a file in DIR whose memory applies everywhere; it is stored with no scope (repeatable)")
 	globalsOnly := c.flags.Bool("globals-only", false, "import only the files named with --global and leave the rest")
+	separate := c.flags.Bool("separate", false, "store a memory even when it is close to an entry already there; a second run then adds it again")
 	human := c.flags.String("human", "user", "the person whose memory this is; the entries are recorded as told by them")
 	dryRun := c.flags.Bool("dry-run", false, "show what would be imported and store nothing")
 	c.flags.Var(&scope, "scope", "what these memories are about, for example repo:carman (repeatable)")
@@ -92,7 +93,7 @@ func (c *command) importMemory(args []string) error {
 			continue
 		}
 		req := server.NoteRequest{
-			Kind: kind, Text: text, Scope: entryScope, Human: *human,
+			Kind: kind, Text: text, Scope: entryScope, Human: *human, Separate: *separate,
 			Evidence: "Imported from Claude Code's built-in memory, file " + name + ".",
 		}
 		var entry memory.Entry
