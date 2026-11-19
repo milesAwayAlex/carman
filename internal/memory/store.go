@@ -329,6 +329,8 @@ type Store struct {
 	corpus   *corpus
 	shown    map[string]map[string]bool // session ID -> entries already put in front of it
 	last     time.Time
+	issuedIn string          // the second the IDs in issued were given in
+	issued   map[string]bool // IDs given in that second
 	problems []string
 }
 
@@ -497,13 +499,22 @@ func (s *Store) newNote(noteType string) note {
 	}
 	s.last = now
 	const alphabet = "abcdefghijklmnopqrstuvwxyz234567"
-	suffix := make([]byte, 4)
-	rand.Read(suffix)
-	for i, b := range suffix {
-		suffix[i] = alphabet[int(b)%len(alphabet)]
+	second := now.Format("20060102-150405")
+	if second != s.issuedIn {
+		s.issuedIn, s.issued = second, map[string]bool{}
 	}
+	// Four letters repeat within a busy second about once in a few thousand
+	// notes, and a repeated ID would be refused as an overwrite: draw again.
 	var n note
-	n.ID = now.Format("20060102-150405") + "-" + string(suffix)
+	for n.ID == "" || s.issued[n.ID] {
+		suffix := make([]byte, 4)
+		rand.Read(suffix)
+		for i, b := range suffix {
+			suffix[i] = alphabet[int(b)%len(alphabet)]
+		}
+		n.ID = second + "-" + string(suffix)
+	}
+	s.issued[n.ID] = true
 	n.Type, n.Created = noteType, now
 	return n
 }
@@ -1172,48 +1183,162 @@ type Passage struct {
 	Text string `json:"text"`
 }
 
-// Passages finds the stretches of a text that share the most words with a
-// question: where in a long entry the thing asked about is. They come best
-// first and do not overlap.
+// Outline is a map of a long text: where each of its parts starts, and how
+// each begins. The parts are the paragraphs. When there are more of those
+// than fit, the map keeps the headings and then the paragraphs that divide
+// its longest unmapped stretches, so that no part of the text is left off it.
+// It is what lets a reader go to the part that matters without paging through
+// the rest.
+func Outline(text string, limit int) []Passage {
+	runes := []rune(text)
+	var all []Passage
+	var keep []bool
+	kept, at := 0, 0
+	for _, block := range strings.Split(text, "\n\n") {
+		start := at
+		at += len([]rune(block)) + 2
+		trimmed := strings.TrimSpace(block)
+		if trimmed == "" {
+			continue
+		}
+		start += len([]rune(block)) - len([]rune(strings.TrimLeft(block, " \t\n")))
+		first, _, _ := strings.Cut(trimmed, "\n")
+		line := []rune(strings.Join(strings.Fields(first), " "))
+		if len(line) > 110 {
+			line = append(line[:110], '…')
+		}
+		all = append(all, Passage{At: min(start, len(runes)), Text: string(line)})
+		heading := strings.HasPrefix(trimmed, "#") || len(all) == 1
+		keep = append(keep, heading)
+		if heading {
+			kept++
+		}
+	}
+	if len(all) <= limit {
+		return all
+	}
+	if kept > limit {
+		// More headings than fit: every nth paragraph spans the text evenly.
+		step := (len(all) + limit - 1) / limit
+		var out []Passage
+		for i := 0; i < len(all); i += step {
+			out = append(out, all[i])
+		}
+		return out
+	}
+	for ; kept < limit; kept++ {
+		// The longest stretch between two kept parts that has a paragraph to
+		// divide it, and the paragraph nearest its middle.
+		best, bestGap := -1, 0
+		for from := 0; from < len(all); {
+			to := from + 1
+			for to < len(all) && !keep[to] {
+				to++
+			}
+			until := len(runes)
+			if to < len(all) {
+				until = all[to].At
+			}
+			if gap := until - all[from].At; to-from > 1 && gap > bestGap {
+				middle := all[from].At + gap/2
+				best, bestGap = from+1, gap
+				for i := from + 1; i < to; i++ {
+					if abs(all[i].At-middle) < abs(all[best].At-middle) {
+						best = i
+					}
+				}
+			}
+			from = to
+		}
+		if best < 0 {
+			break
+		}
+		keep[best] = true
+	}
+	var out []Passage
+	for i, part := range all {
+		if keep[i] {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// Passages finds the parts of a text that say most about a question: where
+// in a long entry the thing asked about is. A part is a paragraph, or a
+// stretch of one that is longer than width. They come in the order of the
+// text.
 func Passages(text, question string, count, width int) []Passage {
 	query := stems(question)
-	runes := []rune(text)
-	if len(query) == 0 || len(runes) == 0 {
+	if len(query) == 0 || strings.TrimSpace(text) == "" {
 		return nil
 	}
-	type window struct {
+	type block struct {
 		at    int
+		text  []rune
 		found map[string]int
 		score float64
 	}
-	var windows []window
-	in := map[string]int{} // how many windows each of the question's stems occurs in
-	step := max(width/2, 1)
-	for at := 0; at < len(runes); at += step {
-		end := min(at+width, len(runes))
-		found := map[string]int{}
-		for stem, n := range stems(string(runes[at:end])) {
-			if query[stem] > 0 {
-				found[stem] = n
-				in[stem]++
+	// The text's own parts: its paragraphs, and within an over-long paragraph
+	// its lines, so that a passage starts where a thought does.
+	var blocks []block
+	in := map[string]int{} // how many parts each of the question's stems occurs in
+	add := func(at int, part []rune) {
+		for len(part) > 0 {
+			piece := part
+			if len(piece) > width {
+				cut := width
+				for cut > width/2 && piece[cut-1] != ' ' && piece[cut-1] != '\n' {
+					cut--
+				}
+				piece = piece[:cut]
+			}
+			found := map[string]int{}
+			for stem, n := range stems(string(piece)) {
+				if query[stem] > 0 {
+					found[stem] = n
+					in[stem]++
+				}
+			}
+			if len(found) > 0 {
+				blocks = append(blocks, block{at: at, text: piece, found: found})
+			}
+			at += len(piece)
+			part = part[len(piece):]
+		}
+	}
+	at := 0
+	for _, paragraph := range strings.Split(text, "\n\n") {
+		runes := []rune(paragraph)
+		lead := len(runes) - len([]rune(strings.TrimLeft(paragraph, " \t\n")))
+		if len(runes)-lead <= width {
+			add(at+lead, runes[lead:])
+		} else {
+			lineAt := at
+			for _, line := range strings.SplitAfter(paragraph, "\n") {
+				add(lineAt, []rune(line))
+				lineAt += len([]rune(line))
 			}
 		}
-		if len(found) > 0 {
-			windows = append(windows, window{at: at, found: found})
-		}
-		if end == len(runes) {
-			break
-		}
+		at += len(runes) + 2
 	}
 	// A word of the question that the text uses everywhere says little about
 	// where to look; one it uses in a single place says exactly where.
-	for i, w := range windows {
-		for stem, n := range w.found {
-			rarity := math.Log(1 + float64(len(windows))/float64(in[stem]))
-			windows[i].score += rarity * (1 + 0.25*float64(min(n, 4)-1))
+	for i, b := range blocks {
+		for stem, n := range b.found {
+			rarity := math.Log(1 + float64(len(blocks))/float64(in[stem]))
+			blocks[i].score += rarity * (1 + 0.25*float64(min(n, 4)-1))
 		}
 	}
-	slices.SortStableFunc(windows, func(a, b window) int {
+	best := slices.Clone(blocks)
+	slices.SortStableFunc(best, func(a, b block) int {
 		switch {
 		case a.score > b.score:
 			return -1
@@ -1222,23 +1347,12 @@ func Passages(text, question string, count, width int) []Passage {
 		}
 		return 0
 	})
+	best = best[:min(count, len(best))]
+	// Best first is how they were chosen; the order of the text is how they read.
+	slices.SortFunc(best, func(a, b block) int { return a.at - b.at })
 	var out []Passage
-	for _, w := range windows {
-		if len(out) == count {
-			break
-		}
-		if slices.ContainsFunc(out, func(p Passage) bool { return w.at < p.At+width && p.At < w.at+width }) {
-			continue
-		}
-		// Start and end on whole words.
-		at, end := w.at, min(w.at+width, len(runes))
-		for at > 0 && at < end && runes[at-1] != ' ' && runes[at-1] != '\n' {
-			at++
-		}
-		for end < len(runes) && end > at && runes[end-1] != ' ' && runes[end-1] != '\n' {
-			end--
-		}
-		out = append(out, Passage{At: at, Text: strings.TrimSpace(string(runes[at:end]))})
+	for _, b := range best {
+		out = append(out, Passage{At: b.at, Text: strings.TrimSpace(string(b.text))})
 	}
 	return out
 }

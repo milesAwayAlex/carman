@@ -1253,6 +1253,42 @@ func TestM5_SearchReturnsWhatAppliesAndSaysHowWellItMatched(t *testing.T) {
 	}
 }
 
+// A long entry has a map: its paragraphs, or when there are too many of them
+// its headings and the paragraphs between, each with where it starts.
+func TestOutlineMapsALongText(t *testing.T) {
+	text := "Capacity plan for the year.\n\n## January: baseline\n\nMeasured the baseline.\nIt was low.\n\n## February: first wave\n\nMoved the batch pools.\n\n## March: second wave\n\nMoved the api pools."
+	got := Outline(text, 60)
+	if len(got) != 7 || got[0].Text != "Capacity plan for the year." || got[1].Text != "## January: baseline" || got[2].Text != "Measured the baseline." {
+		t.Fatalf("outline = %+v", got)
+	}
+	runes := []rune(text)
+	for _, p := range got {
+		if !strings.HasPrefix(string(runes[p.At:]), strings.TrimSuffix(p.Text, "…")) {
+			t.Errorf("part %q is not at character %d", p.Text, p.At)
+		}
+	}
+	// With more paragraphs than fit, the map keeps the start and the headings.
+	if got := Outline(text, 4); len(got) != 4 || got[0].At != 0 || !strings.HasPrefix(got[3].Text, "## March") {
+		t.Errorf("outline limited to four = %+v", got)
+	}
+	// A long stretch with no heading is still on the map: the room left
+	// after the headings goes to the paragraphs that divide it.
+	notes := "Working notes.\n\n" + strings.Repeat("An early paragraph with no heading over it.\n\n", 80) + "## Late heading\n\nThe end."
+	got = Outline(notes, 10)
+	gap := 0
+	for i := 1; i < len(got); i++ {
+		gap = max(gap, got[i].At-got[i-1].At)
+	}
+	if len(got) != 10 || got[0].At != 0 || gap > len(notes)/4 {
+		t.Errorf("outline of notes with one late heading: %d parts, longest stretch %d of %d", len(got), gap, len(notes))
+	}
+	// With no headings to fall back on, it still spans the text.
+	many := strings.Repeat("A paragraph.\n\n", 100)
+	if got := Outline(many, 10); len(got) == 0 || len(got) > 10 || got[len(got)-1].At < len(many)/2 {
+		t.Errorf("outline of a hundred paragraphs limited to ten: %d parts, last at %d", len(got), got[len(got)-1].At)
+	}
+}
+
 // Where in a long entry is the thing asked about?
 func TestPassagesFindsThePlaceInALongText(t *testing.T) {
 	filler := strings.Repeat("The plan was discussed again and nothing about the plan changed that week. ", 120)
@@ -1271,6 +1307,34 @@ func TestPassagesFindsThePlaceInALongText(t *testing.T) {
 	}
 	if got := Passages(text, "kangaroo", 2, 300); len(got) != 0 {
 		t.Errorf("a word the text does not have found %+v", got)
+	}
+
+	// A text with paragraphs is answered in its own paragraphs, whole, in the
+	// order they come, whichever matches best.
+	notes := "# Rollout\n\nGeneral remarks about the rollout.\n\n## March\n\nThe ceiling was 4,200 vCPU in March.\n\n" +
+		strings.Repeat("An unrelated paragraph about lunch.\n\n", 40) +
+		"## November\n\nOn November 10 the quota ceiling was raised: the eu region ceiling is now 6,000 vCPU."
+	got = Passages(notes, "eu region quota ceiling", 2, 300)
+	if len(got) != 2 || got[0].Text != "The ceiling was 4,200 vCPU in March." || !strings.HasPrefix(got[1].Text, "On November 10") {
+		t.Fatalf("passages of a text with paragraphs = %+v", got)
+	}
+	for _, p := range got {
+		if at := strings.Index(notes, p.Text); len([]rune(notes[:at])) != p.At {
+			t.Errorf("passage %q reported at %d, is at %d", p.Text, p.At, len([]rune(notes[:at])))
+		}
+	}
+}
+
+// A note's file is never overwritten, so two notes may never be given one ID.
+func TestM2_NoTwoNotesShareAnID(t *testing.T) {
+	s := &Store{}
+	seen := map[string]bool{}
+	for i := 0; i < 20000; i++ {
+		id := s.newNote("entry").ID
+		if seen[id] {
+			t.Fatalf("ID %s given twice, at note %d", id, i)
+		}
+		seen[id] = true
 	}
 }
 

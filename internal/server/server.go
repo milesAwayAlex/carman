@@ -272,17 +272,20 @@ func (s *Server) getEntry(r *http.Request, _ Role) (any, error) {
 		return nil, err
 	}
 	params := r.URL.Query()
-	if words := params.Get("find"); words != "" {
-		// Not the text, but the places in it that the words point at.
-		// The opening is shown anyway; passages are from what follows it.
-		var passages []memory.Passage
-		for _, p := range memory.Passages(entry.Text, words, 5, 2*passageText) {
-			if p.At >= openingText/2 && len(passages) < 4 {
-				passages = append(passages, p)
-			}
-		}
+	if params.Get("outline") != "" {
+		// A map of the entry: where its parts start and how each begins.
+		outline := memory.Outline(entry.Text, 40)
 		entry = entry.Part(0, openingText)
 		entry.Text, _, _ = strings.Cut(entry.Text, "\n… [characters ")
+		entry.Passages = outline
+		return entry, nil
+	}
+	if words := params.Get("find"); words != "" {
+		// Not the text, but the places in it that the words point at.
+		// The few parts of the text that best match, in the order they come.
+		passages := memory.Passages(entry.Text, words, 3, 2*passageText)
+		entry.TextLength = len([]rune(entry.Text))
+		entry.Text = ""
 		entry.Passages = passages
 		if entry.Passages == nil {
 			entry.Passages = []memory.Passage{}
@@ -374,6 +377,11 @@ func (s *Server) recall(r *http.Request, _ Role) (any, error) {
 	if params.Get("found") == "" {
 		return parts(s.store.Recall(q), foundText), nil
 	}
+	// The right entry is nearly always among the first few, and the answer
+	// says how many more there are.
+	if q.Limit == 0 {
+		q.Limit = foundCount
+	}
 	entries, total, weak := s.store.Search(q)
 	found := Found{Entries: make([]memory.Entry, len(entries)), Total: total, Weak: weak}
 	for i, e := range entries {
@@ -396,6 +404,10 @@ func (s *Server) recall(r *http.Request, _ Role) (any, error) {
 	}
 	return found, nil
 }
+
+// foundCount is how many entries a recall made with found=1 returns when
+// the caller names no limit.
+const foundCount = 5
 
 // Found is the answer to a recall made with found=1.
 type Found struct {
