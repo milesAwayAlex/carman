@@ -36,3 +36,4 @@ To change a decision, add a new record and mark the old one superseded.
 | [0023](0023-a-note-says-who-it-is-for.md) | A new note says who it is for | Accepted |
 | [0024](0024-the-service-runs-the-command-line.md) | The service runs the command line; the installed binary relays | Proposed |
 | [0025](0025-a-note-can-correct-part-of-an-entry.md) | A note can correct part of an entry, which is kept and points at the correction | Proposed |
+| [0026](0026-here-does-not-narrow-a-replacement.md) | `--here` does not change who a replacement is for | Proposed |

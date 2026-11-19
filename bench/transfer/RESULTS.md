@@ -7,6 +7,51 @@ Each case teaches a lesson by a correction in repository A, then probes it in a
 fresh session in repository A and in repository B. "Wrote" means the lesson was
 in memory after the teach session.
 
+## 2026-11-19, correcting one fact in a long entry (Sonnet 5.5, cmem with the hook)
+
+Two new cases (`--kind document`). A long entry is already in memory: a
+release runbook of about 3,000 characters, and working notes of about 2,800.
+A session is asked something the entry answers, then corrected on that one
+fact ("everything else still holds"). A fresh session is asked for the
+changed fact, and another for a fact the correction did not touch.
+
+The question was whether the session-start text should offer `--amends`. Two
+arms: the text as installed, and a text with one more sentence ("If it is one
+thing in a long entry whose rest still holds, add `--amends ID` instead").
+Three runs of each case per arm.
+
+| Session-start text | Changed fact | Untouched fact | First move was `--replaces` with a summary | Entry kept and amended | Entry replaced by a summary |
+|---|---|---|---|---|---|
+| As installed | 6/6 | 5/6 | 6/6 | 4/6 | 2/6 |
+| Also offering `--amends` | 6/6 | 6/6 | 6/6 | 3/6 | 3/6 |
+
+- **The wording changed nothing.** In all twelve runs the agent read the
+  entry, and on being corrected replaced it with a summary that ended
+  "everything else in the earlier runbook still holds". The sentence about
+  `--amends` was in front of half of them. It is not in the text now.
+- **The question at the point of action worked every time it was asked.** A
+  note given with `--replaces` against a long entry was held when it was
+  under a quarter of the entry's length, and the agent was offered `--amends`
+  or `--whole`. Seven notes were held; seven agents ran the command again
+  with `--amends`, with a shorter note about the one fact.
+- **The threshold was too low.** Summaries of 26% to 43% of the runbook were
+  not held, and replaced it in 5 of 6 runs. One had dropped the rollback
+  command, and the session asked for it answered with a command that does
+  not exist. The others kept it by luck of what the summary chose to keep.
+  The question is now asked of any note under three quarters of a long
+  entry's length. Not yet re-run.
+- Cost was the same in both arms: about $0.12 a case.
+
+The two changing-lesson cases, two runs per arm, were identical in both arms:
+4/4 replaced with `--replaces`, one current entry at the end, the same
+repository 4/4. **The other repository was 2/4, and that is a finding of its
+own.** In the kubectl-context case all four agents recorded the first lesson
+with `--global`, and a later session replaced it with `--here --replaces ID`.
+The replacement took the scope it was given, so the corrected rule was shown
+in one repository only. This case had not been run since notes had to say who
+they are for. `--here` no longer changes who a replacement is for (ADR 0026,
+proposed). Not yet re-run.
+
 ## 2026-11-19, who a note is for (Sonnet 5.5, cmem with the hook, one run per cell)
 
 Until now every note an agent wrote had no scope and was shown everywhere.

@@ -25,11 +25,21 @@ comes before its text, and lists mark it "corrected in part" where an entry
 flagged for any other reason is marked "disputed". The note takes the scope
 of the entry it amends unless it names its own.
 
-A short note given with `--replaces` against a long entry (2,000 characters
-or more, and at least four times the note's length) is not stored. The agent
-is told what replacing would discard and offered `--amends`, or `--whole` if
-the note really does stand for all of it. The same offer is made when a new
-note is held as close to an existing entry.
+A note given with `--replaces` against a long entry (2,000 characters or
+more) that is shorter than three quarters of it is not stored. The agent is
+told what replacing would discard and offered `--amends`, or `--whole` if the
+note really does stand for all of it. The same offer is made when a new note
+is held as close to an existing entry.
+
+The session-start text does not mention `--amends`. A wording that did was
+tried on the transfer benchmark against the installed one, six runs each on
+two long entries, and changed nothing: with either text every agent's first
+move was `--replaces` with a summary of the entry that said the rest still
+held. What changed the outcome was the question above, asked at that moment;
+every agent that was asked switched to `--amends` at once. The first
+threshold, a quarter of the entry's length, let summaries of a quarter to
+under half through (5 of 6 on one entry, one of them losing the fact the
+benchmark then asked for), which is why it is three quarters.
 
 This adds no kind of record. It is the two writes the agent made by hand,
 made together, with the pointer the agent left out. Any role that may flag
