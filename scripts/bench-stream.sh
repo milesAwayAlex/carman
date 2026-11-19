@@ -11,8 +11,9 @@
 #
 # smoke and run call a model on the owner's Claude subscription. The token is
 # taken from CLAUDE_CODE_OAUTH_TOKEN, or the file .local/bench-token (mode 600),
-# or 1Password via the reference in CARMAN_BENCH_TOKEN_REF, in that order. It
-# is never printed or written to disk, and reaches containers by name only.
+# or a command that prints it (CARMAN_BENCH_TOKEN_CMD), or 1Password via the
+# reference in CARMAN_BENCH_TOKEN_REF, in that order. It is never printed or
+# written to disk, and reaches containers by name only.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -55,8 +56,13 @@ if [ "$mode" = dry-run ]; then
     # Nothing is sent anywhere in a dry run, but the arms insist on a token.
     export CLAUDE_CODE_OAUTH_TOKEN="${CLAUDE_CODE_OAUTH_TOKEN:-dry-run-placeholder}"
 elif [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ ! -f "${CARMAN_BENCH_TOKEN_FILE:-$repo/.local/bench-token}" ]; then
-    [ -n "${CARMAN_BENCH_TOKEN_REF:-}" ] || die "no token: export CLAUDE_CODE_OAUTH_TOKEN, or put it in .local/bench-token (mode 600), or set CARMAN_BENCH_TOKEN_REF in .local/bench.env to a 1Password reference"
-    CLAUDE_CODE_OAUTH_TOKEN="$(op read "$CARMAN_BENCH_TOKEN_REF")" || die "could not read the token from 1Password"
+    if [ -n "${CARMAN_BENCH_TOKEN_CMD:-}" ]; then
+        CLAUDE_CODE_OAUTH_TOKEN="$(sh -c "$CARMAN_BENCH_TOKEN_CMD")" && [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] ||
+            die "the command in CARMAN_BENCH_TOKEN_CMD did not print a token"
+    else
+        [ -n "${CARMAN_BENCH_TOKEN_REF:-}" ] || die "no token: export CLAUDE_CODE_OAUTH_TOKEN, or put it in .local/bench-token (mode 600), or set CARMAN_BENCH_TOKEN_CMD or CARMAN_BENCH_TOKEN_REF in .local/bench.env"
+        CLAUDE_CODE_OAUTH_TOKEN="$(op read "$CARMAN_BENCH_TOKEN_REF")" || die "could not read the token from 1Password"
+    fi
     export CLAUDE_CODE_OAUTH_TOKEN
 fi
 

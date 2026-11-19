@@ -39,8 +39,10 @@ model is `claude-haiku-5-5`; pass `--system.model NAME` to change it. Runs use
 one worker at a time unless told otherwise.
 
 The token is taken, in order, from `CLAUDE_CODE_OAUTH_TOKEN`, from the file
-`.local/bench-token` (mode 600), or from 1Password through the reference that
-`.local/bench.env` puts in `CARMAN_BENCH_TOKEN_REF`. It is never printed or
+`.local/bench-token` (mode 600), from a command that prints it
+(`CARMAN_BENCH_TOKEN_CMD`, for a keychain or another store that asks nobody),
+or from 1Password through the reference in `CARMAN_BENCH_TOKEN_REF`; the last
+two are set in `.local/bench.env`. It is never printed or
 written to disk, and it reaches the containers by name only. The run refuses to
 start if `ANTHROPIC_API_KEY` is set.
 

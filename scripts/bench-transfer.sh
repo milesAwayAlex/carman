@@ -7,9 +7,11 @@
 #   scripts/bench-transfer.sh show PATH/probe-same.jsonl
 #
 # `run` and `consolidate` call a model on the owner's Claude subscription. The token comes from
-# CLAUDE_CODE_OAUTH_TOKEN, or the file .local/bench-token (mode 600), or
-# 1Password via CARMAN_BENCH_TOKEN_REF in .local/bench.env, in that order. It
-# is never printed or written to disk.
+# CLAUDE_CODE_OAUTH_TOKEN, or the file .local/bench-token (mode 600), or a
+# command that prints it (CARMAN_BENCH_TOKEN_CMD, for a keychain or another
+# secret store that needs nobody at the keyboard), or 1Password via
+# CARMAN_BENCH_TOKEN_REF, in that order; the last two are set in
+# .local/bench.env. It is never printed or written to disk.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -42,10 +44,13 @@ if [ "${1:-}" = run ] || [ "${1:-}" = consolidate ]; then
         if [ -f "$file" ]; then
             [ "$(stat -f %Lp "$file" 2>/dev/null || stat -c %a "$file")" = 600 ] || die "$file must have mode 600"
             CLAUDE_CODE_OAUTH_TOKEN="$(cat "$file")"
+        elif [ -n "${CARMAN_BENCH_TOKEN_CMD:-}" ]; then
+            CLAUDE_CODE_OAUTH_TOKEN="$(sh -c "$CARMAN_BENCH_TOKEN_CMD")" && [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] ||
+                die "the command in CARMAN_BENCH_TOKEN_CMD did not print a token"
         elif [ -n "${CARMAN_BENCH_TOKEN_REF:-}" ]; then
             CLAUDE_CODE_OAUTH_TOKEN="$(op read "$CARMAN_BENCH_TOKEN_REF")" || die "could not read the token from 1Password"
         else
-            die "no token: export CLAUDE_CODE_OAUTH_TOKEN, or put it in .local/bench-token (mode 600), or set CARMAN_BENCH_TOKEN_REF in .local/bench.env"
+            die "no token: export CLAUDE_CODE_OAUTH_TOKEN, or put it in .local/bench-token (mode 600), or set CARMAN_BENCH_TOKEN_CMD or CARMAN_BENCH_TOKEN_REF in .local/bench.env"
         fi
         export CLAUDE_CODE_OAUTH_TOKEN
     fi
