@@ -4,3 +4,6 @@
 CLAUDE.local.md
 /bin/
 /.local/
+# What `nix build` leaves behind.
+/result
+/result-*
