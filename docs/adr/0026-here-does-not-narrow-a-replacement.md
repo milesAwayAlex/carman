@@ -30,6 +30,11 @@ has always honoured.
 the direction that needs saying, and an agent that says it is answering the
 question the session text asks.
 
+With that in place the same case was run four more times on the same model.
+All four agents again passed `--here` with `--replaces`; all four entries
+still applied everywhere, and the probe in the other repository passed 4 of
+4.
+
 ## Consequences
 
 - A rule that applied everywhere keeps applying everywhere when it is

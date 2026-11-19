@@ -50,7 +50,7 @@ with `--global`, and a later session replaced it with `--here --replaces ID`.
 The replacement took the scope it was given, so the corrected rule was shown
 in one repository only. This case had not been run since notes had to say who
 they are for. `--here` no longer changes who a replacement is for (ADR 0026,
-proposed). Not yet re-run.
+proposed). Re-run below.
 
 **After both fixes, on Haiku 5.5** (the installed text; a weaker model than
 the runs above, so this is not a like-for-like re-run):
@@ -68,10 +68,15 @@ the runs above, so this is not a like-for-like re-run):
   nothing joining them. The probes still passed, because the newer note was
   found first. That is the next gap: a correction that never names what it
   corrects.
-- The scope fix was not exercised. In the kubectl-context case one agent
-  replaced with `--global` of its own accord and the rule reached the other
-  repository; the other agent recorded nothing in either session, which is
-  the one failure. A Sonnet re-run of that case is still owed.
+- The scope fix was not exercised on Haiku. In the kubectl-context case one
+  agent replaced with `--global` of its own accord and the rule reached the
+  other repository; the other agent recorded nothing in either session,
+  which is the one failure.
+
+**The kubectl-context case again on Sonnet 5.5, four runs:** same repository
+4/4, other repository 4/4 (it was 0/4). All four agents did what they did
+before, `--global` for the first lesson and `--here --replaces ID` for the
+correction, and all four entries still applied everywhere afterwards.
 
 ## 2026-11-19, who a note is for (Sonnet 5.5, cmem with the hook, one run per cell)
 
