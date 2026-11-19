@@ -680,12 +680,15 @@ func (c *command) note(args []string) error {
 		return errors.New("give the text to remember as the last words of the command. --evidence takes what you saw " +
 			"that makes you believe it; the text is the thing itself")
 	}
-	// A long entry replaced by a short note is, more often than not, one
-	// fact corrected and everything else the entry said thrown away.
+	// A long entry replaced by a shorter note is, more often than not, one
+	// fact corrected and the rest of what the entry said thrown away. In the
+	// benchmark every agent's first move on being corrected about one line of
+	// a three-page entry was to replace the entry with a summary a fifth to
+	// under half its length that said "everything else still holds".
 	if req.Replaces != "" && !*whole && !c.json {
 		var old memory.Entry
 		if err := c.call(http.MethodGet, "/v1/entries/"+url.PathEscape(req.Replaces)+"?from=0&limit=1", nil, &old); err == nil {
-			if is := len([]rune(text)); old.TextLength >= longEntry && 4*is < old.TextLength {
+			if is := len([]rune(text)); old.TextLength >= longEntry && 4*is < 3*old.TextLength {
 				fmt.Fprintf(c.stdout, "Not recorded yet. Entry %s is %d characters and your note is %d: --replaces would put your note in place "+
 					"of all of it.\nIf your note corrects one thing and the rest of the entry still holds, run the same command with "+
 					"--amends %s in place of --replaces: the entry is kept and points at your note.\nIf your note does stand for the "+
@@ -709,12 +712,18 @@ func (c *command) note(args []string) error {
 			req.Scope, req.Global = amended.Scope, len(amended.Scope) == 0
 		}
 	}
+	// A replacement is for whoever the old entry was for. Agents pass --here
+	// with --replaces out of habit, and that took a rule that applied
+	// everywhere away from every repository but one.
+	var hereScope []string
 	if *here {
 		dir, err := c.workingDir()
 		if err != nil {
 			return err
 		}
-		req.Scope = append(req.Scope, c.sessionScope(dir)...)
+		if hereScope = c.sessionScope(dir); req.Replaces == "" {
+			req.Scope = append(req.Scope, hereScope...)
+		}
 	}
 	// A harness can require the agent to say who a new note is for, so that
 	// "everywhere" is a choice made each time and not what happens when the
@@ -773,6 +782,14 @@ func (c *command) note(args []string) error {
 		printEntry(c.stdout, entry)
 		if replaced != "" {
 			fmt.Fprintf(c.stdout, "It takes the place of: %s\n", replaced)
+		}
+		if req.Replaces != "" && len(hereScope) > 0 && !slices.Equal(entry.Scope, hereScope) {
+			was := "everywhere"
+			if len(entry.Scope) > 0 {
+				was = "in " + strings.Join(entry.Scope, ", ")
+			}
+			fmt.Fprintf(c.stdout, "It applies %s, as the entry it replaces did; --here does not change who a replacement is for. "+
+				"If it now holds only in this repository, say so with --scope %s.\n", was, strings.Join(hereScope, " --scope "))
 		}
 		if amended != "" {
 			fmt.Fprintf(c.stdout, "%s is now marked as corrected in part, with a pointer to this note.\n", amended)
@@ -1099,14 +1116,12 @@ const indexHelpAsk = "then who it is for: `--here` when it is true of this repos
 	"does things everywhere); then where it came from, then the text: `--human NAME` when the user told you or " +
 	"corrected you "
 
-// indexHelpCorrect says how to correct an entry. indexHelpAmends is a wording
-// on trial (CMEM_INDEX_WORDING=amends) that also offers a correction to part
-// of a long entry; the transfer benchmark compares the two.
+// indexHelpCorrect says how to correct an entry. It does not offer --amends
+// for one fact in a long entry: a wording that did was tried on the transfer
+// benchmark and changed nothing. With either text every agent's first move
+// was --replaces, and what worked was the question asked at that point.
 const indexHelpCorrect = "If an entry is out of date or wrong and you know what is right, record that in its place: " +
 	"add `--replaces ID` to the note."
-const indexHelpAmends = "If an entry is out of date or wrong and you know what is right, record that in its place: " +
-	"add `--replaces ID` to the note. If it is one thing in a long entry whose rest still holds, add `--amends ID` " +
-	"instead: the entry is kept and points at your note."
 
 const indexHelpWhere = "then where it came from, then the text: `--human NAME` when the user told you or corrected you "
 

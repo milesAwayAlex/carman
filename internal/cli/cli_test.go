@@ -688,6 +688,22 @@ func TestARepositoryHasOneScopeWhereverItIsCheckedOut(t *testing.T) {
 	json.Unmarshal([]byte(svc.ok("", "recall", "--json", "invoices", "rounded")), &held)
 	expectContains(t, svc.ok("", "note", "--kind", "fact", "--human", "alex", "--replaces", held[0].ID, "Invoices are rounded half-up since March."),
 		"[repo:github.com/acme/billing]")
+	// --here on a replacement does not change who it is for. In the benchmark
+	// agents passed it out of habit, and a rule that applied everywhere then
+	// reached one repository only.
+	var short []memory.Entry
+	json.Unmarshal([]byte(svc.ok("", "recall", "--json", "short", "answers")), &short)
+	svc.env["CMEM_DIR"] = other
+	out = svc.ok("", "note", "--kind", "preference", "--human", "alex", "--here", "--replaces", short[0].ID, "Prefers answers of ten lines at most.")
+	if expectContains(t, out, "[everywhere]", "It applies everywhere, as the entry it replaces did", "--scope repo:git.example.org/platform/ledger"); strings.Contains(out, "[repo:") {
+		t.Errorf("--here narrowed a replacement:\n%s", out)
+	}
+	expectContains(t, index(worker), "ten lines at most")
+	// Narrowing is still possible, said outright.
+	var ten []memory.Entry
+	json.Unmarshal([]byte(svc.ok("", "recall", "--json", "ten", "lines")), &ten)
+	expectContains(t, svc.ok("", "note", "--kind", "preference", "--human", "alex", "--scope", "repo:git.example.org/platform/ledger", "--replaces", ten[0].ID,
+		"In the ledger repository, prefers answers of ten lines at most."), "[repo:git.example.org/platform/ledger]")
 }
 
 func TestALongEntryIsReadAPageAtATime(t *testing.T) {
@@ -848,8 +864,16 @@ func TestANoteCanCorrectPartOfAnEntry(t *testing.T) {
 	if code == 0 || !strings.Contains(stdout, "--amends "+planID) || !strings.Contains(stdout, "--whole") || !strings.Contains(stderr, "not recorded") {
 		t.Errorf("a short note replacing a long entry: exit %d\n%s\n%s", code, stdout, stderr)
 	}
+	// So is a summary a half the entry's length: "the rest still holds" is not the rest.
+	half := "Fleet plan, updated: nine clusters. " + strings.Repeat("History of the fleet. ", 70)
+	if stdout, _, code := laptop.run("", "note", "--kind", "fact", "--human", "alex", "--replaces", scoped, half); code == 0 || !strings.Contains(stdout, "--amends "+scoped) {
+		t.Errorf("a summary replacing a long entry: exit %d\n%s", code, stdout)
+	}
 	expectContains(t, laptop.ok("", "note", "--kind", "fact", "--human", "alex", "--replaces", scoped, "--whole", "The fleet plan is withdrawn; there is no fleet."),
 		"It takes the place of: Fleet plan.")
+	// A rewrite of about the same length is a replacement, and is not questioned.
+	long := strings.Fields(laptop.ok("", "note", "--kind", "fact", "--human", "alex", "--global", "--separate", "Office guide.\n\n"+strings.Repeat("How the office works. ", 150)))[1]
+	laptop.ok("", "note", "--kind", "fact", "--human", "alex", "--replaces", long, "Office guide, second edition.\n\n"+strings.Repeat("How the office works now. ", 140))
 
 	// Flagging answers in a line or two, not with the entry's text again.
 	flagged := worker.ok("", "flag", planID, "the us figure is out of date too")
@@ -877,22 +901,6 @@ func TestM5_OnlyWhatTheShellRunsCountsAsAProgram(t *testing.T) {
 			t.Errorf("programs of %q = %q, want %q", command, got, want)
 		}
 	}
-}
-
-// The session-start text has a wording on trial, chosen by a setting that
-// travels with the hook's command to the service.
-func TestTheSessionStartWordingOnTrialIsChosenBySetting(t *testing.T) {
-	svc, _, _ := newService(t)
-	svc.ok("", "note", "--kind", "fact", "--human", "alex", "--global", "The office is closed on Fridays.")
-	start := func(session string) string {
-		stdout, _, _ := svc.run(`{"hook_event_name":"SessionStart","session_id":"`+session+`","source":"startup","cwd":"`+t.TempDir()+`"}`, "hook", "claude-code")
-		return stdout
-	}
-	if out := start("a"); !strings.Contains(out, "add `--replaces ID` to the note. If you only know it is wrong") || strings.Contains(out, "--amends") {
-		t.Errorf("the session-start text as installed:\n%s", out)
-	}
-	svc.env["CMEM_INDEX_WORDING"] = "amends"
-	expectContains(t, start("b"), "add `--replaces ID` to the note. If it is one thing in a long entry whose rest still holds, add `--amends ID` instead", "If you only know it is wrong")
 }
 
 // The installed binary is a relay: it sends its command line to the service,

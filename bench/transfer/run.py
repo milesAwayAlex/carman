@@ -64,12 +64,10 @@ ARMS = {
     "cmem_hook_wide": (True, "the same, with the index split over five hooks so that it holds every lesson"),
     "cmem_hook_brief": (True, "the same as cmem_hook_crowded, plus a small model that reads what the index left out"),
     "cmem_hook_unscoped": (True, "cmem with the hook as it was before notes had to say who they are for: every note global"),
-    "cmem_hook_amends": (True, "cmem with the hook, and a session-start text that also offers --amends for one fact in a long entry"),
 }
 SHARED = ("builtin_shared", "shared_crowded")
-CMEM = ("cmem", "cmem_hook", "cmem_crowded", "cmem_hook_crowded", "cmem_hook_wide", "cmem_hook_brief", "cmem_hook_unscoped",
-        "cmem_hook_amends")
-HOOKED = ("cmem_hook", "cmem_hook_crowded", "cmem_hook_wide", "cmem_hook_brief", "cmem_hook_unscoped", "cmem_hook_amends")
+CMEM = ("cmem", "cmem_hook", "cmem_crowded", "cmem_hook_crowded", "cmem_hook_wide", "cmem_hook_brief", "cmem_hook_unscoped")
+HOOKED = ("cmem_hook", "cmem_hook_crowded", "cmem_hook_wide", "cmem_hook_brief", "cmem_hook_unscoped")
 
 # The directories a case's sessions run in, and the repository each is a
 # checkout of. repo-a and checkout-2 are two checkouts of one repository under
@@ -171,9 +169,6 @@ class Workspace:
                 if self.arm == "cmem_hook_unscoped":
                     settings["env"].pop("CMEM_NOTE_SCOPE", None)
                     self.env.pop("CMEM_NOTE_SCOPE", None)
-                if self.arm == "cmem_hook_amends":
-                    # The wording on trial; the setting travels with the hook.
-                    settings["env"]["CMEM_INDEX_WORDING"] = "amends"
             else:
                 (self.dir / ".claude" / "CLAUDE.md").write_text(cmem_arm.INSTRUCTION)
         if settings:
