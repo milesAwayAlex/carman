@@ -104,6 +104,11 @@ If the scoped one adds a detail the other lacks, it is not a repeat; leave it.
 - **Two entries that disagree, where neither says it replaces the other,
   both stay.** List them in your report.
 - **Do not reword for style**, and do not touch entries that are fine.
+- **Long documents are not merged.** An entry of more than a page (a plan, a
+  write-up of an incident, a how-to) cannot be merged with another without
+  rewriting it, and rewriting loses detail. When two cover the same ground,
+  list them in your report and leave both. You may still retire a long entry
+  that a newer one says outright it replaces.
 
 ## Sources
 
