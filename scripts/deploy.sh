@@ -124,13 +124,15 @@ backup)
     [ -n "$file" ] || die "name the file to write, for example cmem-library-$(date +%Y%m%d).tar"
     [ ! -e "$file" ] || die "$file already exists"
     "${kube[@]}" exec cmem-0 -- tar -C /data -cf - library > "$file" || { rm -f "$file"; die "the copy failed"; }
-    tar -tf "$file" | grep -q '^library/.git/HEAD$' || { rm -f "$file"; die "what came back is not a library"; }
+    # Asked for by name: piping the listing into grep -q would stop tar early
+    # on a large archive, and that reads as a failure.
+    tar -tf "$file" library/.git/HEAD >/dev/null 2>&1 || { rm -f "$file"; die "what came back is not a library"; }
     echo "wrote $file: $(tar -tf "$file" | grep -c '^library/entries/.*\.md$' || true) entries, with their history"
     ;;
 restore)
     file="${3:-}"
     [ -f "$file" ] || die "name the backup file to restore"
-    tar -tf "$file" | grep -q '^library/.git/HEAD$' || die "$file is not a backup made by this script"
+    tar -tf "$file" library/.git/HEAD >/dev/null 2>&1 || die "$file is not a backup made by this script"
     # The library in place is moved aside, never deleted.
     "${kube[@]}" exec -i cmem-0 -- sh -c '
         set -e
