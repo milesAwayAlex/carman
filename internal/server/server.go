@@ -145,7 +145,7 @@ func (s *Server) serve(route Route) http.HandlerFunc {
 			failure := map[string]any{"error": message}
 			var similar *memory.SimilarError
 			if errors.As(err, &similar) {
-				failure["similar"] = similar.Entries
+				failure["similar"] = parts(similar.Entries, listedText)
 			}
 			body = failure
 		} else if route.Creates {
@@ -239,8 +239,41 @@ func (s *Server) getEpisode(r *http.Request, _ Role) (any, error) {
 	return s.store.Episode(r.PathValue("id"))
 }
 
+// How much of an entry's text each kind of answer carries. An entry can be a
+// document of hundreds of thousands of characters; a list or a search result
+// that carried all of it would fill the context of the agent that asked. The
+// whole text is always available from GET /v1/entries/{id}.
+const (
+	listedText = 300  // in the index, a flashback, a brief, or a close-entry answer: one line is shown
+	foundText  = 2000 // in a recall result, or after a flag
+	browseText = 600  // in the list of every current entry
+)
+
+func parts(entries []memory.Entry, limit int) []memory.Entry {
+	out := make([]memory.Entry, len(entries))
+	for i, e := range entries {
+		out[i] = e.Part(0, limit)
+	}
+	return out
+}
+
+// getEntry returns one entry whole, or the part of its text that from and
+// limit ask for.
 func (s *Server) getEntry(r *http.Request, _ Role) (any, error) {
-	return s.store.Entry(r.PathValue("id"))
+	entry, err := s.store.Entry(r.PathValue("id"))
+	if err != nil {
+		return nil, err
+	}
+	params := r.URL.Query()
+	if params.Get("limit") == "" {
+		return entry, nil
+	}
+	from, _ := strconv.Atoi(params.Get("from"))
+	limit, err := strconv.Atoi(params.Get("limit"))
+	if err != nil || limit < 1 || from < 0 {
+		return nil, fmt.Errorf("%w: from and limit count characters and cannot be negative", errBadRequest)
+	}
+	return entry.Part(from, limit), nil
 }
 
 // NoteRequest is the body of POST /v1/notes. A note needs evidence (what the
@@ -310,7 +343,7 @@ func (s *Server) recall(r *http.Request, _ Role) (any, error) {
 		}
 		q.Limit = limit
 	}
-	return s.store.Recall(q), nil
+	return parts(s.store.Recall(q), foundText), nil
 }
 
 // IndexRequest is the body of POST /v1/index: the list for a session's start.
@@ -332,7 +365,7 @@ func (s *Server) index(r *http.Request, _ Role) (any, error) {
 		return nil, err
 	}
 	entries, total := s.store.Index(memory.IndexQuery{SessionID: req.SessionID, Scope: req.Scope, Budget: req.Budget})
-	return IndexResponse{entries, total}, nil
+	return IndexResponse{parts(entries, listedText), total}, nil
 }
 
 // FlashbackRequest is the body of POST /v1/flashback: the text of a moment in
@@ -351,9 +384,9 @@ func (s *Server) flashback(r *http.Request, _ Role) (any, error) {
 	if err := decode(r, &req); err != nil {
 		return nil, err
 	}
-	return s.store.Flashback(memory.FlashbackQuery{
+	return parts(s.store.Flashback(memory.FlashbackQuery{
 		SessionID: req.SessionID, Event: req.Event, Text: req.Text, Scope: req.Scope, Names: req.Names, Limit: req.Limit,
-	}), nil
+	}), listedText), nil
 }
 
 // BriefRequest is the body of POST /v1/brief, which serves a harness that has
@@ -377,9 +410,9 @@ func (s *Server) brief(r *http.Request, _ Role) (any, error) {
 		if event == "" {
 			event = "brief"
 		}
-		return s.store.Show(req.SessionID, event, req.Pick), nil
+		return parts(s.store.Show(req.SessionID, event, req.Pick), listedText), nil
 	}
-	return s.store.Unshown(req.SessionID, req.Scope), nil
+	return parts(s.store.Unshown(req.SessionID, req.Scope), listedText), nil
 }
 
 // FlagRequest is the body of POST /v1/entries/{id}/flag.
@@ -396,7 +429,8 @@ func (s *Server) flag(r *http.Request, role Role) (any, error) {
 	if err := s.store.Flag(id, origin(role), req.Reason); err != nil {
 		return nil, err
 	}
-	return s.store.Entry(id)
+	entry, err := s.store.Entry(id)
+	return entry.Part(0, foundText), err
 }
 
 // EntryRequest is the body of the consolidation role's add and supersede.
@@ -478,11 +512,7 @@ func (s *Server) retire(r *http.Request, _ Role) (any, error) {
 // listEntries returns every current entry, oldest first, with its sources and
 // flags: what the consolidation role reads before it changes anything.
 func (s *Server) listEntries(_ *http.Request, _ Role) (any, error) {
-	entries := s.store.CurrentEntries(time.Time{})
-	if entries == nil {
-		entries = []memory.Entry{}
-	}
-	return entries, nil
+	return parts(s.store.CurrentEntries(time.Time{}), browseText), nil
 }
 
 // RunRequest is the body of POST /v1/runs.

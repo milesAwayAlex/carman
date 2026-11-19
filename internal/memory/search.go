@@ -60,13 +60,26 @@ func stems(text string) map[string]int {
 // document is what search knows about one entry.
 type document struct {
 	stems  map[string]int
-	length int // number of stemmed words
+	length int            // number of stemmed words
+	head   map[string]int // the stems of the entry's opening; see headLength
 }
+
+// headLength is how much of an entry counts when judging whether it is about
+// the same thing as some other text (overlap). An entry is usually a sentence
+// or two, and all of it counts. But an entry can also be a long working
+// document, and a long document contains most common words: measured whole,
+// it would look close to every prompt and to every new note. What such an
+// entry is about is said in its opening lines.
+const headLength = 600
 
 func newDocument(text string) document {
 	d := document{stems: stems(text)}
 	for _, n := range d.stems {
 		d.length += n
+	}
+	d.head = d.stems
+	if runes := []rune(text); len(runes) > headLength {
+		d.head = stems(string(runes[:headLength]))
 	}
 	return d
 }
@@ -120,13 +133,13 @@ func (c *corpus) score(id string, query map[string]int) float64 {
 // entry it fully contains, and a short prompt an entry that contains all of it.
 func (c *corpus) overlap(id string, query map[string]int) (matched int, share float64) {
 	d := c.documents[id]
-	if len(d.stems) == 0 || len(query) == 0 {
+	if len(d.head) == 0 || len(query) == 0 {
 		return 0, 0
 	}
 	for stem := range query {
-		if d.stems[stem] > 0 {
+		if d.head[stem] > 0 {
 			matched++
 		}
 	}
-	return matched, math.Max(float64(matched)/float64(len(d.stems)), float64(matched)/float64(len(query)))
+	return matched, math.Max(float64(matched)/float64(len(d.head)), float64(matched)/float64(len(query)))
 }

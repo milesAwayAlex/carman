@@ -322,6 +322,73 @@ func TestM2_TheLibraryRecoversFromAStopInTheMiddleOfAWrite(t *testing.T) {
 	}
 }
 
+// An entry can be a long working document, brought in from another memory.
+// Such a document contains most common words. It must not look close to every
+// prompt and every new note, and a list must not carry all of it.
+func TestALongEntryIsJudgedByItsOpeningAndShownInPart(t *testing.T) {
+	s := newStore(t)
+	// What the entry is about is in its opening; a real document's first
+	// paragraphs stay on its subject before the detail starts.
+	opening := strings.Repeat("The session cache migration moves each cache to the managed service, wave by wave. ", 8)
+	filler := strings.Repeat("The rollout plan lists every service, its owner, the command to restart it, the cluster, "+
+		"the context, the tests to run, the notes taken and the decisions made along the way. ", 400)
+	long, err := s.Remember(NewNote{Separate: true, Entry: NewEntry{CreatedBy: AuthorAgent, Kind: KindFact, Sources: []Source{{Human: "alex"}},
+		Text: "Cache migration plan: the session cache moves to the managed service in three waves.\n\n" + opening + filler}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(long.Text) < 50000 {
+		t.Fatalf("the test's long entry is only %d characters", len(long.Text))
+	}
+
+	// A moment that shares words only with the body does not bring it up...
+	if got := s.Flashback(FlashbackQuery{SessionID: "a", Text: "which command restarts the service, and who is its owner?"}); len(got) != 0 {
+		t.Errorf("a long entry was volunteered for a moment its opening has nothing to do with: %.80q", texts(got))
+	}
+	// ...one about what its opening says does...
+	if got := s.Flashback(FlashbackQuery{SessionID: "b", Text: "the session cache migration to the managed service"}); len(got) != 1 {
+		t.Errorf("a long entry was not volunteered for a moment about its subject")
+	}
+	// ...and a search of its whole text still finds it.
+	if got := s.Recall(RecallQuery{Text: "who is the owner of each service in the rollout"}); len(got) != 1 {
+		t.Errorf("recall does not search the whole of a long entry")
+	}
+	// A new note on something else is not held as close to it.
+	if _, err := s.Remember(told("Restart a service with its own command; ask its owner first.")); err != nil {
+		t.Errorf("a new note was held as close to a long document: %v", err)
+	}
+
+	// In part: the opening, and a line saying how to go on.
+	part := long.Part(0, 300)
+	if part.TextLength != len([]rune(long.Text)) || !strings.HasPrefix(part.Text, "Cache migration plan") ||
+		!strings.Contains(part.Text, "`cmem get "+long.ID+" --from 300` continues") || len(part.Text) > 500 {
+		t.Errorf("part of a long entry = %d characters, length reported %d:\n%.400s", len(part.Text), part.TextLength, part.Text)
+	}
+	// Reading on from there reaches the end, and the pieces make the whole.
+	var whole strings.Builder
+	for from := 0; from < len([]rune(long.Text)); from += 20000 {
+		piece := long.Part(from, 20000).Text
+		if i := strings.Index(piece, "\n… [characters "); i >= 0 {
+			piece = piece[:i]
+		}
+		whole.WriteString(piece)
+	}
+	if whole.String() != long.Text {
+		t.Errorf("reading a long entry a page at a time does not give back its text")
+	}
+	// A short entry is never altered.
+	short := mustAdd(t, s, "Short and whole.", mustEpisode(t, s, OutcomePassed))
+	if p := short.Part(0, 300); p.Text != short.Text || p.TextLength != 0 {
+		t.Errorf("a short entry was cut: %+v", p)
+	}
+	// Text copied from a cut listing is not accepted as an entry.
+	cut := told(part.Text)
+	cut.Separate = true
+	if _, err := s.Remember(cut); !errors.Is(err, ErrInvalid) {
+		t.Errorf("storing the cut text of an entry: %v, want ErrInvalid", err)
+	}
+}
+
 func TestM2_TheLibrarySurvivesARestart(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir)

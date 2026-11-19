@@ -629,3 +629,85 @@ func TestARepositoryHasOneScopeWhereverItIsCheckedOut(t *testing.T) {
 	expectContains(t, svc.ok("", "note", "--kind", "fact", "--human", "alex", "--replaces", held[0].ID, "Invoices are rounded half-up since March."),
 		"[repo:github.com/acme/billing]")
 }
+
+func TestALongEntryIsReadAPageAtATime(t *testing.T) {
+	laptop, _, dreamer := newService(t)
+	body := strings.TrimSpace(strings.Repeat("Line of a long working document about the cache migration and its waves. ", 700))
+	var long memory.Entry
+	if err := json.Unmarshal([]byte(laptop.ok("", "note", "--json", "--kind", "fact", "--human", "alex", "Cache migration plan.", body)), &long); err != nil {
+		t.Fatal(err)
+	}
+	full := "Cache migration plan. " + body
+
+	// A search result, the list of every entry, and the session index each carry only part of it.
+	for name, out := range map[string]string{
+		"recall":              laptop.ok("", "recall", "cache", "migration"),
+		"consolidate entries": dreamer.ok("", "consolidate", "entries"),
+		"index":               laptop.ok("", "index"),
+	} {
+		if len(out) > 4000 || !strings.Contains(out, "Cache migration plan.") {
+			t.Errorf("%s printed %d characters for an entry of %d", name, len(out), len(full))
+		}
+	}
+	expectContains(t, laptop.ok("", "recall", "cache", "migration"), "`cmem get "+long.ID+" --from 2000` continues")
+
+	// get reads it a page at a time, each page naming the next, and the pages make the whole.
+	var read strings.Builder
+	for from, pages := 0, 0; from < len(full); pages++ {
+		out := laptop.ok("", "get", "--from", fmt.Sprint(from), long.ID)
+		text := out[strings.Index(out, "\n    ")+5:]
+		text = text[:strings.Index(text, "\n    sources:")]
+		if i := strings.Index(text, "\n… [characters "); i >= 0 {
+			text = text[:i]
+		} else if from+20000 < len(full) {
+			t.Fatalf("page from %d does not say how to continue", from)
+		}
+		read.WriteString(text)
+		from += 20000
+		if pages > 10 {
+			t.Fatal("get never reached the end")
+		}
+	}
+	if read.String() != full {
+		t.Errorf("the pages of a long entry make %d characters, the entry has %d", read.Len(), len(full))
+	}
+	// --json gives all of it at once.
+	var whole memory.Entry
+	json.Unmarshal([]byte(laptop.ok("", "get", "--json", long.ID)), &whole)
+	if whole.Text != full || whole.TextLength != 0 {
+		t.Errorf("get --json returned %d characters", len(whole.Text))
+	}
+}
+
+func TestTheCLISaysWhatWentWrong(t *testing.T) {
+	laptop, worker, _ := newService(t)
+
+	cases := []struct {
+		name     string
+		shell    shell
+		args     []string
+		wantCode int
+		wantErr  string
+	}{
+		{"an unknown command", laptop, []string{"forget"}, 2, "unknown command"},
+		{"a note without evidence", worker, []string{"note", "--kind", "fact", "x"}, 1, "what you observed"},
+		{"a note of an unknown kind", worker, []string{"note", "--kind", "rumour", "--evidence", "e", "x"}, 1, "unknown kind"},
+		{"a worker citing a human", worker, []string{"note", "--kind", "fact", "--human", "alex", "x"}, 1, "only the laptop"},
+		{"a worker superseding", worker, []string{"supersede", "some-id", "--kind", "fact", "x"}, 1, "may not"},
+		{"a worker opening a run", worker, []string{"consolidate", "start", "x"}, 1, "may not"},
+		{"a worker undoing a run", worker, []string{"consolidate", "revert", "some-run", "x"}, 1, "may not"},
+		{"an ID that does not exist", laptop, []string{"get", "20200101-000000-aaaa"}, 1, "not found"},
+		{"a note holding a secret", worker, []string{"note", "--kind", "fact", "--evidence", "e", "key", "AKIAIOSFODNN7EXAMPLE"}, 1, "AWS access key"},
+		{"no service configured", shell{t, map[string]string{}}, []string{"recall", "x"}, 1, "CMEM_URL and CMEM_TOKEN"},
+	}
+	for _, c := range cases {
+		_, stderr, code := c.shell.run("", c.args...)
+		if code != c.wantCode || !strings.Contains(stderr, c.wantErr) {
+			t.Errorf("%s: exit %d, stderr %q; want exit %d mentioning %q", c.name, code, stderr, c.wantCode, c.wantErr)
+		}
+	}
+
+	if out := laptop.ok("", "help"); !strings.Contains(out, "cmem recall") {
+		t.Errorf("help does not describe recall:\n%s", out)
+	}
+}

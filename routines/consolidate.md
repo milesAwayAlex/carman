@@ -13,7 +13,8 @@ it with one command, so make changes they would agree with on sight.
 
 1. Run `cmem consolidate entries`. It prints every current entry with its
    scope in square brackets, its sources, and the flags raised against it.
-   Read all of it.
+   Read all of it. A long entry is shown cut, with a line saying so; read the
+   whole of it with `cmem get ID` before you merge or retire it.
 2. Decide what to change, using the rules below. If nothing needs changing,
    say so and stop without opening a run.
 3. Run `cmem consolidate start PURPOSE`, where PURPOSE is one line saying what

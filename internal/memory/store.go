@@ -155,7 +155,29 @@ type Entry struct {
 	Status         Status     `json:"status"`
 	Contradictions int        `json:"contradictions"`
 	Flags          []Flag     `json:"flags,omitempty"`
+	// TextLength is the length of the whole text, in characters, when Text
+	// holds only part of it; zero when Text is whole.
+	TextLength int `json:"text_length,omitempty"`
 	NewEntry
+}
+
+// Part returns the entry with at most limit characters of its text, starting
+// at from. An entry can be a long working document; a list of entries, or a
+// search result, must not put all of one into an agent's context. When text
+// is left out, a last line says how much and how to read it.
+func (e Entry) Part(from, limit int) Entry {
+	runes := []rune(e.Text)
+	if from <= 0 && len(runes) <= limit {
+		return e
+	}
+	from = max(0, min(from, len(runes)))
+	end := min(from+limit, len(runes))
+	e.TextLength = len(runes)
+	e.Text = string(runes[from:end])
+	if end < len(runes) {
+		e.Text += fmt.Sprintf("\n… [characters %d to %d of %d; `cmem get %s --from %d` continues]", from+1, end, len(runes), e.ID, end)
+	}
+	return e
 }
 
 // Flag is one report that an entry is wrong or out of date.
@@ -500,6 +522,11 @@ func (s *Store) entryNote(e NewEntry, supersedes string, with ...note) (note, er
 		return note{}, fmt.Errorf("%w: unknown author %q", ErrInvalid, e.CreatedBy)
 	case len(e.Sources) == 0:
 		return note{}, ErrNoSource
+	}
+	// A text that ends in the line Part adds was copied from a list or a
+	// search result, and is only the beginning of an entry.
+	if strings.Contains(e.Text, "\n… [characters ") && strings.Contains(e.Text, "` continues]") {
+		return note{}, fmt.Errorf("%w: this text is part of an entry, cut where a list showed it; read the whole with cmem get first", ErrInvalid)
 	}
 	fields := append([]string{e.Text}, e.Scope...)
 	var sources []sourceHeader

@@ -124,11 +124,16 @@ func (c *command) importMemory(args []string) error {
 
 // claudeCodeMemory reads one Claude Code memory file: the kind its type maps
 // to, and its text. A file with no header is taken as a fact.
+//
+// The header's description is what Claude Code showed in its index for this
+// memory, and is put first in the text: the opening of an entry is what cmem
+// shows in its own index and what it matches moments against.
 func claudeCodeMemory(data []byte) (memory.Kind, string) {
 	text := strings.ReplaceAll(string(data), "\r\n", "\n")
 	var head struct {
-		Type     string `yaml:"type"`
-		Metadata struct {
+		Type        string `yaml:"type"`
+		Description string `yaml:"description"`
+		Metadata    struct {
 			Type string `yaml:"type"`
 		} `yaml:"metadata"`
 	}
@@ -144,7 +149,11 @@ func claudeCodeMemory(data []byte) (memory.Kind, string) {
 		// How the person wants things done, or who they are.
 		kind = memory.KindPreference
 	}
-	return kind, strings.TrimSpace(text)
+	text = strings.TrimSpace(text)
+	if summary := strings.TrimSpace(head.Description); summary != "" && text != "" && !strings.HasPrefix(text, summary) {
+		text = summary + "\n\n" + text
+	}
+	return kind, text
 }
 
 func summaryLine(text string) string {

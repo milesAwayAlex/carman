@@ -26,8 +26,9 @@ const usage = `cmem is the carman memory.
 Reading:
   cmem recall [--scope TAG]... [--kind KIND]... [--as-of TIME] [--limit N] WORDS...
         Find entries. Describe what you are doing or looking for in plain words.
-  cmem get ID
-        Show one entry or episode in full.
+  cmem get [--from N] ID
+        Show one entry or episode. A long entry comes a page at a time; the
+        page ends with the command that continues it.
 
 Writing:
   cmem note --kind KIND [--here | --global | --scope TAG]...
@@ -269,7 +270,11 @@ func (c *command) recall(args []string) error {
 // missBudget is how much of memory a recall that matched nothing lists.
 const missBudget = 2000
 
+// getPage is how many characters of an entry one `cmem get` prints.
+const getPage = 20000
+
 func (c *command) get(args []string) error {
+	from := c.flags.Int("from", 0, "start this many characters into the entry's text")
 	id, err := c.parse(args)
 	if err != nil {
 		return err
@@ -277,8 +282,14 @@ func (c *command) get(args []string) error {
 	if id == "" {
 		return errors.New("give the ID of an entry or episode")
 	}
+	// An entry can be very long. It is read a page at a time, and the page
+	// ends with the command for the next. --json gives the whole of it.
+	query := ""
+	if !c.json {
+		query = fmt.Sprintf("?from=%d&limit=%d", max(*from, 0), getPage)
+	}
 	var entry memory.Entry
-	err = c.call(http.MethodGet, "/v1/entries/"+url.PathEscape(id), nil, &entry)
+	err = c.call(http.MethodGet, "/v1/entries/"+url.PathEscape(id)+query, nil, &entry)
 	if err == nil {
 		return c.print(entry, func() { printEntry(c.stdout, entry) })
 	}
