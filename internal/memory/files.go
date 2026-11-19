@@ -176,6 +176,50 @@ func openLibrary(dir string) (library, error) {
 	return l, os.MkdirAll(filepath.Join(dir, ".cmem"), 0o755)
 }
 
+// clearStaleLocks removes the lock files git leaves behind when it is killed
+// mid-write. With a lock in place every later write fails. Only the service
+// calls this, as it starts: it is the library's only writer, so a lock found
+// then cannot belong to anything still running. A second program looking at
+// the library while the service runs must never do it.
+func (l library) clearStaleLocks() {
+	locks, _ := filepath.Glob(filepath.Join(l.dir, ".git", "*.lock"))
+	more, _ := filepath.Glob(filepath.Join(l.dir, ".git", "refs", "heads", "*.lock"))
+	for _, lock := range append(locks, more...) {
+		os.Remove(lock)
+	}
+}
+
+// recover finishes writes that an unclean stop left half-done: note files
+// that are on disk, read as valid notes, and were never committed. They are
+// committed now, so that the library and its git history agree again. It
+// returns how many it committed. Files that do not read as notes are left
+// where they are; load reports them.
+func (l library) recover(valid map[string]bool) (int, error) {
+	var dirs []string
+	for _, dir := range noteDirs {
+		dirs = append(dirs, dir)
+	}
+	slices.Sort(dirs)
+	status, err := l.git(append([]string{"status", "--porcelain", "--untracked-files=all", "--"}, dirs...)...)
+	if err != nil {
+		return 0, err
+	}
+	var paths []string
+	for _, line := range strings.Split(status, "\n") {
+		if len(line) < 4 {
+			continue
+		}
+		state, path := line[:2], strings.Trim(strings.TrimSpace(line[3:]), `"`)
+		if (state == "??" || state == "A " || state == "AM") && valid[path] {
+			paths = append(paths, path)
+		}
+	}
+	if len(paths) == 0 {
+		return 0, nil
+	}
+	return len(paths), l.commit(fmt.Sprintf("Recover %d note(s) left uncommitted by an unclean stop", len(paths)), paths...)
+}
+
 // git runs one git command on the library.
 //
 // After a commit git may decide the repository needs repacking, and by default
@@ -189,6 +233,10 @@ func (l library) git(args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{
 		"-C", l.dir, "-c", "user.name=cmem", "-c", "user.email=cmem@localhost", "-c", "commit.gpgsign=false",
 		"-c", "gc.autoDetach=false", "-c", "maintenance.autoDetach=false",
+		// Have git flush what it writes to disk before a commit counts, so
+		// that a machine that stops without warning loses at most the write
+		// in flight and not the repository's consistency.
+		"-c", "core.fsync=all",
 	}, args...)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -236,6 +284,9 @@ func (l library) write(message string, notes ...note) (err error) {
 		}
 		written = append(written, path)
 		_, err = f.Write(data)
+		if err == nil {
+			err = f.Sync()
+		}
 		if closeErr := f.Close(); err == nil {
 			err = closeErr
 		}

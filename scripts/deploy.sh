@@ -6,6 +6,9 @@
 #   scripts/deploy.sh CONTEXT status    what is running, and whether it answers
 #   scripts/deploy.sh CONTEXT env       write the laptop's settings to .local/cmem.env
 #                                       and the consolidation role's to .local/cmem-dreamer.env
+#   scripts/deploy.sh CONTEXT check     ask the service's library whether every note is as written
+#   scripts/deploy.sh CONTEXT backup FILE    copy the whole library, history included, to a tar file
+#   scripts/deploy.sh CONTEXT restore FILE   put a backup in place of the library and restart
 #   scripts/deploy.sh CONTEXT token ROLE | ...
 #                                       write one role's token to a pipe, for handing to a
 #                                       password manager; refuses to write it to a terminal
@@ -111,6 +114,41 @@ env)
     printf 'export CMEM_URL=%s\nexport CMEM_DREAMER_TOKEN=%s\n' "$url" "$(secret dreamer)" > .local/cmem-dreamer.env
     echo "wrote .local/cmem.env (the laptop role) and .local/cmem-dreamer.env (the consolidation role)"
     ;;
+check)
+    "${kube[@]}" exec cmem-0 -- cmem check --library /data/library
+    "${kube[@]}" exec cmem-0 -- git -C /data/library fsck --strict --no-dangling >/dev/null && echo "git finds the repository whole"
+    echo "notes: $("${kube[@]}" exec cmem-0 -- sh -c 'find /data/library/entries -name "*.md" | wc -l') entries; last write: $("${kube[@]}" exec cmem-0 -- git -C /data/library log -1 --format='%cd  %s' --date=iso)"
+    ;;
+backup)
+    file="${3:-}"
+    [ -n "$file" ] || die "name the file to write, for example cmem-library-$(date +%Y%m%d).tar"
+    [ ! -e "$file" ] || die "$file already exists"
+    "${kube[@]}" exec cmem-0 -- tar -C /data -cf - library > "$file" || { rm -f "$file"; die "the copy failed"; }
+    tar -tf "$file" | grep -q '^library/.git/HEAD$' || { rm -f "$file"; die "what came back is not a library"; }
+    echo "wrote $file: $(tar -tf "$file" | grep -c '^library/entries/.*\.md$' || true) entries, with their history"
+    ;;
+restore)
+    file="${3:-}"
+    [ -f "$file" ] || die "name the backup file to restore"
+    tar -tf "$file" | grep -q '^library/.git/HEAD$' || die "$file is not a backup made by this script"
+    # The library in place is moved aside, never deleted.
+    "${kube[@]}" exec -i cmem-0 -- sh -c '
+        set -e
+        rm -rf /data/restoring && mkdir /data/restoring
+        tar -C /data/restoring -xf -
+        test -f /data/restoring/library/.git/HEAD
+        aside=/data/library.replaced-$(date +%Y%m%dT%H%M%S)
+        mv /data/library "$aside"
+        mv /data/restoring/library /data/library
+        rmdir /data/restoring
+        echo "the library that was in place is kept as $aside in the volume"' < "$file"
+    # The service holds the old library in memory; restarting makes it read the restored one.
+    "${kube[@]}" delete pod cmem-0 --wait=true >/dev/null
+    "${kube[@]}" rollout status statefulset/cmem --timeout=120s >/dev/null
+    sleep 3
+    echo "restored $file: $("${kube[@]}" exec cmem-0 -- sh -c 'find /data/library/entries -name "*.md" | wc -l') entries"
+    if answers; then echo "the service answers at $url"; else echo "the service does not answer at $url from this machine"; fi
+    ;;
 token)
     role="${3:-}"
     case "$role" in laptop | worker | dreamer) ;; *) die "name the role: laptop, worker or dreamer" ;; esac
@@ -118,6 +156,6 @@ token)
     secret "$role"
     ;;
 *)
-    die "unknown action $action; say deploy, status, env or token"
+    die "unknown action $action; say deploy, status, check, backup, restore, env or token"
     ;;
 esac

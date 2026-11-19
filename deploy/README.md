@@ -51,6 +51,12 @@ stale, as was seen on this machine for the API's own port. The VM's operating
 manual covers both. The hook says at the start of a session when memory cannot
 be reached, so this does not fail silently.
 
+## When something goes wrong
+
+[RECOVERY.md](RECOVERY.md) has the steps: starting it up after a restart, what
+to check after an unexpected stop, backing up, restoring, and what to do when
+the volume is gone.
+
 ## Looking at the library
 
     kubectl --context devvm -n carman exec cmem-0 -- git -C /data/library log --oneline
@@ -62,10 +68,9 @@ be reached, so this does not fail silently.
   VM's state disk, so it survives a rebuild of the VM and deleting the
   instance, but not deleting the state disk. The storage class deletes a
   volume when its claim is deleted: removing the StatefulSet or the pod keeps
-  the claim, removing the claim or the namespace loses the memory. The service
-  does not sync its writes to disk, so a VM that is killed rather than shut
-  down can lose the last notes. A git remote to push to is the intended backup
-  (DESIGN.md, question Q6).
+  the claim, removing the claim or the namespace loses the memory. Until a git
+  remote exists to push to (DESIGN.md, question Q6), the backup is by hand:
+  `scripts/deploy.sh devvm backup FILE`.
 - **Keep its image.** The image exists only in the VM's image store. While the
   pod runs it is safe; under disk pressure the kubelet may remove an image no
   pod is using. Deploying again rebuilds it.

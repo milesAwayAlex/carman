@@ -196,6 +196,15 @@ func (c *command) serve(args []string) error {
 	}
 
 	log := slog.New(slog.NewTextHandler(c.stderr, nil))
+	// Nothing else writes to the library, so what a previous stop in the
+	// middle of a write left behind is put right before serving.
+	recovered, err := store.Recover()
+	if err != nil {
+		return err
+	}
+	if recovered > 0 {
+		log.Warn("committed notes that an unclean stop had left uncommitted", "notes", recovered)
+	}
 	srv := &http.Server{Addr: *listen, Handler: server.New(store, tokens, log).Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-c.ctx.Done()

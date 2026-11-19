@@ -47,7 +47,8 @@ Go and git come from the Nix flake; nothing else needs installing.
     nix build .#cmem && ./result/bin/cmem help
 
 - Using it from Claude Code: [adapters/claude-code](adapters/claude-code/README.md)
-- Running the service on Kubernetes: [deploy](deploy/README.md)
+- Running the service on Kubernetes: [deploy](deploy/README.md), and getting
+  it back when something goes wrong: [deploy/RECOVERY.md](deploy/RECOVERY.md)
 
 ## Where things are
 

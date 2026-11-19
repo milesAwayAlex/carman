@@ -287,6 +287,7 @@ type Store struct {
 	runs         map[string]*Run
 	// RunCap is the most entries one consolidation run may change.
 	RunCap   int
+	loaded   []string // the note files read at Open, for Recover
 	corpus   *corpus
 	shown    map[string]map[string]bool // session ID -> entries already put in front of it
 	last     time.Time
@@ -310,12 +311,38 @@ func Open(dir string) (*Store, error) {
 		return nil, fmt.Errorf("memory: load %s: %w", dir, err)
 	}
 	s.problems = problems
+	for _, n := range notes {
+		s.loaded = append(s.loaded, n.path())
+	}
 	sort.Slice(notes, func(i, j int) bool { return notes[i].Created.Before(notes[j].Created) })
 	for _, n := range notes {
 		s.apply(n)
 	}
 	s.loadShown()
 	return s, nil
+}
+
+// Recover puts right what a stop in the middle of a write leaves behind: the
+// lock files with which git would refuse every later write, and notes that
+// are whole on disk but in no commit, which it commits. It returns how many
+// notes it committed.
+//
+// Only the service calls this, once, as it starts and before it serves. It is
+// the library's only writer, so nothing it clears can be in use. A program
+// that opens the library beside a running service (cmem check) must not.
+func (s *Store) Recover() (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lib.clearStaleLocks()
+	valid := map[string]bool{}
+	for _, path := range s.loaded {
+		valid[path] = true
+	}
+	n, err := s.lib.recover(valid)
+	if err != nil {
+		return 0, fmt.Errorf("memory: recover: %w", err)
+	}
+	return n, nil
 }
 
 // Close is here for callers that manage a Store's lifetime; nothing is held open.

@@ -317,7 +317,13 @@ which are the weakest parts. Three things are meant to keep that manageable:
 - On GCP, workers reach it inside the cluster and the laptop over Tailscale,
   with tailnet ACLs controlling reachability (not built).
 - One token per role, generated at the first deploy and kept in a Secret.
-- There is no backup yet; a git remote for the library is the plan (Q6).
+- There is no automatic backup yet; a git remote for the library is the plan
+  (Q6). Until then `scripts/deploy.sh CONTEXT backup FILE` copies the library
+  out, and `deploy/RECOVERY.md` has the steps for starting, checking and
+  restoring.
+- The service recovers by itself from a stop in the middle of a write: it
+  clears git's stale locks and commits whole notes left uncommitted, and
+  writes are flushed to disk before they count.
 - For trying things out, `scripts/dev-service.sh` runs a separate service on
   port 8378 with a library in `.local/library`.
 

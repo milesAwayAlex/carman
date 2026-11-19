@@ -249,6 +249,79 @@ func TestM2_AFailedWriteLeavesNothingBehind(t *testing.T) {
 	}
 }
 
+// A machine can stop without warning in the middle of a write. git is then
+// left with a lock that blocks every later write, and possibly with a note
+// that is on disk but in no commit. Starting the service again has to put
+// both right without anyone's help.
+func TestM2_TheLibraryRecoversFromAStopInTheMiddleOfAWrite(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	passed := mustEpisode(t, s, OutcomePassed)
+	kept := mustAdd(t, s, "Written and committed before the stop.", passed)
+
+	// What a kill between "file written" and "commit made" leaves behind.
+	half := s.newNote(typeEntry)
+	half.Kind, half.CreatedBy, half.body = KindFact, AuthorAgent, "Written to disk, never committed."
+	half.Sources = []sourceHeader{{Episode: passed.ID}}
+	data, _ := half.render()
+	os.MkdirAll(filepath.Join(dir, filepath.Dir(half.path())), 0o755)
+	if err := os.WriteFile(filepath.Join(dir, half.path()), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A file cut short by the same stop, and the locks git left.
+	torn := filepath.Join(dir, "entries", "2026", "11", "20261119-000000-torn.md")
+	os.MkdirAll(filepath.Dir(torn), 0o755)
+	os.WriteFile(torn, []byte("---\nid: 20261119-000000-torn\ntype: ent"), 0o644)
+	for _, lock := range []string{"index.lock", "HEAD.lock", filepath.Join("refs", "heads", "main.lock")} {
+		os.WriteFile(filepath.Join(dir, ".git", lock), nil, 0o644)
+	}
+
+	// Looking at the library does not touch it: a second program may open it
+	// while the service is in the middle of a write.
+	if _, err := Open(dir); err != nil {
+		t.Fatalf("open after an unclean stop: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git", "index.lock")); err != nil {
+		t.Errorf("merely opening the library removed a lock")
+	}
+	// The service, as it starts, puts it right.
+	again, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := again.Recover(); err != nil || n != 1 {
+		t.Errorf("recovered %d notes (%v), want the one that was whole", n, err)
+	}
+	if got := texts(again.CurrentEntries(time.Time{})); !equal(got, []string{kept.Text, half.body}) {
+		t.Errorf("after recovery, current = %q", got)
+	}
+	// Writes work again, and the library is consistent apart from the torn
+	// file, which is reported and left for a person to look at.
+	mustAdd(t, again, "Written after the restart.", passed)
+	problems, err := again.Check()
+	if err != nil || len(problems) != 1 || !strings.Contains(problems[0], "torn") {
+		t.Errorf("check after recovery: %q, %v; want only the torn file reported", problems, err)
+	}
+	out, _ := again.lib.git("status", "--porcelain", "--untracked-files=all")
+	if left := strings.Fields(strings.TrimSpace(out)); len(left) != 2 || !strings.Contains(left[1], "torn") {
+		t.Errorf("after recovery git should hold everything but the torn file:\n%s", out)
+	}
+	if out, err := again.lib.git("fsck", "--strict", "--no-dangling"); err != nil {
+		t.Errorf("git fsck after recovery: %v\n%s", err, out)
+	}
+	// A third start finds nothing more to do.
+	third, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := third.Recover(); err != nil || n != 0 {
+		t.Errorf("a clean start recovered %d notes, err %v", n, err)
+	}
+}
+
 func TestM2_TheLibrarySurvivesARestart(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(dir)
