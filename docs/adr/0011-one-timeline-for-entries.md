@@ -1,6 +1,6 @@
 # 0011. Entries have one timeline: when the memory held them as current
 
-Status: Proposed (2026-11-18). The owner is unsure; the benchmark's
+Status: Accepted (2026-11-19, as proven in use; proposed 2026-11-18). The owner is unsure; the benchmark's
 changed-fact tasks are meant to settle it.
 
 ## Context

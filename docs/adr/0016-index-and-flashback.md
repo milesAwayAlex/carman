@@ -1,6 +1,6 @@
 # 0016. Memory reaches the agent unasked: an index at session start and flashback at key moments
 
-Status: Proposed (2026-11-18). Built; whether it helps is for the benchmark to
+Status: Accepted (2026-11-19, as proven in use; proposed 2026-11-18). Built; whether it helps is for the benchmark to
 say. The owner's stated concern is context bloat.
 
 ## Context

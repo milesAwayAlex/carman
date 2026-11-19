@@ -1,0 +1,69 @@
+# The dreamer: the consolidation routine, run on a schedule beside the memory
+# it tidies (ADR 0027). It is the first agent carman runs by itself.
+#
+# It starts suspended. It needs a model credential in the secret
+# carman-model, which is put there on purpose (deploy/README.md, ADR 0028);
+# `scripts/deploy.sh CONTEXT dreamer on` then lets the schedule run.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: dreamer
+  namespace: carman
+spec:
+  # Once a night, at an hour when nobody is working (the times are UTC).
+  schedule: "17 10 * * *"
+  suspend: true
+  # A run reads the whole library before it changes anything; two at once
+  # would each act on what the other is about to change.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 1209600
+      template:
+        metadata:
+          labels:
+            app: dreamer
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+          containers:
+            - name: dreamer
+              image: AGENT_IMAGE
+              imagePullPolicy: IfNotPresent
+              args: ["consolidate"]
+              env:
+                - name: CMEM_URL
+                  value: http://cmem:8377
+                # The consolidation role, and nothing wider.
+                - name: CMEM_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: cmem-tokens
+                      key: dreamer
+                - name: CLAUDE_CODE_OAUTH_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: carman-model
+                      key: token
+                - name: CARMAN_MODEL
+                  value: claude-sonnet-5-5
+              volumeMounts:
+                - name: home
+                  mountPath: /home/agent
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  memory: 1Gi
+          volumes:
+            # The harness keeps its session files here; nothing outlives the run.
+            - name: home
+              emptyDir: {}

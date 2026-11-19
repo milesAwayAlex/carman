@@ -1,6 +1,6 @@
 # 0010. Development conventions for the memory service
 
-Status: Proposed (2026-11-18). Revised the same day when storage moved from
+Status: Accepted (2026-11-19, as proven in use; proposed 2026-11-18). Revised the same day when storage moved from
 Postgres to markdown notes (0015).
 
 ## Context

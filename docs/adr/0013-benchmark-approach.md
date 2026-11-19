@@ -1,6 +1,6 @@
 # 0013. Benchmark memory with a retrieval set and a task stream on Continual Learning Bench
 
-Status: Proposed (2026-11-18). The owner agreed to the two tiers and the arms
+Status: Accepted (2026-11-19, as proven in use; proposed 2026-11-18). The owner agreed to the two tiers and the arms
 and said to try Continual Learning Bench. The first tier is built. The second
 is blocked on two things only the owner can provide (below).
 

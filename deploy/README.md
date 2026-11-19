@@ -90,3 +90,32 @@ from the flake's `cmem-claude-code-settings` package given to `claude
 --settings`.
 - **Deploy to a cluster with a registry.** Build and push the image yourself,
   set `CARMAN_IMAGE`, and add an overlay that says how the service is reached.
+
+## The dreamer
+
+The consolidation routine (`routines/consolidate.md`) also runs in the
+cluster, as the CronJob `dreamer`: once a night, with the consolidation
+role's token and the memory command as its only tool (ADR 0027). A deploy
+creates it switched off.
+
+It needs a credential for calling a model, in the secret `carman-model`.
+Put it there from whatever holds it, by a pipe, so that it is never typed or
+written down (ADR 0028):
+
+    PROGRAM-THAT-PRINTS-THE-TOKEN | scripts/deploy.sh CONTEXT secret carman-model
+
+Then:
+
+    scripts/deploy.sh CONTEXT dreamer run    # once, now, and print its report
+    scripts/deploy.sh CONTEXT dreamer on     # let the nightly schedule run
+    scripts/deploy.sh CONTEXT dreamer log    # the latest run's report
+    scripts/deploy.sh CONTEXT dreamer off
+
+Every run is in memory's own log and can be undone whole:
+`cmem consolidate log`, then `cmem consolidate revert RUN REASON` with the
+consolidation role's token (`.local/cmem-dreamer.env`).
+
+To try the image without the cluster, against a development service:
+
+    docker run --rm -e CLAUDE_CODE_OAUTH_TOKEN -e CMEM_URL=http://HOST:8378 \
+        -e CMEM_TOKEN=dev-dreamer "$(scripts/deploy.sh CONTEXT agent-image)" consolidate

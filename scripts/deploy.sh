@@ -12,6 +12,13 @@
 #   scripts/deploy.sh CONTEXT token ROLE | ...
 #                                       write one role's token to a pipe, for handing to a
 #                                       password manager; refuses to write it to a terminal
+#   ... | scripts/deploy.sh CONTEXT secret NAME [KEY]
+#                                       put what arrives on standard input into the cluster as
+#                                       the secret NAME (key KEY, or "token"); never an argument
+#   scripts/deploy.sh CONTEXT dreamer on|off    let the nightly consolidation run, or stop it
+#   scripts/deploy.sh CONTEXT dreamer run       run it once now and show what it reported
+#   scripts/deploy.sh CONTEXT dreamer log       the report of the latest run
+#   scripts/deploy.sh CONTEXT agent-image       build the agent image and print its name
 #
 # What is applied is an overlay under deploy/k8s; `local` unless CARMAN_OVERLAY
 # names another. CMEM_URL is where this machine reaches the service, and is
@@ -51,17 +58,37 @@ answers() { curl -fsS -m 3 -o /dev/null "$url/healthz" 2>/dev/null; }
 
 secret() { "${kube[@]}" get secret cmem-tokens -o "jsonpath={.data.$1}" | base64 -d; }
 
+# The build context has to be somewhere the container runtime can see.
+build_root="${CARMAN_BENCH_ROOT:-$HOME/carman-bench}/build"
+linux_cmem() {
+    local arch build=(go build)
+    arch="$(docker info --format '{{.Architecture}}')"
+    case "$arch" in aarch64 | arm64) arch=arm64 ;; x86_64 | amd64) arch=amd64 ;; *) die "unknown architecture $arch" ;; esac
+    command -v go >/dev/null || build=(nix develop -c go build)
+    CGO_ENABLED=0 GOOS=linux GOARCH="$arch" "${build[@]}" -o "$1" ./cmd/cmem
+}
+
+# The agent image: the harness, the memory client and the routines. Sets
+# CARMAN_AGENT_IMAGE unless it is already set to an image pushed elsewhere.
+build_agent() {
+    [ -z "${CARMAN_AGENT_IMAGE:-}" ] || return 0
+    local root="$build_root/agent"
+    rm -rf "$root" && mkdir -p "$root"
+    linux_cmem "$root/cmem"
+    cp deploy/agent/Dockerfile deploy/agent/run-routine "$root/"
+    cp -R routines "$root/routines"
+    # A new tag whenever anything in it changes.
+    CARMAN_AGENT_IMAGE="carman-agent:$(cd "$root" && find . -type f | sort | xargs shasum -a 256 | shasum -a 256 | cut -c1-12)"
+    docker image inspect "$CARMAN_AGENT_IMAGE" >/dev/null 2>&1 || docker build -q -t "$CARMAN_AGENT_IMAGE" "$root" >/dev/null
+    echo "built $CARMAN_AGENT_IMAGE" >&2
+}
+
 case "$action" in
 deploy)
     if [ -z "${CARMAN_IMAGE:-}" ]; then
-        # The build context has to be somewhere the container runtime can see.
-        root="${CARMAN_BENCH_ROOT:-$HOME/carman-bench}/build/service"
+        root="$build_root/service"
         mkdir -p "$root"
-        arch="$(docker info --format '{{.Architecture}}')"
-        case "$arch" in aarch64 | arm64) arch=arm64 ;; x86_64 | amd64) arch=amd64 ;; *) die "unknown architecture $arch" ;; esac
-        build=(go build)
-        command -v go >/dev/null || build=(nix develop -c go build)
-        CGO_ENABLED=0 GOOS=linux GOARCH="$arch" "${build[@]}" -o "$root/cmem" ./cmd/cmem
+        linux_cmem "$root/cmem"
         cp deploy/Dockerfile "$root/Dockerfile"
         # A new tag whenever the binary changes, so the cluster rolls it out.
         CARMAN_IMAGE="carman-cmem:$(shasum -a 256 "$root/cmem" | cut -c1-12)"
@@ -93,7 +120,13 @@ EOF
         echo "made the token secret"
     fi
 
-    kubectl kustomize "$overlay" | sed "s|CMEM_IMAGE|$CARMAN_IMAGE|" | "${kube[@]}" apply -f -
+    build_agent
+    # Whether the dreamer's schedule is on is a setting of the cluster, not of
+    # the manifest: a deploy leaves it as it was, and off the first time.
+    dreaming="$("${kube[@]}" get cronjob dreamer -o 'jsonpath={.spec.suspend}' 2>/dev/null || true)"
+    kubectl kustomize "$overlay" |
+        sed -e "s|CMEM_IMAGE|$CARMAN_IMAGE|" -e "s|AGENT_IMAGE|$CARMAN_AGENT_IMAGE|" -e "s|suspend: true|suspend: ${dreaming:-true}|" |
+        "${kube[@]}" apply -f -
     "${kube[@]}" rollout status statefulset/cmem --timeout=120s
     sleep 3 # a port forward to this machine, if there is one, takes a moment
     if answers; then
@@ -157,7 +190,45 @@ token)
     [ ! -t 1 ] || die "this prints a credential; pipe it to the program that stores it"
     secret "$role"
     ;;
+secret)
+    name="${3:-}" key="${4:-token}"
+    [ -n "$name" ] || die "name the secret, for example: ... | scripts/deploy.sh $context secret carman-model"
+    [ ! -t 0 ] || die "the value comes on standard input, from the program that holds it; it is never typed or given as an argument"
+    # From standard input to the cluster's API, and nowhere else.
+    "${kube[@]}" create secret generic "$name" "--from-file=$key=/dev/stdin" --dry-run=client -o yaml | "${kube[@]}" apply -f - >/dev/null
+    [ "$("${kube[@]}" get secret "$name" -o "jsonpath={.data.$key}" | wc -c)" -gt 8 ] || die "the secret $name came out empty"
+    echo "the cluster holds secret $name (key $key)"
+    ;;
+agent-image)
+    build_agent
+    echo "$CARMAN_AGENT_IMAGE"
+    ;;
+dreamer)
+    case "${3:-}" in
+    on | off)
+        "${kube[@]}" get secret carman-model >/dev/null 2>&1 || [ "$3" = off ] ||
+            die "the dreamer needs a model credential first: ... | scripts/deploy.sh $context secret carman-model"
+        "${kube[@]}" patch cronjob dreamer --type merge -p "{\"spec\":{\"suspend\":$([ "$3" = off ] && echo true || echo false)}}" >/dev/null
+        echo "the dreamer's schedule is $3: $("${kube[@]}" get cronjob dreamer -o 'jsonpath={.spec.schedule}') (UTC)"
+        ;;
+    run)
+        job="dreamer-$(date -u +%Y%m%d-%H%M%S)"
+        "${kube[@]}" create job "$job" --from=cronjob/dreamer >/dev/null
+        echo "started $job; waiting for it to finish (up to 30 minutes)"
+        "${kube[@]}" wait --for=condition=complete --timeout=1800s "job/$job" >/dev/null 2>&1 ||
+            echo "the run did not complete; what it printed follows" >&2
+        "${kube[@]}" logs "job/$job" --tail=-1
+        ;;
+    log)
+        job="$("${kube[@]}" get jobs -l app=dreamer --sort-by=.metadata.creationTimestamp -o name 2>/dev/null | tail -1)"
+        [ -n "$job" ] || job="$("${kube[@]}" get jobs --sort-by=.metadata.creationTimestamp -o name | grep '/dreamer' | tail -1)"
+        [ -n "$job" ] || die "the dreamer has not run yet"
+        "${kube[@]}" logs "$job" --tail=-1
+        ;;
+    *) die "say: dreamer on, dreamer off, dreamer run or dreamer log" ;;
+    esac
+    ;;
 *)
-    die "unknown action $action; say deploy, status, check, backup, restore, env or token"
+    die "unknown action $action; say deploy, status, check, backup, restore, env, token, secret, agent-image or dreamer"
     ;;
 esac

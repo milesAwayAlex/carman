@@ -76,7 +76,7 @@ clock ─────────────┘       │                      
 | **Task ledger** | One row per task: trigger, state, what it is waiting for, session ID, branch, cost, verifier result, handoff note | Proposed |
 | **Worker** | One pod per task. Runs the agent, then the verifier, then records the episode | Proposed |
 | **Verifier** | A check separate from the agent's own claim. On failure the task continues with the result | Proposed |
-| **Dreamer** | Scheduled agent run that consolidates memory | Proposed |
+| **Dreamer** | Scheduled agent run that consolidates memory | Built, switched off (ADR 0027) |
 
 ### Worker details (proposed)
 
@@ -448,10 +448,15 @@ Decisions are recorded one per file in `docs/adr/`. The index,
 5. A second harness on the benchmark (M8).
 6. The task-stream benchmark (M7), if the transfer benchmark stops being
    enough to decide on.
-7. Walking skeleton of the task path: one trigger, one worker, one verifier,
-   `cmem record` at the end.
-8. Dispatcher pacing and the task ledger's wait-and-wake routing.
-9. Dreamer, once there are enough episodes and a benchmark to check it against.
+7. The dreamer, as the first agent carman runs by itself: the consolidation
+   routine in a container, on a schedule, beside the memory (ADR 0027,
+   proposed). Built: the agent image, the routine runner, the CronJob, and
+   the commands that switch it on and run it once. Not yet: its model
+   credential in the cluster (ADR 0028, proposed), distilling long
+   documents, a check on unattended runs.
+8. Walking skeleton of the task path: one trigger, one worker, one verifier,
+   `cmem record` at the end. The dreamer's pieces are its start.
+9. Dispatcher pacing and the task ledger's wait-and-wake routing.
 
 ## 12. References
 

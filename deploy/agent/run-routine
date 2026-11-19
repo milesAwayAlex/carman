@@ -1,0 +1,18 @@
+#!/bin/sh
+# Runs one routine: a prompt under /routines, handed to the harness with the
+# memory command as the only thing it may run.
+#
+#   run-routine NAME        for example: run-routine consolidate
+#
+# From the environment: CMEM_URL and CMEM_TOKEN (the role the routine works
+# in), the harness's own model credential, and CARMAN_MODEL.
+set -eu
+routine="${1:?name a routine, for example: consolidate}"
+file="/routines/$routine.md"
+[ -f "$file" ] || { echo "run-routine: no routine named $routine" >&2; exit 2; }
+[ -n "${CMEM_URL:-}" ] && [ -n "${CMEM_TOKEN:-}" ] || { echo "run-routine: CMEM_URL and CMEM_TOKEN must be set" >&2; exit 2; }
+
+# The session hook and the harness's own memory are for working sessions.
+export CMEM_HOOK=off CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+echo "run-routine: $routine, model ${CARMAN_MODEL:-claude-sonnet-5-5}, memory at $CMEM_URL"
+exec claude -p "$(cat "$file")" --model "${CARMAN_MODEL:-claude-sonnet-5-5}" --allowedTools "Bash(cmem *)"

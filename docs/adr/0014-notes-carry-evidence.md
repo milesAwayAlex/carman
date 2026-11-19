@@ -1,6 +1,6 @@
 # 0014. A note carries its evidence; humans are cited only from the laptop
 
-Status: Proposed (2026-11-18)
+Status: Accepted (2026-11-19, as proven in use; proposed 2026-11-18)
 
 ## Context
 

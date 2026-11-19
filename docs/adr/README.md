@@ -20,13 +20,13 @@ To change a decision, add a new record and mark the old one superseded.
 | [0007](0007-go-and-postgres.md) | Go and Postgres | Accepted; Postgres half superseded by 0015 |
 | [0008](0008-rows-with-supersession.md) | Rows with supersession, not a graph database | Superseded by 0015 |
 | [0009](0009-human-owned-requirements.md) | Requirements are human-owned | Accepted |
-| [0010](0010-development-conventions.md) | Development conventions for the memory service | Proposed |
-| [0011](0011-one-timeline-for-entries.md) | Entries have one timeline: when the memory held them as current | Proposed |
+| [0010](0010-development-conventions.md) | Development conventions for the memory service | Accepted |
+| [0011](0011-one-timeline-for-entries.md) | Entries have one timeline: when the memory held them as current | Accepted |
 | [0012](0012-http-api-and-cli.md) | The memory interface is an HTTP API with a CLI | Accepted |
-| [0013](0013-benchmark-approach.md) | Benchmark with a retrieval set and a task stream | Proposed |
-| [0014](0014-notes-carry-evidence.md) | A note carries its evidence; humans are cited only from the laptop | Proposed |
+| [0013](0013-benchmark-approach.md) | Benchmark with a retrieval set and a task stream | Accepted |
+| [0014](0014-notes-carry-evidence.md) | A note carries its evidence; humans are cited only from the laptop | Accepted |
 | [0015](0015-markdown-library-in-git.md) | Memory is stored as markdown notes in a git repository | Accepted |
-| [0016](0016-index-and-flashback.md) | An index at session start and flashback at key moments | Proposed |
+| [0016](0016-index-and-flashback.md) | An index at session start and flashback at key moments | Accepted |
 | [0017](0017-growth-replacement-and-near-duplicates.md) | As memory grows: a larger index, replacement by working agents, a question before a near-duplicate | Accepted |
 | [0018](0018-consolidation-runs.md) | Consolidation works in runs that are logged, capped and reverted by a note | Accepted |
 | [0019](0019-memory-service-on-kubernetes.md) | The memory service runs on Kubernetes from the start, on the local cluster first | Accepted |
@@ -37,3 +37,5 @@ To change a decision, add a new record and mark the old one superseded.
 | [0024](0024-the-service-runs-the-command-line.md) | The service runs the command line; the installed binary relays | Accepted |
 | [0025](0025-a-note-can-correct-part-of-an-entry.md) | A note can correct part of an entry, which is kept and points at the correction | Accepted |
 | [0026](0026-here-does-not-narrow-a-replacement.md) | `--here` does not change who a replacement is for | Accepted |
+| [0027](0027-the-dreamer-is-the-first-agent.md) | The dreamer is the first agent, and it runs on the cluster beside the memory | Proposed |
+| [0028](0028-carman-holds-its-own-credentials.md) | carman holds its own credentials, as secrets in its cluster | Proposed |
