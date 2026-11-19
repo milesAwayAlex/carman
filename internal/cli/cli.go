@@ -639,7 +639,11 @@ func (c *command) flashback(args []string) error {
 // can be while still saying what kind it is, whether it is confirmed, and how
 // to look it up.
 func entryLine(e memory.Entry) string {
-	text := strings.Join(strings.Fields(e.Text), " ")
+	// An entry's first paragraph says what it is; for a long entry it is a
+	// summary and the rest is detail to fetch when wanted. A line that ran on
+	// into the detail would say less per character and crowd others out.
+	opening, _, _ := strings.Cut(strings.TrimSpace(e.Text), "\n\n")
+	text := strings.Join(strings.Fields(opening), " ")
 	if runes := []rune(text); len(runes) > memory.IndexLineLimit {
 		text = string(runes[:memory.IndexLineLimit]) + "…"
 	}

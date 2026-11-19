@@ -371,6 +371,16 @@ func TestM5_TheClaudeCodeHookVolunteersMemoryAtTheMomentsThatMatter(t *testing.T
 	expectContains(t, hookContext(t, big, map[string]any{"hook_event_name": "UserPromptSubmit", "session_id": "p1",
 		"prompt": "which team owns service number 3 on port 9003 of the platform?"}), left)
 
+	// A line of the index is an entry's first paragraph, not as much of the
+	// entry as fits: the summary of a long entry, and no more.
+	laptop.ok("", "note", "--kind", "fact", "--human", "alex", "--scope", "repo:docs",
+		"Release checklist for the docs site.\n\nStep one is to build. Step two is to check links. Step three is to publish.")
+	docs := shell{t, map[string]string{"CMEM_URL": laptop.env["CMEM_URL"], "CMEM_TOKEN": laptop.env["CMEM_TOKEN"], "CMEM_SCOPE": "repo:docs"}}
+	line := hookContext(t, docs, map[string]any{"hook_event_name": "SessionStart", "session_id": "l1", "source": "startup"})
+	if expectContains(t, line, "- [fact] Release checklist for the docs site. ("); strings.Contains(line, "Step one") {
+		t.Errorf("the index line ran on past the entry's first paragraph:\n%s", line)
+	}
+
 	// A session can switch the hook off for itself.
 	laptop.env["CMEM_HOOK"] = "off"
 	if got := hookContext(t, laptop, map[string]any{"hook_event_name": "SessionStart", "session_id": "s11", "source": "startup"}); got != "" {
