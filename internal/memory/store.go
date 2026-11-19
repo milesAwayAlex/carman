@@ -1223,7 +1223,10 @@ func (s *Store) Index(q IndexQuery) (entries []Entry, total int) {
 	entries = []Entry{}
 	used := 0
 	for _, e := range all {
-		used += min(len(e.Text), IndexLineLimit)
+		// What a list shows of an entry is its first paragraph, up to the
+		// line limit; that is what it costs.
+		opening, _, _ := strings.Cut(strings.TrimSpace(e.Text), "\n\n")
+		used += min(len(opening), IndexLineLimit)
 		if used > q.Budget && len(entries) > 0 {
 			break
 		}
