@@ -118,12 +118,33 @@ A scope tag names what an entry is about, for example repo:carman.
 
 // Run executes one cmem command and returns its exit code.
 func Run(ctx context.Context, args []string, getenv func(string) string, stdin io.Reader, stdout, stderr io.Writer) int {
+	return RunWith(ctx, args, getenv, nil, stdin, stdout, stderr)
+}
+
+// RunWith is Run for a caller that can list its environment (the binary
+// passes os.Environ()). With a service to talk to, the command is sent there
+// to be run (see remote.go); otherwise, and for what only this machine can
+// do, it runs here.
+func RunWith(ctx context.Context, args []string, getenv func(string) string, environ []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if code, handled := runRemote(ctx, args, getenv, environ, stdin, stdout, stderr); handled {
+		return code
+	}
+	return runLocal(ctx, args, getenv, stdin, stdout, stderr)
+}
+
+func runLocal(ctx context.Context, args []string, getenv func(string) string, stdin io.Reader, stdout, stderr io.Writer) int {
+	return run(ctx, args, getenv, stdin, stdout, stderr, nil)
+}
+
+// run executes one command with this binary's own logic. api, when set, is
+// the service's handler in this same process: requests go straight to it.
+func run(ctx context.Context, args []string, getenv func(string) string, stdin io.Reader, stdout, stderr io.Writer, api http.Handler) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 		fmt.Fprint(stdout, usage)
 		return 0
 	}
 	c := &command{
-		ctx: ctx, getenv: getenv, stdin: stdin, stdout: stdout, stderr: stderr,
+		ctx: ctx, getenv: getenv, stdin: stdin, stdout: stdout, stderr: stderr, api: api,
 		flags: flag.NewFlagSet("cmem "+args[0], flag.ContinueOnError),
 	}
 	c.flags.SetOutput(stderr)
@@ -158,6 +179,7 @@ type command struct {
 	json           bool
 	timeout        time.Duration // for calls to the service; zero means 30 seconds
 	indexPart      int           // hook only: which part of the session index to print
+	api            http.Handler  // set when running inside the service: requests are answered in-process
 }
 
 // list is a flag that may be given several times.
@@ -208,7 +230,7 @@ func (c *command) serve(args []string) error {
 	if recovered > 0 {
 		log.Warn("committed notes that an unclean stop had left uncommitted", "notes", recovered)
 	}
-	srv := &http.Server{Addr: *listen, Handler: server.New(store, tokens, log).Handler(), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: *listen, Handler: ServiceHandler(server.New(store, tokens, log).Handler()), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-c.ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -744,7 +766,7 @@ func isStatus(err error, status int) bool {
 func (c *command) call(method, path string, in, out any) error {
 	base, token := c.getenv("CMEM_URL"), c.getenv("CMEM_TOKEN")
 	if base == "" || token == "" {
-		return errors.New("CMEM_URL and CMEM_TOKEN must be set")
+		return errNoService
 	}
 	var body io.Reader
 	if in != nil {
@@ -766,23 +788,32 @@ func (c *command) call(method, path string, in, out any) error {
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
-	resp, err := (&http.Client{Timeout: timeout}).Do(req)
-	if err != nil {
-		return fmt.Errorf("cannot reach the memory service at %s: %w", base, err)
+	var status int
+	var statusText string
+	var payload io.Reader
+	if c.api != nil {
+		code, data := inProcess(c.api, req)
+		status, statusText, payload = code, http.StatusText(code), bytes.NewReader(data)
+	} else {
+		resp, err := (&http.Client{Timeout: timeout}).Do(req)
+		if err != nil {
+			return fmt.Errorf("cannot reach the memory service at %s: %w", base, err)
+		}
+		defer resp.Body.Close()
+		status, statusText, payload = resp.StatusCode, resp.Status, resp.Body
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
+	if status >= 300 {
 		var failure struct {
 			Error   string         `json:"error"`
 			Similar []memory.Entry `json:"similar"`
 		}
-		json.NewDecoder(resp.Body).Decode(&failure)
+		json.NewDecoder(payload).Decode(&failure)
 		if failure.Error == "" {
-			failure.Error = resp.Status
+			failure.Error = statusText
 		}
-		return &statusError{resp.StatusCode, failure.Error, failure.Similar}
+		return &statusError{status, failure.Error, failure.Similar}
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	return json.NewDecoder(payload).Decode(out)
 }
 
 func printEntry(w io.Writer, e memory.Entry) {

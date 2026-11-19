@@ -13,5 +13,5 @@ import (
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	os.Exit(cli.Run(ctx, os.Args[1:], os.Getenv, os.Stdin, os.Stdout, os.Stderr))
+	os.Exit(cli.RunWith(ctx, os.Args[1:], os.Getenv, os.Environ(), os.Stdin, os.Stdout, os.Stderr))
 }

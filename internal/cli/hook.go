@@ -112,8 +112,7 @@ func (c *command) claudeCodeHook(raw []byte) {
 		}
 		if err := c.call(http.MethodPost, "/v1/index", req, &resp); err != nil {
 			if c.indexPart == 1 {
-				context = "Long-term memory (cmem) could not be reached at the start of this session, so nothing was " +
-					"recalled and `cmem` commands may fail. Tell the user once, briefly. (" + summaryLine(err.Error()) + ")\n"
+				context = unreachableText(err)
 			}
 			break
 		}

@@ -179,6 +179,13 @@ The service speaks plain HTTP with JSON, and `cmem` is its command-line client
 (ADR 0012). Any harness with a shell can use the memory. `cmem help` lists the
 commands.
 
+The binary is a relay (ADR 0024): it sends its command line to the service,
+which runs the command and answers with what to print. What a command prints,
+its flags, the session index and the hook's behaviour therefore change with a
+deploy of the service; machines that use the memory do not need updating. The
+binary keeps only what its own machine must do, such as working out which
+repository a session is in.
+
 | Operation | CLI | Roles |
 |---|---|---|
 | Find entries | `cmem recall WORDS...` | all |

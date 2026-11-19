@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -33,7 +34,7 @@ func newService(t *testing.T) (laptop, worker, dreamer shell) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(server.New(store, tokens, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
+	srv := httptest.NewServer(ServiceHandler(server.New(store, tokens, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler()))
 	t.Cleanup(srv.Close)
 	as := func(token string) shell {
 		return shell{t, map[string]string{"CMEM_URL": srv.URL, "CMEM_TOKEN": token}}
@@ -46,7 +47,13 @@ func (s shell) run(stdin string, args ...string) (stdout, stderr string, code in
 	s.t.Helper()
 	var out, errOut bytes.Buffer
 	getenv := func(key string) string { return s.env[key] }
-	code = Run(context.Background(), args, getenv, strings.NewReader(stdin), &out, &errOut)
+	var environ []string
+	for key, value := range s.env {
+		environ = append(environ, key+"="+value)
+	}
+	// As the installed binary does: the command is sent to the service to be
+	// run there, unless it is one that only this machine can do.
+	code = RunWith(context.Background(), args, getenv, environ, strings.NewReader(stdin), &out, &errOut)
 	return out.String(), errOut.String(), code
 }
 
@@ -726,5 +733,97 @@ func TestTheCLISaysWhatWentWrong(t *testing.T) {
 
 	if out := laptop.ok("", "help"); !strings.Contains(out, "cmem recall") {
 		t.Errorf("help does not describe recall:\n%s", out)
+	}
+}
+
+// The installed binary is a relay: it sends its command line to the service,
+// which runs the command and says what to print. A change to what a command
+// does then reaches every machine when the service is deployed.
+func TestTheBinaryRelaysItsCommandToTheService(t *testing.T) {
+	store, err := memory.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens, _ := server.ParseTokens("laptop=l,worker=w,dreamer=d")
+	api := server.New(store, tokens, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler()
+
+	// What reaches the service, and with what.
+	var seen RemoteRequest
+	var path, auth string
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/cli" {
+			body, _ := io.ReadAll(r.Body)
+			json.Unmarshal(body, &seen)
+			path, auth = r.URL.Path, r.Header.Get("Authorization")
+			r.Body = io.NopCloser(bytes.NewReader(body))
+		}
+		ServiceHandler(api).ServeHTTP(w, r)
+	}))
+	defer relay.Close()
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, ".git"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("[remote \"origin\"]\n\turl = git@git.example.com:acme/alpha.git\n"), 0o644)
+	sh := shell{t, map[string]string{"CMEM_URL": relay.URL, "CMEM_TOKEN": "l", "CMEM_DIR": dir, "CMEM_NOTE_SCOPE": "ask", "CMEM_BRIEF_TIMEOUT": "7"}}
+
+	out := sh.ok("", "note", "--kind", "fact", "--human", "alex", "--here", "The alpha service listens on port 9100.")
+	expectContains(t, out, "Remembered", "[repo:git.example.com/acme/alpha]")
+	if path != "/v1/cli" || auth != "Bearer l" || strings.Join(seen.Args[:2], " ") != "note --kind" {
+		t.Errorf("the command was not relayed: path %q, args %q", path, seen.Args)
+	}
+	// The repository is worked out on the caller's machine; settings travel,
+	// credentials and what only means something locally do not.
+	if strings.Join(seen.Scope, ",") != "repo:git.example.com/acme/alpha" || seen.Env["CMEM_NOTE_SCOPE"] != "ask" || seen.Env["CMEM_BRIEF_TIMEOUT"] != "7" {
+		t.Errorf("relayed scope %q and settings %v", seen.Scope, seen.Env)
+	}
+	for _, key := range []string{"CMEM_TOKEN", "CMEM_URL", "CMEM_DIR"} {
+		if _, sent := seen.Env[key]; sent {
+			t.Errorf("%s was sent as a setting", key)
+		}
+	}
+	// The service applies the caller's role, as on any other route.
+	if _, stderr, code := (shell{t, map[string]string{"CMEM_URL": relay.URL, "CMEM_TOKEN": "w"}}).run("", "consolidate", "start", "x"); code == 0 || !strings.Contains(stderr, "may not") {
+		t.Errorf("a worker opening a run through the relay: exit %d, %q", code, stderr)
+	}
+	if _, stderr, code := (shell{t, map[string]string{"CMEM_URL": relay.URL, "CMEM_TOKEN": "nobody"}}).run("", "recall", "alpha"); code == 0 || !strings.Contains(stderr, "token") {
+		t.Errorf("an unknown token through the relay: exit %d, %q", code, stderr)
+	}
+
+	// What only the caller's machine can do is never asked of the service,
+	// and the service refuses it if asked directly.
+	path = ""
+	if got := strings.TrimSpace(sh.ok("", "scope", dir)); got != "repo:git.example.com/acme/alpha" || path != "" {
+		t.Errorf("cmem scope printed %q and went to the service: %q", got, path)
+	}
+	for _, args := range [][]string{{"serve", "--library", "/tmp/x"}, {"check", "--library", "/tmp/x"}, {"import", "claude-code", "/tmp"}, {"forget"}} {
+		body, _ := json.Marshal(RemoteRequest{Args: args})
+		req, _ := http.NewRequest("POST", relay.URL+"/v1/cli", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer l")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var answer RemoteResponse
+		json.NewDecoder(resp.Body).Decode(&answer)
+		resp.Body.Close()
+		if answer.Code != 2 || answer.Stdout != "" {
+			t.Errorf("the service ran %q for a caller: %+v", args, answer)
+		}
+	}
+
+	// A service from before the relay existed: the binary runs the command
+	// with its own copy of the logic, and nothing is lost on the way.
+	old := httptest.NewServer(api)
+	defer old.Close()
+	legacy := shell{t, map[string]string{"CMEM_URL": old.URL, "CMEM_TOKEN": "l"}}
+	expectContains(t, legacy.ok("", "recall", "alpha", "port"), "listens on port 9100")
+	var episode memory.Episode
+	if err := json.Unmarshal([]byte(legacy.ok("Finished the alpha task.\n", "record", "--json", "--outcome", "passed")), &episode); err != nil || episode.Body != "Finished the alpha task." {
+		t.Errorf("standard input was lost on the way to the local run: %+v, %v", episode, err)
+	}
+	// And CMEM_LOCAL=1 asks for that on purpose.
+	path = ""
+	sh.env["CMEM_LOCAL"] = "1"
+	if expectContains(t, sh.ok("", "recall", "alpha", "port"), "listens on port 9100"); path != "" {
+		t.Errorf("with CMEM_LOCAL=1 the command still went to the service")
 	}
 }

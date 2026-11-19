@@ -34,3 +34,4 @@ To change a decision, add a new record and mark the old one superseded.
 | [0021](0021-scope-is-kept-on-replacement.md) | A replacement keeps the scope of what it replaces; applying everywhere is said out loud | Accepted |
 | [0022](0022-repository-identity.md) | A repository is named by its origin remote, not by its directory | Accepted |
 | [0023](0023-a-note-says-who-it-is-for.md) | A new note says who it is for | Accepted |
+| [0024](0024-the-service-runs-the-command-line.md) | The service runs the command line; the installed binary relays | Proposed |
