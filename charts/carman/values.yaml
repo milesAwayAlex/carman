@@ -72,6 +72,7 @@ egress:
 #                                     # scripts/deploy.sh CONTEXT routine FILE
 #       schedule: "0 15 * * 1"        # optional; without it, runs only when asked
 #       catchUpSeconds: 172800        # how late a missed run may still start (a day, unless said)
+#       waitForLimitMinutes: 600      # wait this long for the plan's usage limit to reset; needs deadlineSeconds to match
 #       models: [claude-sonnet-5-5]   # the ladder
 #       budgetUSD: 2
 #       tools: all                    # "memory" (the default): the memory command only

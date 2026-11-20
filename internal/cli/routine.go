@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -77,9 +78,51 @@ var runHarness = func(c *command, model, prompt string) attempt {
 	return a
 }
 
+// A harness on a subscription stops when the plan's usage limit is reached,
+// and says when the limit resets. That is not a failure of the routine or of
+// the model, and the next model up the ladder would hit the same wall: the
+// thing to do is wait.
+var (
+	usageLimit = regexp.MustCompile(`(?i)(hit|reached) your [a-z ]*limit|usage limit|spend limit`)
+	limitReset = regexp.MustCompile(`(?i)resets\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*\(UTC\)`)
+)
+
+// untilReset is how long to wait for the limit named in a harness's message:
+// until just after the time it gives, or half an hour when it gives none
+// that can be read.
+func untilReset(report string, now time.Time) time.Duration {
+	m := limitReset.FindStringSubmatch(report)
+	if m == nil {
+		return 30 * time.Minute
+	}
+	hour, _ := strconv.Atoi(m[1])
+	minute, _ := strconv.Atoi(m[2])
+	switch strings.ToLower(m[3]) {
+	case "pm":
+		hour = hour%12 + 12
+	case "am":
+		hour %= 12
+	}
+	now = now.UTC()
+	reset := time.Date(now.Year(), now.Month(), now.Day(), hour%24, minute, 0, 0, time.UTC)
+	if !reset.After(now) {
+		reset = reset.Add(24 * time.Hour)
+	}
+	return reset.Sub(now) + 2*time.Minute
+}
+
+// pause waits, or returns early when the command is cancelled. Tests replace it.
+var pause = func(c *command, d time.Duration) {
+	select {
+	case <-time.After(d):
+	case <-c.ctx.Done():
+	}
+}
+
 func (c *command) routine(args []string) error {
 	models := c.flags.String("models", c.getenv("CARMAN_MODELS"), "the ladder: models to try in order, separated by commas; a name may repeat")
 	budget := c.flags.Float64("budget", 0, "stop starting attempts once this many dollars are spent (CARMAN_BUDGET_USD)")
+	wait := c.flags.Int("wait-for-limit", 0, "minutes this run may spend waiting for the plan's usage limit to reset (CARMAN_WAIT_FOR_LIMIT_MINUTES)")
 	if _, err := c.parse(args); err != nil {
 		return err
 	}
@@ -97,12 +140,17 @@ func (c *command) routine(args []string) error {
 	if *budget == 0 {
 		*budget, _ = strconv.ParseFloat(c.getenv("CARMAN_BUDGET_USD"), 64)
 	}
+	if *wait == 0 {
+		*wait, _ = strconv.Atoi(c.getenv("CARMAN_WAIT_FOR_LIMIT_MINUTES"))
+	}
+	waitLeft := time.Duration(*wait) * time.Minute
 	started := time.Now().UTC().Add(-time.Second)
 	// A routine may need to know how old something is, and a model does not
 	// know what day it is.
 	today := "\n\nToday's date is " + started.Format("2006-01-02") + " (UTC).\n"
 	spent, carried := 0.0, ""
-	for rung, model := range ladder {
+	for rung := 0; rung < len(ladder); rung++ {
+		model := ladder[rung]
 		if *budget > 0 && spent >= *budget {
 			fmt.Fprintf(c.stdout, "\nStopped before attempt %d: $%.2f spent of the $%.2f this run may spend.\n", rung+1, spent, *budget)
 			break
@@ -111,6 +159,22 @@ func (c *command) routine(args []string) error {
 		a := runHarness(c, model, string(text)+carried+today)
 		spent += a.cost
 		fmt.Fprintf(c.stdout, "%s\n", strings.TrimSpace(a.report))
+		if a.failed && usageLimit.MatchString(a.report) {
+			// Nothing was attempted, so this rung is not used up.
+			need := untilReset(a.report, time.Now())
+			if need > waitLeft {
+				return fmt.Errorf("the plan's usage limit is reached and resets in about %d minutes; this run may wait %d more, so it stops here",
+					int(need.Minutes()), int(waitLeft.Minutes()))
+			}
+			fmt.Fprintf(c.stdout, "\nThe plan's usage limit is reached. Waiting %d minutes for it to reset, then trying %s again.\n", int(need.Minutes()), model)
+			pause(c, need)
+			if c.ctx.Err() != nil {
+				return c.ctx.Err()
+			}
+			waitLeft -= need
+			rung--
+			continue
+		}
 
 		// What the attempt was refused and did not then do.
 		var runs []memory.Run

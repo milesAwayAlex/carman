@@ -121,6 +121,12 @@ spec:
                   value: {{ .budgetUSD | default 2 | quote }}
                 - name: CARMAN_TOOLS
                   value: {{ .tools | default "memory" | quote }}
+                {{- with .waitForLimitMinutes }}
+                # How long a run may wait for the plan's usage limit to reset
+                # before it gives up. The deadline above has to allow for it.
+                - name: CARMAN_WAIT_FOR_LIMIT_MINUTES
+                  value: {{ . | quote }}
+                {{- end }}
                 {{- with .scope }}
                 # What the agent's work is about, as memory names it: the
                 # entries for this scope are the ones it is shown and searches.

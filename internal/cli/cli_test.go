@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"carman/internal/memory"
 	"carman/internal/server"
@@ -964,6 +965,54 @@ func TestM4_ARefusedWriteIsRetriedWithItsReasonUpALadderOfModels(t *testing.T) {
 		t.Errorf("a budget of two attempts: exit %d, %d attempts\n%s\n%s", code, len(calls), stdout, stderr)
 	}
 	expectContains(t, dreamer.ok("", "consolidate", "log"), "refused, and not done since: replacing "+other)
+}
+
+// A subscription's usage limit is not a failure of the routine: the run waits
+// for the reset the harness names and tries the same model again, within the
+// time it was given to wait.
+func TestARoutineWaitsOutTheUsageLimit(t *testing.T) {
+	_, _, dreamer := newService(t)
+	file := filepath.Join(t.TempDir(), "tidy.md")
+	os.WriteFile(file, []byte("Tidy the memory."), 0o644)
+	defer func(h func(*command, string, string) attempt, p func(*command, time.Duration)) {
+		runHarness, pause = h, p
+	}(runHarness, pause)
+	const limit = "You've hit your individual spend limit · your session limit resets 6am (UTC)"
+	var models []string
+	var waited []time.Duration
+	pause = func(_ *command, d time.Duration) { waited = append(waited, d) }
+	runHarness = func(_ *command, model, _ string) attempt {
+		models = append(models, model)
+		if len(models) <= 2 {
+			return attempt{report: limit, failed: true}
+		}
+		return attempt{report: "done", cost: 1}
+	}
+	out := dreamer.ok("", "routine", "--models", "heavy,heavier", "--wait-for-limit", "3000", file)
+	if strings.Join(models, ",") != "heavy,heavy,heavy" || len(waited) != 2 || waited[0] <= 0 || waited[0] > 24*time.Hour+2*time.Minute {
+		t.Errorf("models tried %v, waits %v\n%s", models, waited, out)
+	}
+	expectContains(t, out, "usage limit is reached. Waiting", "trying heavy again", "Done in 1 attempt(s)")
+
+	// The time until a reset is read from what the harness says.
+	at := time.Date(2026, 11, 20, 4, 30, 0, 0, time.UTC)
+	for report, want := range map[string]time.Duration{
+		"limit resets 6am (UTC)":      92 * time.Minute,
+		"limit resets 4am (UTC)":      23*time.Hour + 32*time.Minute,
+		"limit resets 10:15pm (UTC)":  17*time.Hour + 47*time.Minute,
+		"limit resets at 18:00 (UTC)": 13*time.Hour + 32*time.Minute,
+		"limit resets soon":           30 * time.Minute,
+	} {
+		if got := untilReset(report, at); got != want {
+			t.Errorf("untilReset(%q) = %v, want %v", report, got, want)
+		}
+	}
+
+	// A run that may not wait that long says so and stops, at once.
+	models, waited = nil, nil
+	if _, stderr, code := dreamer.run("", "routine", "--models", "heavy", "--wait-for-limit", "1", file); code == 0 || len(waited) != 0 || !strings.Contains(stderr, "usage limit is reached and resets in about") {
+		t.Errorf("a run with a minute to wait: exit %d, waited %v, %q", code, waited, stderr)
+	}
 }
 
 // The installed binary is a relay: it sends its command line to the service,
