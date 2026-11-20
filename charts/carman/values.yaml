@@ -140,7 +140,9 @@ egress:
 #       budgetUSD: 2
 #       tools: all                    # "memory" (the default): the memory command only
 #       scope: repo:example.com/org/name   # which repository's memory it works with
-#       mcp: {tracker: https://mcp.example.com/mcp}
+#       mcp:
+#         tracker: https://mcp.example.com/mcp     # a remote server; the proxy adds its credential
+#         wiki: {command: wiki-mcp}                # a command, in the image or among the installation's tools
 #       plugins: [NAME@MARKETPLACE]   # installed afresh at every start
 #       env: {EXAMPLE_TOKEN: held-by-the-egress-proxy}   # for tools that insist on a variable
 #       google: true                  # give it the cloud identity below

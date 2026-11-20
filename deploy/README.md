@@ -235,8 +235,11 @@ What an agent can be given, each by a line in its entry:
   command alone. The limits are then around the agent and not inside it: its
   pod reaches only the egress proxy and the memory service, and holds no
   credential but the model's.
-- `mcp`. MCP servers by name and address. The credential for each is the
-  proxy's to add.
+- `mcp`. MCP servers by name. One given an address is a remote server, and
+  the credential for it is the proxy's to add. One given as a map
+  (`{command: NAME}`) is run as a command, from the image or from the
+  installation's own tools; whatever it calls outside goes through the proxy
+  like everything else.
 - `plugins`. Plugins of the harness (skills, subagents and MCP servers in
   one package), as `NAME@MARKETPLACE`, from the marketplaces listed under
   `agent.marketplaces`. They are installed when the pod starts, so a run

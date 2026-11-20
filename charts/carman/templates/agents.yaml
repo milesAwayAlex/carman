@@ -36,8 +36,11 @@ data:
 {{- $google := and .google $.Values.cloud.google.audience $.Values.cloud.google.serviceAccount }}
 {{- if .mcp }}
 ---
-# The MCP servers this agent is given. The credential is not here: the
-# egress proxy puts the real one in place of this header.
+# The MCP servers this agent is given. One named by an address is a remote
+# server; the credential is not here: the egress proxy puts the real one in
+# place of this header. One given as a map is passed on as written, which is
+# how a server that is a command in the image or among the installation's
+# tools is named.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -49,7 +52,7 @@ data:
       {{- $first := true }}
       {{- range $server, $url := .mcp }}
       {{- if not $first }},{{ end }}{{ $first = false }}
-      {{ $server | quote }}: {"type": "http", "url": {{ $url | quote }}, "headers": {"Authorization": "Bearer held-by-the-egress-proxy"}}
+      {{ $server | quote }}: {{ if kindIs "string" $url }}{"type": "http", "url": {{ $url | quote }}, "headers": {"Authorization": "Bearer held-by-the-egress-proxy"}}{{ else }}{{ toJson $url }}{{ end }}
       {{- end }}
     }}
 {{- end }}
