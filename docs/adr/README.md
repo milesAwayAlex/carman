@@ -39,3 +39,4 @@ To change a decision, add a new record and mark the old one superseded.
 | [0026](0026-here-does-not-narrow-a-replacement.md) | `--here` does not change who a replacement is for | Accepted |
 | [0027](0027-the-dreamer-is-the-first-agent.md) | The dreamer is the first agent, and it runs on the cluster beside the memory | Accepted |
 | [0028](0028-carman-holds-its-own-credentials.md) | carman holds its own credentials, as secrets in its cluster | Accepted |
+| [0029](0029-consolidation-is-checked-as-it-writes.md) | Consolidation is checked as it writes; what fails is retried with the reason, then escalated | Accepted |

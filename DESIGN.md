@@ -405,10 +405,14 @@ M8 is checked by running the carman arm on a second harness with only the CLI.
 | Q2 | Worker language: thin TS/Python on the SDK, or Go driving the CLI? |
 | Q3 | Which tasks get a daydreamer pass, and on which model? |
 | Q4 | Human approval gates (R9) |
-| Q5 | Turn off built-in Claude Code memory on the laptop once the hook is installed? |
+| Q5 | Answered: built-in Claude Code memory is off on the laptop since the hook was installed |
 | Q6 | Where the library's git remote lives, and who may push to it |
 | Q7 | Should the laptop record episodes automatically, or only write notes? |
 | Q8 | Answered by ADR 0023: a new note says `--here` or `--global`. Still open within it: a level for one organisation's repositories, between a single repository and everywhere |
+| Q9 | Self-improvement: carman should notice how it is working and use good opportunities to improve itself, starting with memory consolidation. What it watches, and what it may change on its own, are not designed |
+| Q10 | Token budgets: agents that know the subscription's usage limits and when each window resets, a budget for each task, and in the end one total budget divided between tasks for the most value. Section 5 is its start |
+| Q11 | Reaching the owner: prompts and summaries about what needs or is worth their attention, such as a question only they can answer. The channel is open (tickets and a chat bot were named) |
+| Q12 | Which model does which memory processing: to be measured on a benchmark that tells models apart (ADR 0027) |
 
 To test early, because the docs do not say:
 
