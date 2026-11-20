@@ -44,3 +44,12 @@ dreamer:
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}
+
+egress:
+  # The proxy every agent pod leaves the cluster through (ADR 0031). With it
+  # on, a network policy keeps agent pods from reaching anything else.
+  enabled: true
+  image: envoyproxy/envoy:v1.33.0
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 256Mi}

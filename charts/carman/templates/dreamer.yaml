@@ -23,6 +23,7 @@ spec:
         metadata:
           labels:
             app: dreamer
+            carman/role: agent
         spec:
           restartPolicy: Never
           securityContext:
@@ -52,6 +53,14 @@ spec:
                   value: {{ join "," .Values.dreamer.models | quote }}
                 - name: CARMAN_BUDGET_USD
                   value: {{ .Values.dreamer.budgetUSD | quote }}
+                {{- if .Values.egress.enabled }}
+                # Everything outside the cluster is reached through the
+                # proxy; the memory service is beside it and reached directly.
+                - name: HTTPS_PROXY
+                  value: http://egress:3128
+                - name: NO_PROXY
+                  value: cmem,localhost,127.0.0.1
+                {{- end }}
               volumeMounts:
                 - name: home
                   mountPath: /home/agent
