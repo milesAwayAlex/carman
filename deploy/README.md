@@ -225,6 +225,7 @@ they go in `.local/values.yaml`, which is git-ignored and which the deploy
 script adds to the values when it is there.
 
     scripts/deploy.sh CONTEXT routine .local/routines/NAME.md   # put a routine in the cluster
+    scripts/deploy.sh CONTEXT tool .local/tools/NAME            # put a command of your own on agents' PATH
     scripts/deploy.sh CONTEXT agent run NAME                    # run it once and show its report
     scripts/deploy.sh CONTEXT agent log NAME
 
@@ -236,6 +237,14 @@ What an agent can be given, each by a line in its entry:
   credential but the model's.
 - `mcp`. MCP servers by name and address. The credential for each is the
   proxy's to add.
+- `plugins`. Plugins of the harness (skills, subagents and MCP servers in
+  one package), as `NAME@MARKETPLACE`, from the marketplaces listed under
+  `agent.marketplaces`. They are installed when the pod starts, so a run
+  has each plugin as it is that day. A plugin's own MCP servers need no
+  entry under `mcp`: the proxy adds the credential for their hosts all the
+  same.
+- `env`. Extra environment variables, for a tool that insists on finding
+  one; the value is a placeholder, never a credential.
 - `google: true`. A cloud identity with no stored key: the pod's own token,
   signed by this cluster, is exchanged for a short-lived token of the service
   account named under `cloud.google`. The cloud side has to trust this

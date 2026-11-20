@@ -136,6 +136,18 @@ spec:
                 - name: CMEM_ROUTINE_MCP_CONFIG
                   value: /etc/agent/mcp/mcp.json
                 {{- end }}
+                {{- if .plugins }}
+                # Installed when the pod starts, from the marketplaces named,
+                # so that a run has the plugin as it is that day.
+                - name: AGENT_MARKETPLACES
+                  value: {{ join " " $.Values.agent.marketplaces | quote }}
+                - name: AGENT_PLUGINS
+                  value: {{ join " " .plugins | quote }}
+                {{- end }}
+                {{- range $name, $value := .env }}
+                - name: {{ $name }}
+                  value: {{ $value | quote }}
+                {{- end }}
                 {{- if $.Values.egress.enabled }}
                 - name: HTTPS_PROXY
                   value: http://egress:3128
@@ -159,6 +171,9 @@ spec:
                   mountPath: /work
                 - name: routines
                   mountPath: /etc/agent/routines
+                  readOnly: true
+                - name: tools
+                  mountPath: /etc/agent/bin
                   readOnly: true
                 {{- if $.Values.egress.enabled }}
                 - name: egress-ca
@@ -194,6 +209,12 @@ spec:
               configMap:
                 name: routines
                 optional: true
+            # Commands of this installation's own, put on the agent's PATH.
+            - name: tools
+              configMap:
+                name: tools
+                optional: true
+                defaultMode: 0555
             {{- if $.Values.egress.enabled }}
             - name: egress-ca
               configMap:

@@ -20,6 +20,7 @@
 #   scripts/deploy.sh CONTEXT dreamer log       the report of the latest run
 #   scripts/deploy.sh CONTEXT agent-image       build the agent image and print its name
 #   scripts/deploy.sh CONTEXT routine FILE      put a routine of this installation's own in the cluster
+#   scripts/deploy.sh CONTEXT tool FILE         put a command of this installation's own on agents' PATH
 #   scripts/deploy.sh CONTEXT agent run NAME    run an agent once now and show what it reported
 #   scripts/deploy.sh CONTEXT agent log NAME    the report of its latest run
 #
@@ -309,6 +310,15 @@ routine)
         "${kube[@]}" patch configmap routines --type merge --patch-file /dev/stdin >/dev/null
     echo "the cluster holds routine $(basename "$file" .md)"
     ;;
+tool)
+    file="${3:-}"
+    [ -f "$file" ] || die "name the command's file, for example .local/tools/NAME"
+    "${kube[@]}" get configmap tools >/dev/null 2>&1 || "${kube[@]}" create configmap tools >/dev/null
+    "${kube[@]}" create configmap tools "--from-file=$(basename "$file")=$file" --dry-run=client -o json |
+        python3 -c 'import json, sys; print(json.dumps({"data": json.load(sys.stdin)["data"]}))' |
+        "${kube[@]}" patch configmap tools --type merge --patch-file /dev/stdin >/dev/null
+    echo "agents have the command $(basename "$file")"
+    ;;
 agent)
     name="${4:-}"
     [ -n "$name" ] || die "say: agent run NAME, or agent log NAME"
@@ -355,6 +365,6 @@ dreamer)
     esac
     ;;
 *)
-    die "unknown action $action; say deploy, status, check, backup, restore, env, token, secret, agent-image, dreamer, routine or agent"
+    die "unknown action $action; say deploy, status, check, backup, restore, env, token, secret, agent-image, dreamer, routine, tool or agent"
     ;;
 esac

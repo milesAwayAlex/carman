@@ -37,6 +37,17 @@ if ! command -v claude >/dev/null; then
     export PATH="$HOME/.harness/bin:$PATH"
     claude --version >/dev/null || { echo "run-routine: the harness was fetched and does not run" >&2; exit 1; }
 fi
+# Plugins the agent was given: skills, subagents and MCP servers that come as
+# one package. Fetched now, so a run has each as it is today. One that cannot
+# be installed is said so here and the run goes on without it.
+for marketplace in ${AGENT_MARKETPLACES:-}; do
+    claude plugin marketplace add "$marketplace" >/dev/null 2>&1 || echo "run-routine: the plugin marketplace $marketplace could not be added" >&2
+done
+for plugin in ${AGENT_PLUGINS:-}; do
+    if claude plugin install "$plugin" --scope user >/dev/null 2>&1; then echo "run-routine: plugin $plugin"; else echo "run-routine: the plugin $plugin could not be installed; the run goes on without it" >&2; fi
+done
+# Commands of this installation's own (scripts/deploy.sh CONTEXT tool FILE).
+[ ! -d /etc/agent/bin ] || export PATH="/etc/agent/bin:$PATH"
 failed=0
 for routine in "$@"; do
     # A routine that belongs to one installation is in the cluster, not in

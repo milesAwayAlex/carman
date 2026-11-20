@@ -38,6 +38,10 @@ agent:
   image: ""
   # The secret holding the harness's model credential, under the key `token`.
   modelSecret: model-credential
+  # Where plugins for the harness come from, as its `plugin marketplace add`
+  # takes them (OWNER/REPO, OWNER/REPO#REF, a URL). An agent names the
+  # plugins it wants from them.
+  marketplaces: []
 
 dreamer:
   # Off until a model credential is in place; `scripts/deploy.sh CONTEXT
@@ -137,6 +141,8 @@ egress:
 #       tools: all                    # "memory" (the default): the memory command only
 #       scope: repo:example.com/org/name   # which repository's memory it works with
 #       mcp: {tracker: https://mcp.example.com/mcp}
+#       plugins: [NAME@MARKETPLACE]   # installed afresh at every start
+#       env: {EXAMPLE_TOKEN: held-by-the-egress-proxy}   # for tools that insist on a variable
 #       google: true                  # give it the cloud identity below
 agents: []
 
