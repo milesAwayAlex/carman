@@ -200,5 +200,11 @@ What an agent can be given, each by a line in its entry:
   cluster's public keys uploaded). On a managed cluster of the same provider,
   its workload identity does this and `cloud.google` stays empty.
 
+A schedule is kept by the cluster, so it is only as punctual as the cluster
+is awake. On a laptop that sleeps, a run whose time passed is started when
+the cluster is back, if that is within the agent's `catchUpSeconds` (a day
+unless said; twelve hours for the dreamer); after that it waits for its next
+time. Keeping the machine awake is the machine's business.
+
 The agent image has `git`, `gh`, `kubectl`, `gcloud`, `curl` and `jq`. It
 works in `/work`, which is empty at the start of a run and gone at the end.

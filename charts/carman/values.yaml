@@ -41,6 +41,9 @@ dreamer:
   # No further attempt at a routine starts once it has cost this much tonight.
   budgetUSD: 3
   deadlineSeconds: 1800
+  # A night's run that was missed is still started up to this long after
+  # its time; later than that, the next night's run is soon enough.
+  catchUpSeconds: 43200
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}
@@ -68,6 +71,7 @@ egress:
 #       routines: [example]           # in the image, or put in the cluster with
 #                                     # scripts/deploy.sh CONTEXT routine FILE
 #       schedule: "0 15 * * 1"        # optional; without it, runs only when asked
+#       catchUpSeconds: 172800        # how late a missed run may still start (a day, unless said)
 #       models: [claude-sonnet-5-5]   # the ladder
 #       budgetUSD: 2
 #       tools: all                    # "memory" (the default): the memory command only

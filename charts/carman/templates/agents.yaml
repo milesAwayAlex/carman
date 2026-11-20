@@ -69,6 +69,9 @@ spec:
   # only when a Job is made from it.
   schedule: {{ .schedule | default "0 0 1 1 *" | quote }}
   suspend: {{ if .schedule }}{{ .suspend | default false }}{{ else }}true{{ end }}
+  # A cluster that was not running at the scheduled time (a laptop asleep)
+  # starts the run when it is back, if that is within this long.
+  startingDeadlineSeconds: {{ .catchUpSeconds | default 86400 }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 5
   failedJobsHistoryLimit: 5

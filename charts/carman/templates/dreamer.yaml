@@ -9,6 +9,9 @@ metadata:
 spec:
   schedule: {{ .Values.dreamer.schedule | quote }}
   suspend: {{ .Values.dreamer.suspend }}
+  # A cluster that was not running at the scheduled time (a laptop asleep)
+  # starts the run when it is back, if that is within this long.
+  startingDeadlineSeconds: {{ .Values.dreamer.catchUpSeconds }}
   # A run reads the whole library before it changes anything; two at once
   # would each act on what the other is about to change.
   concurrencyPolicy: Forbid
