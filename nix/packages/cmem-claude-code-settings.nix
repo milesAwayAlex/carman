@@ -19,6 +19,9 @@
   noteScope ? "ask",
   # Switch Claude Code's own memory off, so that cmem is the only one.
   disableAutoMemory ? false,
+  # A sentence added to what a starting session is told when the memory
+  # service cannot be reached: what to run on this machine to find out why.
+  unreachableHint ? null,
 }:
 
 let
@@ -36,7 +39,8 @@ writeText "cmem-claude-code-settings.json" (
         CMEM_URL = url;
       }
       // lib.optionalAttrs (noteScope != null) { CMEM_NOTE_SCOPE = noteScope; }
-      // lib.optionalAttrs (indexParts > 1) { CMEM_INDEX_PARTS = toString indexParts; };
+      // lib.optionalAttrs (indexParts > 1) { CMEM_INDEX_PARTS = toString indexParts; }
+      // lib.optionalAttrs (unreachableHint != null) { CMEM_UNREACHABLE_HINT = unreachableHint; };
       permissions.allow = [
         "Bash(cmem recall *)"
         "Bash(cmem get *)"
