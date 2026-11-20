@@ -70,6 +70,39 @@ linux_cmem() {
     CGO_ENABLED=0 GOOS=linux GOARCH="$arch" "${build[@]}" -o "$1" ./cmd/cmem
 }
 
+# The egress proxy answers in the name of each host it holds a credential
+# for. Its certificate comes from an authority made here, once, whose public
+# half agent pods trust. The certificate is issued again only when the list
+# of hosts changes. Key files exist for the length of this function, in a
+# directory only this user can read.
+egress_restart=0
+egress_certs() {
+    local hosts="$1" dir alt="" host
+    dir="$(mktemp -d)" && chmod 700 "$dir"
+    # shellcheck disable=SC2064
+    trap "rm -rf '$dir'" RETURN
+    if ! "${kube[@]}" get secret carman-egress-ca >/dev/null 2>&1; then
+        printf '[req]\ndistinguished_name=dn\nx509_extensions=v3\nprompt=no\n[dn]\nCN=carman egress\n[v3]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign\n' > "$dir/ca.cnf"
+        openssl ecparam -name prime256v1 -genkey -noout -out "$dir/ca.key"
+        openssl req -new -x509 -key "$dir/ca.key" -out "$dir/ca.crt" -sha256 -days 3650 -config "$dir/ca.cnf"
+        "${kube[@]}" create secret generic carman-egress-ca "--from-file=ca.crt=$dir/ca.crt" "--from-file=ca.key=$dir/ca.key" >/dev/null
+        "${kube[@]}" create configmap carman-egress-ca "--from-file=ca.crt=$dir/ca.crt" --dry-run=client -o yaml | "${kube[@]}" apply -f - >/dev/null
+        echo "made the egress proxy's certificate authority"
+    fi
+    [ "$("${kube[@]}" get secret carman-egress-tls -o 'jsonpath={.metadata.annotations.carman/hosts}' 2>/dev/null)" != "$hosts" ] || return 0
+    "${kube[@]}" get secret carman-egress-ca -o 'jsonpath={.data.ca\.crt}' | base64 -d > "$dir/ca.crt"
+    "${kube[@]}" get secret carman-egress-ca -o 'jsonpath={.data.ca\.key}' | base64 -d > "$dir/ca.key"
+    for host in $hosts; do alt="$alt${alt:+,}DNS:$host"; done
+    printf 'subjectAltName=%s\nextendedKeyUsage=serverAuth\nbasicConstraints=CA:FALSE\n' "$alt" > "$dir/tls.ext"
+    openssl ecparam -name prime256v1 -genkey -noout -out "$dir/tls.key"
+    openssl req -new -key "$dir/tls.key" -out "$dir/tls.csr" -subj "/CN=${hosts%% *}"
+    openssl x509 -req -in "$dir/tls.csr" -CA "$dir/ca.crt" -CAkey "$dir/ca.key" -CAcreateserial -out "$dir/tls.crt" -sha256 -days 825 -extfile "$dir/tls.ext" 2>/dev/null
+    "${kube[@]}" create secret generic carman-egress-tls "--from-file=tls.crt=$dir/tls.crt" "--from-file=tls.key=$dir/tls.key" --dry-run=client -o yaml | "${kube[@]}" apply -f - >/dev/null
+    "${kube[@]}" annotate secret carman-egress-tls "carman/hosts=$hosts" --overwrite >/dev/null
+    egress_restart=1
+    echo "issued the egress proxy's certificate for: $hosts"
+}
+
 # The agent image: the harness, the memory client and the routines. Sets
 # CARMAN_AGENT_IMAGE unless it is already set to an image pushed elsewhere.
 build_agent() {
@@ -126,6 +159,18 @@ EOF
     # Whether the dreamer's schedule is on is a setting of the cluster, not of
     # the manifest: a deploy leaves it as it was, and off the first time.
     dreaming="$("${kube[@]}" get cronjob dreamer -o 'jsonpath={.spec.suspend}' 2>/dev/null || true)"
+    # What the egress proxy is to hold a credential for, from the values.
+    egress="$(helm template carman charts/carman --namespace carman -f "$values" --set memory.image=m:0 --set agent.image=a:0 --show-only templates/egress.yaml 2>/dev/null || true)"
+    egress_hosts="$(printf '%s\n' "$egress" | sed -n 's/^  hosts: "\(.*\)"$/\1/p')"
+    egress_keys="$(printf '%s\n' "$egress" | sed -n 's/^  keys: "\(.*\)"$/\1/p')"
+    if [ -n "$egress_hosts" ]; then
+        for key in $egress_keys; do
+            [ -n "$("${kube[@]}" get secret carman-egress -o "jsonpath={.data.$key}" 2>/dev/null)" ] ||
+                die "the values name a credential '$key' for the egress proxy, and the cluster has none: ... | scripts/deploy.sh $context secret carman-egress $key"
+        done
+        egress_certs "$egress_hosts"
+    fi
+
     # Rendered and applied, not installed as a release: the cluster's objects
     # are the record, and a chart consumer elsewhere (a GitOps controller,
     # `helm install`) uses the same chart its own way.
@@ -133,6 +178,11 @@ EOF
         --set "memory.image=$CARMAN_IMAGE" --set "agent.image=$CARMAN_AGENT_IMAGE" --set "dreamer.suspend=${dreaming:-true}" |
         "${kube[@]}" apply -f -
     "${kube[@]}" rollout status statefulset/cmem --timeout=120s
+    if "${kube[@]}" get deployment egress >/dev/null 2>&1; then
+        # A new certificate is read when the proxy starts.
+        [ "$egress_restart" = 0 ] || "${kube[@]}" rollout restart deployment/egress >/dev/null
+        "${kube[@]}" rollout status deployment/egress --timeout=120s
+    fi
     sleep 3 # a port forward to this machine, if there is one, takes a moment
     if answers; then
         echo "the service answers at $url"
@@ -206,10 +256,18 @@ secret)
     name="${3:-}" key="${4:-token}"
     [ -n "$name" ] || die "name the secret, for example: ... | scripts/deploy.sh $context secret carman-model"
     [ ! -t 0 ] || die "the value comes on standard input, from the program that holds it; it is never typed or given as an argument"
-    # From standard input to the cluster's API, and nowhere else.
-    "${kube[@]}" create secret generic "$name" "--from-file=$key=/dev/stdin" --dry-run=client -o yaml | "${kube[@]}" apply -f - >/dev/null
+    # From standard input to the cluster's API, and nowhere else. The key is
+    # merged into the secret, so that a secret can hold several.
+    "${kube[@]}" get secret "$name" >/dev/null 2>&1 || "${kube[@]}" create secret generic "$name" >/dev/null
+    "${kube[@]}" create secret generic "$name" "--from-file=$key=/dev/stdin" --dry-run=client -o json |
+        python3 -c 'import json, sys; print(json.dumps({"data": json.load(sys.stdin)["data"]}))' |
+        "${kube[@]}" patch secret "$name" --type merge --patch-file /dev/stdin >/dev/null
     [ "$("${kube[@]}" get secret "$name" -o "jsonpath={.data.$key}" | wc -c)" -gt 8 ] || die "the secret $name came out empty"
     echo "the cluster holds secret $name (key $key)"
+    # The egress proxy reads its credentials when it starts.
+    if [ "$name" = carman-egress ] && "${kube[@]}" get deployment egress >/dev/null 2>&1; then
+        "${kube[@]}" rollout restart deployment/egress >/dev/null && echo "restarted the egress proxy to read it"
+    fi
     ;;
 agent-image)
     build_agent

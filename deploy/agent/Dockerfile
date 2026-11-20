@@ -4,7 +4,7 @@
 FROM node:22-slim
 ARG CLAUDE_CODE_VERSION=2.1.311
 RUN apt-get update -qq \
- && apt-get install -y -qq --no-install-recommends ca-certificates \
+ && apt-get install -y -qq --no-install-recommends ca-certificates curl git \
  && rm -rf /var/lib/apt/lists/* \
  && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
  && claude --version \

@@ -6,3 +6,12 @@
 memory:
   service:
     type: LoadBalancer
+
+# The egress proxy holds a credential for the code host's API and for the
+# issue tracker's MCP endpoint. Each is put in the cluster by a pipe, as the
+# whole header value:
+#   printf 'Bearer %s' "$(PROGRAM-THAT-PRINTS-THE-TOKEN)" | scripts/deploy.sh CONTEXT secret carman-egress github
+egress:
+  credentials:
+    - {host: api.github.com, key: github}
+    - {host: mcp.linear.app, key: linear}

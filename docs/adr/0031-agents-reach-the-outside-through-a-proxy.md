@@ -1,7 +1,8 @@
 # 0031: Agents reach the outside through a proxy that holds their credentials
 
-Status: Accepted (2026-11-19). Built: the proxy, passing connections through
-and logging them, and the network policy. Not built: attaching credentials.
+Status: Accepted (2026-11-19). Built: the proxy, the network policy, and
+credentials attached for named hosts. Not built: a cloud provider token by
+identity, and rules on what a credential may be used for.
 
 ## Context
 

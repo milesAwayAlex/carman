@@ -153,4 +153,20 @@ Two things measured on the local cluster (k3s):
 - A model call from an agent pod goes through the proxy and is logged as
   `CONNECT api.anthropic.com:443`.
 
+For a host named under `egress.credentials` in the values, the proxy holds
+the credential. It answers the agent in the host's name, with a certificate
+from an authority the deploy script makes once and agent pods trust; it puts
+the credential in the `Authorization` header, replacing whatever the agent
+sent; and it calls the real host. Each such request is logged with its path.
+The credential is one key of the secret `carman-egress`, holding the whole
+header value, and gets there by a pipe:
+
+    printf 'Bearer %s' "$(PROGRAM-THAT-PRINTS-THE-TOKEN)" | scripts/deploy.sh CONTEXT secret carman-egress KEY
+
+A deploy refuses to go on while a named credential is missing. Tried from an
+agent pod with no credential in its environment: the code host's API
+answered as the token's owner, and the issue tracker's MCP endpoint accepted
+an `initialize`. Without trust in carman's authority the same call is
+refused by the client, as it should be.
+
 `egress.enabled: false` in the values takes the proxy and the policy out.

@@ -60,13 +60,28 @@ spec:
                   value: http://egress:3128
                 - name: NO_PROXY
                   value: cmem,localhost,127.0.0.1
+                # The authority the proxy's certificates come from, trusted
+                # beside the public ones.
+                - name: CARMAN_EXTRA_CA
+                  value: /etc/carman/egress/ca.crt
                 {{- end }}
               volumeMounts:
                 - name: home
                   mountPath: /home/agent
+                {{- if .Values.egress.enabled }}
+                - name: egress-ca
+                  mountPath: /etc/carman/egress
+                  readOnly: true
+                {{- end }}
               resources:
                 {{- toYaml .Values.dreamer.resources | nindent 16 }}
           volumes:
             # The harness keeps its session files here; nothing outlives the run.
             - name: home
               emptyDir: {}
+            {{- if .Values.egress.enabled }}
+            - name: egress-ca
+              configMap:
+                name: carman-egress-ca
+                optional: true
+            {{- end }}

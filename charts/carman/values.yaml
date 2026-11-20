@@ -50,6 +50,13 @@ egress:
   # on, a network policy keeps agent pods from reaching anything else.
   enabled: true
   image: envoyproxy/envoy:v1.33.0
+  # The hosts the proxy adds a credential for, and the key of each in the
+  # secret below. For these the proxy answers in the host's name, so an
+  # agent needs no credential of its own and cannot read this one.
+  #   credentials:
+  #     - {host: api.example.com, key: example}
+  credentials: []
+  credentialsSecret: carman-egress
   resources:
     requests: {cpu: 20m, memory: 64Mi}
     limits: {memory: 256Mi}

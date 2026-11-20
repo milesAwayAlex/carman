@@ -1,4 +1,7 @@
 {{- if .Values.egress.enabled }}
+{{- $creds := .Values.egress.credentials }}
+{{- $hosts := list }}{{- $keys := list }}
+{{- range $creds }}{{- $hosts = append $hosts .host }}{{- $keys = append $keys .key }}{{- end }}
 # The egress proxy: the one way out of the cluster for agent pods (ADR 0031).
 # Today it passes every connection through and logs where it went. It is
 # where credentials for outside services will be attached, so that an agent
@@ -9,8 +12,26 @@ metadata:
   name: egress
   namespace: {{ .Release.Namespace }}
 data:
+  # What the proxy holds a credential for; scripts/deploy.sh reads these to
+  # issue the certificate the proxy answers with.
+  hosts: {{ $hosts | join " " | quote }}
+  keys: {{ $keys | join " " | quote }}
   envoy.yaml: |
+    {{- if $creds }}
+    bootstrap_extensions:
+      - name: envoy.bootstrap.internal_listener
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.bootstrap.internal_listener.v3.InternalListener
+    {{- end }}
     static_resources:
+      {{- if $creds }}
+      secrets:
+        {{- range $creds }}
+        - name: credential-{{ .key }}
+          generic_secret:
+            secret: {filename: /etc/envoy/credentials/{{ .key }}}
+        {{- end }}
+      {{- end }}
       listeners:
         - name: egress
           address:
@@ -37,6 +58,21 @@ data:
                         - name: anywhere
                           domains: ["*"]
                           routes:
+                            {{- range $creds }}
+                            # A tunnel to {{ .host }} ends here, at the listener
+                            # that answers in its name and adds the credential.
+                            - match:
+                                connect_matcher: {}
+                                headers:
+                                  - name: ":authority"
+                                    string_match: {exact: "{{ .host }}:443"}
+                              route:
+                                cluster: answer-{{ .key }}
+                                timeout: 0s
+                                upgrade_configs:
+                                  - upgrade_type: CONNECT
+                                    connect_config: {}
+                            {{- end }}
                             # HTTPS: the client asks for a tunnel to a host.
                             - match: {connect_matcher: {}}
                               route:
@@ -57,7 +93,96 @@ data:
                           "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
                     upgrade_configs:
                       - upgrade_type: CONNECT
+        {{- range $creds }}
+        # In the name of {{ .host }}: the agent's TLS ends here, with a
+        # certificate from carman's own authority; the credential is added;
+        # and the request goes on to the real host over TLS that is checked
+        # against the public authorities.
+        - name: answer-{{ .key }}
+          internal_listener: {}
+          filter_chains:
+            - transport_socket:
+                name: envoy.transport_sockets.tls
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+                  common_tls_context:
+                    alpn_protocols: ["http/1.1"]
+                    tls_certificates:
+                      - certificate_chain: {filename: /etc/envoy/tls/tls.crt}
+                        private_key: {filename: /etc/envoy/tls/tls.key}
+              filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: answer_{{ .key }}
+                    # With a credential attached, each request is on record:
+                    # what was asked of the host (the start of its path, which
+                    # may include a query), and how it answered. No headers,
+                    # no bodies.
+                    access_log:
+                      - name: envoy.access_loggers.stdout
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                          log_format:
+                            text_format_source:
+                              inline_string: "%START_TIME% egress credential={{ .key }} %REQ(:METHOD)% %REQ(:AUTHORITY)%%REQ(:PATH):160% status=%RESPONSE_CODE% flags=%RESPONSE_FLAGS% ms=%DURATION%\n"
+                    route_config:
+                      name: real-{{ .key }}
+                      virtual_hosts:
+                        - name: host
+                          domains: ["{{ .host }}", "{{ .host }}:443"]
+                          routes:
+                            - match: {prefix: "/"}
+                              route: {cluster: real-{{ .key }}, timeout: 0s}
+                    http_filters:
+                      - name: envoy.filters.http.credential_injector
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.credential_injector.v3.CredentialInjector
+                          # Whatever the agent sent in its place is replaced.
+                          overwrite: true
+                          credential:
+                            name: envoy.http.injected_credentials.generic
+                            typed_config:
+                              "@type": type.googleapis.com/envoy.extensions.http.injected_credentials.generic.v3.Generic
+                              credential: {name: credential-{{ .key }}}
+                              header: Authorization
+                      - name: envoy.filters.http.router
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+        {{- end }}
       clusters:
+        {{- range $creds }}
+        - name: answer-{{ .key }}
+          load_assignment:
+            cluster_name: answer-{{ .key }}
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        envoy_internal_address:
+                          server_listener_name: answer-{{ .key }}
+        - name: real-{{ .key }}
+          type: LOGICAL_DNS
+          dns_lookup_family: V4_ONLY
+          load_assignment:
+            cluster_name: real-{{ .key }}
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address: {address: {{ .host }}, port_value: 443}
+          transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+              sni: {{ .host }}
+              common_tls_context:
+                validation_context:
+                  trusted_ca: {filename: /etc/ssl/certs/ca-certificates.crt}
+                  match_typed_subject_alt_names:
+                    - san_type: DNS
+                      matcher: {exact: {{ .host }}}
+        {{- end }}
         - name: outside
           lb_policy: CLUSTER_PROVIDED
           cluster_type:
@@ -122,10 +247,30 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/envoy
+            {{- if $creds }}
+            - name: credentials
+              mountPath: /etc/envoy/credentials
+              readOnly: true
+            - name: tls
+              mountPath: /etc/envoy/tls
+              readOnly: true
+            {{- end }}
       volumes:
         - name: config
           configMap:
             name: egress
+        {{- if $creds }}
+        # One key for each host, holding the whole header value, for example
+        # "Bearer ...". Put there by a pipe (scripts/deploy.sh CONTEXT secret).
+        - name: credentials
+          secret:
+            secretName: {{ .Values.egress.credentialsSecret }}
+        # The certificate the proxy answers with, issued by scripts/deploy.sh
+        # from carman's own authority.
+        - name: tls
+          secret:
+            secretName: carman-egress-tls
+        {{- end }}
 ---
 # An agent pod may talk to the memory service, the egress proxy and the
 # cluster's name service, and to nothing else: whatever it calls outside the
