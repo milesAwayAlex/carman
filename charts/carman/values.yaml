@@ -1,6 +1,17 @@
-# Values for the carman chart. scripts/deploy.sh sets the two images and
+# Values for this chart. scripts/deploy.sh sets the two images and
 # keeps the dreamer's schedule as the cluster has it; everything else is here
 # or in a values file for one kind of cluster (deploy/values/).
+
+# Labels put on every pod and on the library's volume, beside their own: what
+# a shared cluster asks of its workloads, such as who pays for them.
+podLabels: {}
+# Which nodes every pod runs on. Empty leaves it to the cluster.
+nodeSelector: {}
+tolerations: []
+# Pods in this namespace accept connections only from one another. Whatever
+# comes from outside the cluster has to arrive inside a pod (a tunnel's
+# container beside the memory service) or this has to be off.
+isolated: true
 
 memory:
   # The image of the memory service. Required.
@@ -26,7 +37,7 @@ agent:
   # The agent image: the harness, the memory client and the routines. Required.
   image: ""
   # The secret holding the harness's model credential, under the key `token`.
-  modelSecret: carman-model
+  modelSecret: model-credential
 
 dreamer:
   # Off until a model credential is in place; `scripts/deploy.sh CONTEXT
@@ -48,6 +59,42 @@ dreamer:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}
 
+backup:
+  # Off until there is somewhere outside the cluster to keep the copies.
+  enabled: false
+  # After the dreamer, so that a night's copy has that night's tidying (UTC).
+  schedule: "47 10 * * *"
+  # Where each night's copy is put, for example gs://BUCKET/library. The file
+  # is named for the moment it was made.
+  destination: ""
+  # Annotations of the job's own account. On a managed cluster this is how
+  # the account is given a cloud identity that may write to the destination.
+  serviceAccountAnnotations: {}
+  deadlineSeconds: 900
+  catchUpSeconds: 43200
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+
+# Where the cluster runs External Secrets Operator, it can make the secrets
+# this chart reads. Without this they are made by scripts/deploy.sh or put in
+# the cluster by hand (scripts/deploy.sh CONTEXT secret).
+externalSecrets:
+  enabled: false
+  # The cluster's store of secrets, as an ExternalSecret names it.
+  store: {name: "", kind: SecretStore}
+  refreshInterval: 15m
+  memoryTokens:
+    # Make the three role tokens in the cluster, once, so that they exist
+    # nowhere else. Otherwise they are read from the store, by these keys.
+    generate: false
+    laptop: ""
+    worker: ""
+    dreamer: ""
+  # The store's key for the model credential; empty leaves that secret to
+  # whoever puts it in by hand.
+  modelCredential: ""
+
 egress:
   # The proxy every agent pod leaves the cluster through (ADR 0031). With it
   # on, a network policy keeps agent pods from reaching anything else.
@@ -59,7 +106,7 @@ egress:
   #   credentials:
   #     - {host: api.example.com, key: example}
   credentials: []
-  credentialsSecret: carman-egress
+  credentialsSecret: egress-credentials
   resources:
     requests: {cpu: 20m, memory: 64Mi}
     limits: {memory: 256Mi}

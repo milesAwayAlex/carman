@@ -7,12 +7,7 @@ run NAME).
 {{- if .Values.agents }}
 # What agent pods are to the cluster: nothing. The account exists so that a
 # pod has an identity of its own to present elsewhere.
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: agent
-  namespace: {{ .Release.Namespace }}
-automountServiceAccountToken: false
+{{ include "pod.account" (dict "name" "agent" "root" .) }}
 {{- end }}
 {{- with .Values.cloud.google }}
 {{- if and .audience .serviceAccount }}
@@ -23,7 +18,7 @@ automountServiceAccountToken: false
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: carman-google-identity
+  name: google-identity
   namespace: {{ $.Release.Namespace }}
 data:
   credentials.json: |
@@ -33,7 +28,7 @@ data:
       "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
       "token_url": "https://sts.googleapis.com/v1/token",
       "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/{{ .serviceAccount }}:generateAccessToken",
-      "credential_source": {"file": "/var/run/secrets/carman/identity/token"}
+      "credential_source": {"file": "/var/run/secrets/agent/identity/token"}
     }
 {{- end }}
 {{- end }}
@@ -84,16 +79,19 @@ spec:
         metadata:
           labels:
             app: agent-{{ .name }}
-            carman/role: agent
+            app.kubernetes.io/component: agent
+            {{- with (include "pod.labels" $) }}{{ . | trim | nindent 12 }}{{- end }}
         spec:
           restartPolicy: Never
           serviceAccountName: agent
           automountServiceAccountToken: false
+          {{- with (include "pod.placement" $) }}{{ . | trim | nindent 10 }}{{- end }}
           securityContext:
             runAsNonRoot: true
             runAsUser: 10001
             runAsGroup: 10001
             fsGroup: 10001
+            seccompProfile: {type: RuntimeDefault}
           containers:
             - name: agent
               image: {{ required "agent.image is required" $.Values.agent.image }}
@@ -115,16 +113,16 @@ spec:
                     secretKeyRef:
                       name: {{ $.Values.agent.modelSecret }}
                       key: token
-                - name: CARMAN_MODELS
+                - name: CMEM_ROUTINE_MODELS
                   value: {{ join "," (.models | default (list "claude-sonnet-5-5")) | quote }}
-                - name: CARMAN_BUDGET_USD
+                - name: CMEM_ROUTINE_BUDGET_USD
                   value: {{ .budgetUSD | default 2 | quote }}
-                - name: CARMAN_TOOLS
+                - name: CMEM_ROUTINE_TOOLS
                   value: {{ .tools | default "memory" | quote }}
                 {{- with .waitForLimitMinutes }}
                 # How long a run may wait for the plan's usage limit to reset
                 # before it gives up. The deadline above has to allow for it.
-                - name: CARMAN_WAIT_FOR_LIMIT_MINUTES
+                - name: CMEM_ROUTINE_WAIT_FOR_LIMIT_MINUTES
                   value: {{ . | quote }}
                 {{- end }}
                 {{- with .scope }}
@@ -134,16 +132,16 @@ spec:
                   value: {{ . | quote }}
                 {{- end }}
                 {{- if .mcp }}
-                - name: CARMAN_MCP_CONFIG
-                  value: /etc/carman/mcp/mcp.json
+                - name: CMEM_ROUTINE_MCP_CONFIG
+                  value: /etc/agent/mcp/mcp.json
                 {{- end }}
                 {{- if $.Values.egress.enabled }}
                 - name: HTTPS_PROXY
                   value: http://egress:3128
                 - name: NO_PROXY
                   value: cmem,localhost,127.0.0.1
-                - name: CARMAN_EXTRA_CA
-                  value: /etc/carman/egress/ca.crt
+                - name: EGRESS_CA
+                  value: /etc/agent/egress/ca.crt
                 # Tools that refuse to start without a credential get a
                 # placeholder; the proxy puts the real one on the request.
                 - name: GH_TOKEN
@@ -151,7 +149,7 @@ spec:
                 {{- end }}
                 {{- if $google }}
                 - name: GOOGLE_APPLICATION_CREDENTIALS
-                  value: /etc/carman/google/credentials.json
+                  value: /etc/agent/google/credentials.json
                 {{- end }}
               volumeMounts:
                 - name: home
@@ -159,28 +157,32 @@ spec:
                 - name: work
                   mountPath: /work
                 - name: routines
-                  mountPath: /etc/carman/routines
+                  mountPath: /etc/agent/routines
                   readOnly: true
                 {{- if $.Values.egress.enabled }}
                 - name: egress-ca
-                  mountPath: /etc/carman/egress
+                  mountPath: /etc/agent/egress
                   readOnly: true
                 {{- end }}
                 {{- if .mcp }}
                 - name: mcp
-                  mountPath: /etc/carman/mcp
+                  mountPath: /etc/agent/mcp
                   readOnly: true
                 {{- end }}
                 {{- if $google }}
                 - name: google
-                  mountPath: /etc/carman/google
+                  mountPath: /etc/agent/google
                   readOnly: true
                 - name: identity
-                  mountPath: /var/run/secrets/carman/identity
+                  mountPath: /var/run/secrets/agent/identity
                   readOnly: true
                 {{- end }}
               resources:
                 {{- toYaml (.resources | default $.Values.dreamer.resources) | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
           volumes:
             - name: home
               emptyDir: {}
@@ -189,12 +191,12 @@ spec:
               emptyDir: {}
             - name: routines
               configMap:
-                name: carman-routines
+                name: routines
                 optional: true
             {{- if $.Values.egress.enabled }}
             - name: egress-ca
               configMap:
-                name: carman-egress-ca
+                name: egress-ca
                 optional: true
             {{- end }}
             {{- if .mcp }}
@@ -205,7 +207,7 @@ spec:
             {{- if $google }}
             - name: google
               configMap:
-                name: carman-google-identity
+                name: google-identity
             - name: identity
               projected:
                 sources:

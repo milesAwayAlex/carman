@@ -1,0 +1,16 @@
+{{- if .Values.isolated }}
+# On a cluster shared with other workloads the role tokens should not be the
+# only thing between them and the memory: nothing outside this namespace
+# connects to a pod in it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: only-this-namespace-comes-in
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector: {}
+{{- end }}

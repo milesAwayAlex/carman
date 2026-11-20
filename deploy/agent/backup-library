@@ -1,0 +1,19 @@
+#!/bin/sh
+# Copies the whole library out of the cluster: asks the memory service for
+# it, makes sure a library can be made of what came back, and puts the file
+# where BACKUP_DESTINATION says (gs://BUCKET/PREFIX).
+#
+# From the environment: CMEM_URL and CMEM_TOKEN, BACKUP_DESTINATION, and for
+# the upload whatever identity the cluster gives this pod's account.
+set -eu
+[ -n "${BACKUP_DESTINATION:-}" ] || { echo "backup-library: BACKUP_DESTINATION must be set" >&2; exit 2; }
+export CMEM_HOOK=off
+file="/tmp/library-$(date -u +%Y%m%dT%H%M%SZ).bundle"
+cmem backup "$file" | head -1
+# A copy that cannot be restored is not a backup; find out before it is kept.
+cmem restore "$file" /tmp/restored | head -1
+case "$BACKUP_DESTINATION" in
+gs://*) gcloud storage cp --quiet "$file" "${BACKUP_DESTINATION%/}/" ;;
+*) echo "backup-library: no way to write to $BACKUP_DESTINATION; a gs:// address is what this knows" >&2; exit 2 ;;
+esac
+echo "backup-library: kept ${BACKUP_DESTINATION%/}/$(basename "$file")"

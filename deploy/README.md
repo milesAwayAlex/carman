@@ -12,7 +12,7 @@ local cluster.
 
 ## What gets created
 
-In the namespace `carman`:
+In the namespace `carman` (`CARMAN_NAMESPACE` names another):
 
 - `statefulset/cmem`, one replica. It must stay one: the service keeps the
   library in memory and serializes writes.
@@ -95,9 +95,45 @@ instead, pipe each to the program that stores it:
 token when `claude` starts and pass it as `CMEM_TOKEN`, with the hook settings
 from the flake's `cmem-claude-code-settings` package given to `claude
 --settings`.
-- **Deploy to a cluster with a registry.** Build and push the image yourself,
-  set `CARMAN_IMAGE` and `CARMAN_AGENT_IMAGE`, and add a values file that says
-  how the service is reached.
+- **Deploy to a cluster with a registry.** Set `CARMAN_IMAGE` and
+  `CARMAN_AGENT_IMAGE` to pushed images, and add a values file that says how
+  the service is reached. See "A shared, managed cluster" below.
+
+## A shared, managed cluster
+
+What the chart has for a cluster that is not yours alone (ADR 0033), each a
+setting in the values:
+
+- **Images.** `.github/workflows/images.yml` builds `cmem` and `cmem-agent`
+  for amd64 and arm64 on every change to them and pushes both to the
+  repository owner's registry; the run's summary prints the two references
+  by digest, ready for `memory.image` and `agent.image`.
+- **Placement and labels.** `nodeSelector` and `tolerations` place every
+  pod; `podLabels` go on every pod and on the library's volume.
+- **Isolation.** `isolated: true`, the default, lets only pods of the
+  namespace connect to its pods.
+- **Secrets.** With `externalSecrets.enabled`, External Secrets Operator
+  makes the role tokens: from the cluster's store, or in the cluster itself
+  with `memoryTokens.generate`. Read the laptop's once:
+  `kubectl --context CONTEXT -n NAMESPACE get secret cmem-tokens -o 'jsonpath={.data.laptop}' | base64 -d | your-password-manager ...`.
+  The model credential comes from the store (`modelCredential`) or by a pipe:
+  `PROGRAM-THAT-PRINTS-THE-TOKEN | CARMAN_NAMESPACE=NAMESPACE scripts/deploy.sh CONTEXT secret model-credential`.
+- **Backup.** `backup.enabled` with `backup.destination: gs://BUCKET/PREFIX`
+  copies the whole library there every night, after proving the copy can be
+  restored. The job's account needs a cloud identity that may write to the
+  bucket; on a managed cluster that is an annotation
+  (`backup.serviceAccountAnnotations`). To use a copy:
+  `cmem restore FILE DIR`, then `cmem serve --library DIR`.
+
+Every pod meets the restricted pod security standard and has its own
+service account.
+
+A cluster that deploys charts from a repository of its own takes a copy:
+
+    scripts/chart-export.sh NAME DIR
+
+writes the chart to `DIR/NAME` under that name. Nothing in the copy names
+this project (ADR 0032), and it needs nothing else from this repository.
 
 ## The dreamer
 
@@ -106,11 +142,11 @@ routine (`routines/distill.md`) run in the cluster, as the CronJob `dreamer`: on
 role's token and the memory command as its only tool (ADR 0027). A deploy
 creates it switched off.
 
-It needs a credential for calling a model, in the secret `carman-model`.
+It needs a credential for calling a model, in the secret `model-credential`.
 Put it there from whatever holds it, by a pipe, so that it is never typed or
 written down (ADR 0028):
 
-    PROGRAM-THAT-PRINTS-THE-TOKEN | scripts/deploy.sh CONTEXT secret carman-model
+    PROGRAM-THAT-PRINTS-THE-TOKEN | scripts/deploy.sh CONTEXT secret model-credential
 
 Then:
 
@@ -122,7 +158,7 @@ Then:
 A write that memory refuses (a merge that lost a number or a command of the
 entries it replaced) is put right by the agent on the spot. One that is
 still undone when the session ends is tried again with the refusal in hand,
-by the next model in `CARMAN_MODELS`, until that ladder or `CARMAN_BUDGET_USD`
+by the next model in `CMEM_ROUTINE_MODELS`, until that ladder or `CMEM_ROUTINE_BUDGET_USD`
 ends (ADR 0029). Both are set on the CronJob.
 
 Every run is in memory's own log and can be undone whole:
@@ -136,7 +172,7 @@ To try the image without the cluster, against a development service:
 
 ## The egress proxy
 
-Agent pods (those labelled `carman/role: agent`) leave the cluster through
+Agent pods (those labelled `app.kubernetes.io/component: agent`) leave the cluster through
 `service/egress`, an Envoy proxy in the same namespace (ADR 0031). A network
 policy lets them reach the proxy, the memory service and the name service,
 and nothing else. The proxy passes everything through and logs one line for
@@ -158,15 +194,15 @@ the credential. It answers the agent in the host's name, with a certificate
 from an authority the deploy script makes once and agent pods trust; it puts
 the credential in the `Authorization` header, replacing whatever the agent
 sent; and it calls the real host. Each such request is logged with its path.
-The credential is one key of the secret `carman-egress`, holding the whole
+The credential is one key of the secret `egress-credentials`, holding the whole
 header value, and gets there by a pipe:
 
-    printf 'Bearer %s' "$(PROGRAM-THAT-PRINTS-THE-TOKEN)" | scripts/deploy.sh CONTEXT secret carman-egress KEY
+    printf 'Bearer %s' "$(PROGRAM-THAT-PRINTS-THE-TOKEN)" | scripts/deploy.sh CONTEXT secret egress-credentials KEY
 
 A deploy refuses to go on while a named credential is missing. Tried from an
 agent pod with no credential in its environment: the code host's API
 answered as the token's owner, and the issue tracker's MCP endpoint accepted
-an `initialize`. Without trust in carman's authority the same call is
+an `initialize`. Without trust in the installation's authority the same call is
 refused by the client, as it should be.
 
 `egress.enabled: false` in the values takes the proxy and the policy out.

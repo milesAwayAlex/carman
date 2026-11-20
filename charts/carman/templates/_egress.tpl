@@ -1,5 +1,5 @@
 {{/* What the egress proxy runs on: see egress.yaml and ADR 0031. */}}
-{{- define "carman.egress.envoy" -}}
+{{- define "egress.envoy" -}}
 {{- $creds := .Values.egress.credentials }}
 {{- if $creds }}
 bootstrap_extensions:
@@ -83,7 +83,7 @@ static_resources:
                   - upgrade_type: CONNECT
     {{- range $creds }}
     # In the name of {{ .host }}: the agent's TLS ends here, with a
-    # certificate from carman's own authority; the credential is added;
+    # certificate from an authority of this installation; the credential is added;
     # and the request goes on to the real host over TLS that is checked
     # against the public authorities.
     - name: answer-{{ .key }}

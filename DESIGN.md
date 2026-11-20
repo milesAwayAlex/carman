@@ -332,13 +332,18 @@ which are the weakest parts. Three things are meant to keep that manageable:
   `deploy/README.md`). Today that is the local cluster, where the laptop
   reaches it at `http://127.0.0.1:8377` and pods at
   `http://cmem.carman.svc:8377`.
-- On GCP, workers reach it inside the cluster and the laptop over Tailscale,
-  with tailnet ACLs controlling reachability (not built).
+- On a shared, managed cluster (ADR 0033, built in the chart, not yet run
+  there): published images, every pod under the restricted standard, the
+  namespace closed to others, tokens made in the cluster, and workers
+  reaching the service inside it. The laptop is to come in over a private
+  network whose client runs inside the memory pod (not built).
+- Nothing the chart puts on a cluster carries the project's name, and
+  `scripts/chart-export.sh` writes the chart out under another (ADR 0032).
 - One token per role, generated at the first deploy and kept in a Secret.
-- There is no automatic backup yet; a git remote for the library is the plan
-  (Q6). Until then `scripts/deploy.sh CONTEXT backup FILE` copies the library
-  out, and `deploy/RECOVERY.md` has the steps for starting, checking and
-  restoring.
+- Backup: a nightly job copies the whole library to a bucket as one file,
+  after proving a library can be made of it (ADR 0033). `cmem backup FILE`
+  and `cmem restore FILE DIR` do the same by hand, on any machine, and
+  `deploy/RECOVERY.md` has the steps for starting, checking and restoring.
 - The service recovers by itself from a stop in the middle of a write: it
   clears git's stale locks and commits whole notes left uncommitted, and
   writes are flushed to disk before they count.
@@ -406,7 +411,7 @@ M8 is checked by running the carman arm on a second harness with only the CLI.
 | Q3 | Which tasks get a daydreamer pass, and on which model? |
 | Q4 | Human approval gates (R9) |
 | Q5 | Answered: built-in Claude Code memory is off on the laptop since the hook was installed |
-| Q6 | Where the library's git remote lives, and who may push to it |
+| Q6 | Answered by ADR 0033: no git remote; a nightly job copies the whole library to a bucket |
 | Q7 | Should the laptop record episodes automatically, or only write notes? |
 | Q8 | Answered by ADR 0023: a new note says `--here` or `--global`. Still open within it: a level for one organisation's repositories, between a single repository and everywhere |
 | Q9 | Self-improvement: carman should notice how it is working and use good opportunities to improve itself, starting with memory consolidation. What it watches, and what it may change on its own, are not designed |

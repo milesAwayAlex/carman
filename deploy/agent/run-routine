@@ -5,8 +5,8 @@
 #   run-routine NAME...     for example: run-routine consolidate distill
 #
 # From the environment: CMEM_URL and CMEM_TOKEN (the role the routine works
-# in), the harness's own model credential, CARMAN_MODELS (the ladder of
-# models, in order) and CARMAN_BUDGET_USD (what one run may spend).
+# in), the harness's own model credential, CMEM_ROUTINE_MODELS (the ladder of
+# models, in order) and CMEM_ROUTINE_BUDGET_USD (what one run may spend).
 set -eu
 [ $# -gt 0 ] || { echo "run-routine: name a routine, for example: consolidate" >&2; exit 2; }
 [ -n "${CMEM_URL:-}" ] && [ -n "${CMEM_TOKEN:-}" ] || { echo "run-routine: CMEM_URL and CMEM_TOKEN must be set" >&2; exit 2; }
@@ -14,11 +14,11 @@ set -eu
 # The session hook and the harness's own memory are for working sessions.
 export CMEM_HOOK=off CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 # Where the egress proxy answers in a host's name, its certificate comes from
-# carman's own authority. Trust it beside the public ones, for every kind of
+# an authority of this installation. Trust it beside the public ones, for every kind of
 # program an agent runs.
-if [ -f "${CARMAN_EXTRA_CA:-/nonexistent}" ]; then
-    cat /etc/ssl/certs/ca-certificates.crt "$CARMAN_EXTRA_CA" > /tmp/ca-bundle.crt
-    export NODE_EXTRA_CA_CERTS="$CARMAN_EXTRA_CA" SSL_CERT_FILE=/tmp/ca-bundle.crt CURL_CA_BUNDLE=/tmp/ca-bundle.crt \
+if [ -f "${EGRESS_CA:-/nonexistent}" ]; then
+    cat /etc/ssl/certs/ca-certificates.crt "$EGRESS_CA" > /tmp/ca-bundle.crt
+    export NODE_EXTRA_CA_CERTS="$EGRESS_CA" SSL_CERT_FILE=/tmp/ca-bundle.crt CURL_CA_BUNDLE=/tmp/ca-bundle.crt \
         GIT_SSL_CAINFO=/tmp/ca-bundle.crt REQUESTS_CA_BUNDLE=/tmp/ca-bundle.crt
 fi
 # A cloud provider's command-line tools take their identity from a file the
@@ -32,10 +32,10 @@ failed=0
 for routine in "$@"; do
     # A routine that belongs to one installation is in the cluster, not in
     # the image; it wins over one of the same name that is.
-    file="/etc/carman/routines/$routine.md"
+    file="/etc/agent/routines/$routine.md"
     [ -f "$file" ] || file="/routines/$routine.md"
     [ -f "$file" ] || { echo "run-routine: no routine named $routine" >&2; exit 2; }
-    echo "run-routine: $routine, models ${CARMAN_MODELS:-claude-sonnet-5-5}, budget \$${CARMAN_BUDGET_USD:-none} for this routine, memory at $CMEM_URL"
+    echo "run-routine: $routine, models ${CMEM_ROUTINE_MODELS:-claude-sonnet-5-5}, budget \$${CMEM_ROUTINE_BUDGET_USD:-none} for this routine, memory at $CMEM_URL"
     # `cmem routine` runs the harness, and runs it again up the ladder of
     # models for whatever memory refused and was not then done (ADR 0029).
     # One routine that does not finish does not stop the next.

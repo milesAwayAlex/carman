@@ -28,7 +28,12 @@ Built so far:
 
 - `charts/carman` and `deploy/`: the Helm chart for the memory service and
   the agents beside it, deployed with `scripts/deploy.sh CONTEXT`. It runs on
-  the local cluster.
+  the local cluster. For a shared, managed cluster it has placement, labels,
+  isolation, secrets made by External Secrets Operator and a nightly backup
+  to a bucket (ADR 0033, not yet run on one). Nothing it puts on a cluster
+  carries the project's name, and `scripts/chart-export.sh NAME DIR` writes
+  it out under another (ADR 0032). `.github/workflows/images.yml` publishes
+  the two images.
 - The dreamer: the first agent. `routines/consolidate.md` and
   `routines/distill.md` run nightly as a CronJob in the agent image
   (`deploy/agent`), through `cmem routine`, which retries what the memory
@@ -38,10 +43,10 @@ Built so far:
   beyond memory, so each component is its own file under `nix/packages` and
   its own attribute; `cmem` is the first.
 
-Not built yet: a backup of the library, the task-stream benchmark (M7), a
-second harness (M8), and agents that do work outside memory: the egress
-proxy that holds their credentials, a workspace and wider tools, triggers
-other than a schedule, and a way for results to reach the owner. The build
+Not built yet: the way in from a laptop to a service on a shared cluster,
+the task-stream benchmark (M7), a second harness (M8), and for agents that
+do work outside memory: triggers other than a schedule, and a way for
+results to reach the owner. The build
 order is in DESIGN.md, section 11.
 
 ## Read first

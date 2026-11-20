@@ -1,0 +1,99 @@
+{{- if .Values.backup.enabled }}
+# A copy of the whole library, history included, put outside the cluster
+# every night. Each copy stands by itself: `cmem restore FILE DIR` makes a
+# library of any one of them, on any machine.
+{{ include "pod.account" (dict "name" "backup" "root" . "annotations" .Values.backup.serviceAccountAnnotations) }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup
+  namespace: {{ .Release.Namespace }}
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  startingDeadlineSeconds: {{ .Values.backup.catchUpSeconds }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 7
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: {{ .Values.backup.deadlineSeconds }}
+      ttlSecondsAfterFinished: 1209600
+      template:
+        metadata:
+          labels:
+            app: backup
+            app.kubernetes.io/component: agent
+            {{- with (include "pod.labels" .) }}{{ . | trim | nindent 12 }}{{- end }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: backup
+          automountServiceAccountToken: false
+          {{- with (include "pod.placement" .) }}{{ . | trim | nindent 10 }}{{- end }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: backup
+              image: {{ required "agent.image is required" .Values.agent.image }}
+              imagePullPolicy: IfNotPresent
+              command: ["backup-library"]
+              env:
+                - name: CMEM_URL
+                  value: http://cmem:{{ .Values.memory.service.port }}
+                # Any role may read the whole library; this one can change
+                # nothing that is in it.
+                - name: CMEM_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.memory.tokensSecret }}
+                      key: worker
+                - name: BACKUP_DESTINATION
+                  value: {{ required "backup.destination is required" .Values.backup.destination | quote }}
+                {{- if .Values.egress.enabled }}
+                - name: HTTPS_PROXY
+                  value: http://egress:3128
+                - name: NO_PROXY
+                  value: cmem,localhost,127.0.0.1,metadata.google.internal,169.254.169.254
+                {{- end }}
+              volumeMounts:
+                - name: home
+                  mountPath: /home/agent
+              resources:
+                {{- toYaml .Values.backup.resources | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: home
+              emptyDir: {}
+{{- if .Values.egress.enabled }}
+---
+# Beside what every agent pod may reach, the backup may ask the node for the
+# cloud identity of its account. A managed cluster hands it out there, and
+# only to the pod whose account was given one.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backup-asks-for-its-identity
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: backup
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - ipBlock: {cidr: 169.254.169.254/32}
+      ports:
+        - {protocol: TCP, port: 80}
+    - to:
+        - ipBlock: {cidr: 169.254.169.252/32}
+      ports:
+        - {protocol: TCP, port: 988}
+{{- end }}
+{{- end }}

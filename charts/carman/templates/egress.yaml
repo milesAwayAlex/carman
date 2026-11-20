@@ -17,7 +17,7 @@ data:
   hosts: {{ $hosts | join " " | quote }}
   keys: {{ $keys | join " " | quote }}
   envoy.yaml: |
-{{ include "carman.egress.envoy" . | indent 4 }}
+{{ include "egress.envoy" . | indent 4 }}
 ---
 apiVersion: v1
 kind: Service
@@ -31,6 +31,8 @@ spec:
     - name: proxy
       port: 3128
       targetPort: proxy
+---
+{{ include "pod.account" (dict "name" "egress" "root" .) }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -46,14 +48,19 @@ spec:
     metadata:
       labels:
         app: egress
+        {{- with (include "pod.labels" .) }}{{ . | trim | nindent 8 }}{{- end }}
       annotations:
         # A changed configuration restarts the proxy.
-        checksum/config: {{ include "carman.egress.envoy" . | sha256sum | trunc 16 }}
+        checksum/config: {{ include "egress.envoy" . | sha256sum | trunc 16 }}
     spec:
+      serviceAccountName: egress
+      automountServiceAccountToken: false
+      {{- with (include "pod.placement" .) }}{{ . | trim | nindent 6 }}{{- end }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
         runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
       containers:
         - name: envoy
           image: {{ .Values.egress.image }}
@@ -94,10 +101,10 @@ spec:
           secret:
             secretName: {{ .Values.egress.credentialsSecret }}
         # The certificate the proxy answers with, issued by scripts/deploy.sh
-        # from carman's own authority.
+        # from an authority of this installation.
         - name: tls
           secret:
-            secretName: carman-egress-tls
+            secretName: egress-tls
         {{- end }}
 ---
 # An agent pod may talk to the memory service, the egress proxy and the
@@ -111,7 +118,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      carman/role: agent
+      app.kubernetes.io/component: agent
   policyTypes: ["Egress"]
   egress:
     - to:

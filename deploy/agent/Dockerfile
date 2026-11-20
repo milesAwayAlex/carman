@@ -1,6 +1,7 @@
-# The agent image: a harness (Claude Code), the memory client, and the
-# routines an agent can be asked to run. The cmem binary and the routines are
-# in the build context (scripts/deploy.sh).
+# The agent image: a harness (Claude Code), the memory client, the routines
+# an agent can be asked to run, and the script that backs the library up.
+# The cmem binary (as cmem-ARCH) and the routines are in the build context
+# (scripts/deploy.sh, .github/workflows/images.yml).
 FROM node:22-slim
 ARG CLAUDE_CODE_VERSION=2.1.311
 # What an agent that works on code and clusters reaches for besides the harness.
@@ -26,10 +27,11 @@ RUN apt-get update -qq \
  && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
  && claude --version \
  && useradd --uid 10001 --create-home agent
-COPY cmem /usr/local/bin/cmem
-COPY run-routine /usr/local/bin/run-routine
+ARG TARGETARCH
+COPY cmem-${TARGETARCH} /usr/local/bin/cmem
+COPY run-routine backup-library /usr/local/bin/
 COPY routines /routines
-RUN chmod 0755 /usr/local/bin/cmem /usr/local/bin/run-routine && cmem help > /dev/null
+RUN chmod 0755 /usr/local/bin/cmem /usr/local/bin/run-routine /usr/local/bin/backup-library && cmem help > /dev/null
 USER 10001
 ENV HOME=/home/agent
 ENTRYPOINT ["run-routine"]

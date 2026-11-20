@@ -1,6 +1,8 @@
 # The dreamer: the consolidation and distilling routines, run on a schedule
 # beside the memory they tidy (ADR 0027). It needs a model credential in the
 # secret named by agent.modelSecret, which is put there on purpose (ADR 0028).
+{{ include "pod.account" (dict "name" "dreamer" "root" .) }}
+---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -26,13 +28,18 @@ spec:
         metadata:
           labels:
             app: dreamer
-            carman/role: agent
+            app.kubernetes.io/component: agent
+            {{- with (include "pod.labels" .) }}{{ . | trim | nindent 12 }}{{- end }}
         spec:
           restartPolicy: Never
+          serviceAccountName: dreamer
+          automountServiceAccountToken: false
+          {{- with (include "pod.placement" .) }}{{ . | trim | nindent 10 }}{{- end }}
           securityContext:
             runAsNonRoot: true
             runAsUser: 10001
             runAsGroup: 10001
+            seccompProfile: {type: RuntimeDefault}
           containers:
             - name: dreamer
               image: {{ required "agent.image is required" .Values.agent.image }}
@@ -52,9 +59,9 @@ spec:
                     secretKeyRef:
                       name: {{ .Values.agent.modelSecret }}
                       key: token
-                - name: CARMAN_MODELS
+                - name: CMEM_ROUTINE_MODELS
                   value: {{ join "," .Values.dreamer.models | quote }}
-                - name: CARMAN_BUDGET_USD
+                - name: CMEM_ROUTINE_BUDGET_USD
                   value: {{ .Values.dreamer.budgetUSD | quote }}
                 {{- if .Values.egress.enabled }}
                 # Everything outside the cluster is reached through the
@@ -65,19 +72,23 @@ spec:
                   value: cmem,localhost,127.0.0.1
                 # The authority the proxy's certificates come from, trusted
                 # beside the public ones.
-                - name: CARMAN_EXTRA_CA
-                  value: /etc/carman/egress/ca.crt
+                - name: EGRESS_CA
+                  value: /etc/agent/egress/ca.crt
                 {{- end }}
               volumeMounts:
                 - name: home
                   mountPath: /home/agent
                 {{- if .Values.egress.enabled }}
                 - name: egress-ca
-                  mountPath: /etc/carman/egress
+                  mountPath: /etc/agent/egress
                   readOnly: true
                 {{- end }}
               resources:
                 {{- toYaml .Values.dreamer.resources | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
           volumes:
             # The harness keeps its session files here; nothing outlives the run.
             - name: home
@@ -85,6 +96,6 @@ spec:
             {{- if .Values.egress.enabled }}
             - name: egress-ca
               configMap:
-                name: carman-egress-ca
+                name: egress-ca
                 optional: true
             {{- end }}

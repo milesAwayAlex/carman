@@ -11,5 +11,13 @@ if [ -n "$unformatted" ]; then
     echo "$unformatted" >&2
     exit 1
 fi
+# The chart and the agent image are deployed under names an installation
+# chooses (scripts/chart-export.sh): only Chart.yaml may say this project's.
+named="$(grep -rli carman charts/carman/templates charts/carman/values.yaml deploy/agent deploy/Dockerfile || true)"
+if [ -n "$named" ]; then
+    echo "These name the project, and what runs in a cluster must not:" >&2
+    echo "$named" >&2
+    exit 1
+fi
 go vet ./...
 go test ./... "$@"

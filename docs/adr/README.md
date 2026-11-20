@@ -42,3 +42,5 @@ To change a decision, add a new record and mark the old one superseded.
 | [0029](0029-consolidation-is-checked-as-it-writes.md) | Consolidation is checked as it writes; what fails is retried with the reason, then escalated | Accepted |
 | [0030](0030-carman-is-packaged-as-a-chart.md) | carman is packaged as a Helm chart | Accepted |
 | [0031](0031-agents-reach-the-outside-through-a-proxy.md) | Agents reach the outside through a proxy that holds their credentials | Accepted |
+| [0032](0032-what-runs-on-a-cluster-does-not-carry-the-project-name.md) | What runs on a cluster does not carry the project's name | Proposed |
+| [0033](0033-on-a-shared-cluster.md) | On a shared, managed cluster: published images, secrets made in the cluster, a nightly copy to a bucket | Proposed |

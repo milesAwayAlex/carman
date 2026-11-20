@@ -6,9 +6,12 @@
 memory:
   service:
     type: LoadBalancer
+# The laptop comes in through the cluster's load balancer, which is not a pod
+# of this namespace.
+isolated: false
 
 # Which hosts the egress proxy holds a credential for belongs to the
 # installation: list them under egress.credentials in the git-ignored
 # .local/values.yaml, which scripts/deploy.sh adds to these values. Each
 # credential is put in the cluster by a pipe, as the whole header value:
-#   printf 'Bearer %s' "$(PROGRAM-THAT-PRINTS-THE-TOKEN)" | scripts/deploy.sh CONTEXT secret carman-egress KEY
+#   printf 'Bearer %s' "$(PROGRAM-THAT-PRINTS-THE-TOKEN)" | scripts/deploy.sh CONTEXT secret egress-credentials KEY

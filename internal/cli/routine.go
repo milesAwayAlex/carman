@@ -35,30 +35,30 @@ type attempt struct {
 
 // runHarness starts the harness on a prompt. Tests put a stand-in here.
 var runHarness = func(c *command, model, prompt string) attempt {
-	// CARMAN_HARNESS_CMD is a shell command that reads the prompt on standard
-	// input and has the model's name in CARMAN_MODEL. Without it: Claude
+	// CMEM_ROUTINE_HARNESS_CMD is a shell command that reads the prompt on standard
+	// input and has the model's name in CMEM_ROUTINE_MODEL. Without it: Claude
 	// Code, allowed to run the memory command and nothing else.
 	var cmd *exec.Cmd
-	if custom := c.getenv("CARMAN_HARNESS_CMD"); custom != "" {
+	if custom := c.getenv("CMEM_ROUTINE_HARNESS_CMD"); custom != "" {
 		cmd = exec.CommandContext(c.ctx, "sh", "-c", custom)
 		cmd.Stdin = strings.NewReader(prompt)
 	} else {
 		// What the agent may use. By default the memory command and nothing
-		// else. CARMAN_TOOLS=all is for an agent whose limits are set around
+		// else. CMEM_ROUTINE_TOOLS=all is for an agent whose limits are set around
 		// it and not inside it: a pod that can reach only the egress proxy
 		// and holds no credential of its own.
 		args := []string{"-p", prompt, "--model", model, "--output-format", "json"}
-		if c.getenv("CARMAN_TOOLS") == "all" {
+		if c.getenv("CMEM_ROUTINE_TOOLS") == "all" {
 			args = append(args, "--permission-mode", "bypassPermissions")
 		} else {
 			args = append(args, "--allowedTools", "Bash(cmem *)")
 		}
-		if config := c.getenv("CARMAN_MCP_CONFIG"); config != "" {
+		if config := c.getenv("CMEM_ROUTINE_MCP_CONFIG"); config != "" {
 			args = append(args, "--mcp-config", config)
 		}
 		cmd = exec.CommandContext(c.ctx, "claude", args...)
 	}
-	cmd.Env = append(os.Environ(), "CARMAN_MODEL="+model)
+	cmd.Env = append(os.Environ(), "CMEM_ROUTINE_MODEL="+model)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -120,9 +120,9 @@ var pause = func(c *command, d time.Duration) {
 }
 
 func (c *command) routine(args []string) error {
-	models := c.flags.String("models", c.getenv("CARMAN_MODELS"), "the ladder: models to try in order, separated by commas; a name may repeat")
-	budget := c.flags.Float64("budget", 0, "stop starting attempts once this many dollars are spent (CARMAN_BUDGET_USD)")
-	wait := c.flags.Int("wait-for-limit", 0, "minutes this run may spend waiting for the plan's usage limit to reset (CARMAN_WAIT_FOR_LIMIT_MINUTES)")
+	models := c.flags.String("models", c.getenv("CMEM_ROUTINE_MODELS"), "the ladder: models to try in order, separated by commas; a name may repeat")
+	budget := c.flags.Float64("budget", 0, "stop starting attempts once this many dollars are spent (CMEM_ROUTINE_BUDGET_USD)")
+	wait := c.flags.Int("wait-for-limit", 0, "minutes this run may spend waiting for the plan's usage limit to reset (CMEM_ROUTINE_WAIT_FOR_LIMIT_MINUTES)")
 	if _, err := c.parse(args); err != nil {
 		return err
 	}
@@ -138,10 +138,10 @@ func (c *command) routine(args []string) error {
 		ladder = []string{"claude-sonnet-5-5"}
 	}
 	if *budget == 0 {
-		*budget, _ = strconv.ParseFloat(c.getenv("CARMAN_BUDGET_USD"), 64)
+		*budget, _ = strconv.ParseFloat(c.getenv("CMEM_ROUTINE_BUDGET_USD"), 64)
 	}
 	if *wait == 0 {
-		*wait, _ = strconv.Atoi(c.getenv("CARMAN_WAIT_FOR_LIMIT_MINUTES"))
+		*wait, _ = strconv.Atoi(c.getenv("CMEM_ROUTINE_WAIT_FOR_LIMIT_MINUTES"))
 	}
 	waitLeft := time.Duration(*wait) * time.Minute
 	started := time.Now().UTC().Add(-time.Second)
