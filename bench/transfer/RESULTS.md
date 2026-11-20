@@ -7,6 +7,40 @@ Each case teaches a lesson by a correction in repository A, then probes it in a
 fresh session in repository A and in repository B. "Wrote" means the lesson was
 in memory after the teach session.
 
+## 2026-11-19, distilling finished documents, three models (one run each)
+
+`run.py distill`. Four documents are in memory: the notes of a finished
+migration and a closed incident review (2,600 to 3,500 characters, with
+seven lessons planted among details of the moment), a rollout still in
+progress, and a runbook in use. The routine (`routines/distill.md`) should
+turn each finished document into lessons and a pointer, and leave the other
+two alone. Thirteen mechanical checks.
+
+| Model | Checks | Lessons found | Details carried over | Writes refused | Cost | Time |
+|---|---|---|---|---|---|---|
+| Haiku 5.5 | 11/13 | 7/7 | 0/15 | 0 | $0.013 | 44 s |
+| Sonnet 5.5 | 13/13 | 7/7 | 0/15 | 0 | $0.114 | 29 s |
+| Opus 5.5 | 13/13 | 7/7 | 0/15 | 0 | $0.370 | 56 s |
+
+- **This does not tell the models apart.** All three found every planted
+  lesson, carried over none of the details of the moment, left the document
+  in progress and the runbook alone, and kept scope and backing. Haiku's two
+  failures are one thing: its pointers said what the document was and not
+  how to read it.
+- Read by eye, the lessons are good from all three: one to three sentences,
+  the command exactly as the document gives it. Each model also kept one or
+  two sound lessons that were not planted (the role that could not change an
+  alias; the alert window that was too long).
+- No write was refused, so the check that a lesson says nothing its
+  document does not has still not been met by a model that breaks it.
+- Current text went from 11,800 characters to about 8,400. The saving is
+  modest here because two of the four documents are meant to stay.
+- **What this test is too easy to show.** Its documents are short and say
+  their lessons almost in so many words. Real ones run to 50,000 or 200,000
+  characters, their lessons are implied, and a decision made in one month
+  is reversed in another. Harder documents are needed before a stronger
+  model can be said to be worth its price, or not.
+
 ## 2026-11-19, correcting one fact in a long entry (Sonnet 5.5, cmem with the hook)
 
 Two new cases (`--kind document`). A long entry is already in memory: a
