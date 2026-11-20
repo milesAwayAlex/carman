@@ -133,3 +133,24 @@ To try the image without the cluster, against a development service:
 
     docker run --rm -e CLAUDE_CODE_OAUTH_TOKEN -e CMEM_URL=http://HOST:8378 \
         -e CMEM_TOKEN=dev-dreamer "$(scripts/deploy.sh CONTEXT agent-image)" consolidate
+
+## The egress proxy
+
+Agent pods (those labelled `carman/role: agent`) leave the cluster through
+`service/egress`, an Envoy proxy in the same namespace (ADR 0031). A network
+policy lets them reach the proxy, the memory service and the name service,
+and nothing else. The proxy passes everything through and logs one line for
+each connection:
+
+    kubectl --context CONTEXT -n carman logs deploy/egress
+
+Two things measured on the local cluster (k3s):
+
+- The policy takes a few seconds to apply to a new pod. In a test, a
+  connection made in a pod's first second got out directly; from five
+  seconds on it was refused. Check this on each kind of cluster: one whose
+  network does not enforce policies applies none, silently.
+- A model call from an agent pod goes through the proxy and is logged as
+  `CONNECT api.anthropic.com:443`.
+
+`egress.enabled: false` in the values takes the proxy and the policy out.
