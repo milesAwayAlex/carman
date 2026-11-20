@@ -1,0 +1,46 @@
+# Values for the carman chart. scripts/deploy.sh sets the two images and
+# keeps the dreamer's schedule as the cluster has it; everything else is here
+# or in a values file for one kind of cluster (deploy/values/).
+
+memory:
+  # The image of the memory service. Required.
+  image: ""
+  # How much room the library's volume has. Notes are small; a gigabyte is
+  # hundreds of thousands of them with their history.
+  storage: 1Gi
+  # The storage class of that volume; empty means the cluster's default.
+  storageClass: ""
+  # The secret holding the role tokens (keys CMEM_TOKENS, laptop, worker,
+  # dreamer). scripts/deploy.sh makes it on the first deploy.
+  tokensSecret: cmem-tokens
+  service:
+    # ClusterIP inside a cluster that has another way in. LoadBalancer where
+    # the cluster's load balancer is how a laptop reaches the service.
+    type: ClusterIP
+    port: 8377
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 256Mi}
+
+agent:
+  # The agent image: the harness, the memory client and the routines. Required.
+  image: ""
+  # The secret holding the harness's model credential, under the key `token`.
+  modelSecret: carman-model
+
+dreamer:
+  # Off until a model credential is in place; `scripts/deploy.sh CONTEXT
+  # dreamer on` switches it and later deploys keep what the cluster has.
+  suspend: true
+  # Once a night, at an hour when nobody is working (UTC).
+  schedule: "17 10 * * *"
+  # In this order: tidy what is there, then distil finished documents.
+  routines: [consolidate, distill]
+  # The ladder: one attempt each, in this order (ADR 0029).
+  models: [claude-sonnet-5-5, claude-sonnet-5-5, claude-opus-5-5, claude-fable-5-1]
+  # No further attempt at a routine starts once it has cost this much tonight.
+  budgetUSD: 3
+  deadlineSeconds: 1800
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}

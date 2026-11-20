@@ -1,0 +1,6 @@
+apiVersion: v2
+name: carman
+description: The carman memory service and the agents that run beside it
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

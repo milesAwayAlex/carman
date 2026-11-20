@@ -1,18 +1,14 @@
-# The dreamer: the consolidation routine, run on a schedule beside the memory
-# it tidies (ADR 0027). It is the first agent carman runs by itself.
-#
-# It starts suspended. It needs a model credential in the secret
-# carman-model, which is put there on purpose (deploy/README.md, ADR 0028);
-# `scripts/deploy.sh CONTEXT dreamer on` then lets the schedule run.
+# The dreamer: the consolidation and distilling routines, run on a schedule
+# beside the memory they tidy (ADR 0027). It needs a model credential in the
+# secret named by agent.modelSecret, which is put there on purpose (ADR 0028).
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: dreamer
-  namespace: carman
+  namespace: {{ .Release.Namespace }}
 spec:
-  # Once a night, at an hour when nobody is working (the times are UTC).
-  schedule: "17 10 * * *"
-  suspend: true
+  schedule: {{ .Values.dreamer.schedule | quote }}
+  suspend: {{ .Values.dreamer.suspend }}
   # A run reads the whole library before it changes anything; two at once
   # would each act on what the other is about to change.
   concurrencyPolicy: Forbid
@@ -21,7 +17,7 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 0
-      activeDeadlineSeconds: 1800
+      activeDeadlineSeconds: {{ .Values.dreamer.deadlineSeconds }}
       ttlSecondsAfterFinished: 1209600
       template:
         metadata:
@@ -35,41 +31,32 @@ spec:
             runAsGroup: 10001
           containers:
             - name: dreamer
-              image: AGENT_IMAGE
+              image: {{ required "agent.image is required" .Values.agent.image }}
               imagePullPolicy: IfNotPresent
-              # In this order: tidy what is there, then distil finished
-              # working documents into lessons (at most three a night).
-              args: ["consolidate", "distill"]
+              args: {{ toJson .Values.dreamer.routines }}
               env:
                 - name: CMEM_URL
-                  value: http://cmem:8377
+                  value: http://cmem:{{ .Values.memory.service.port }}
                 # The consolidation role, and nothing wider.
                 - name: CMEM_TOKEN
                   valueFrom:
                     secretKeyRef:
-                      name: cmem-tokens
+                      name: {{ .Values.memory.tokensSecret }}
                       key: dreamer
                 - name: CLAUDE_CODE_OAUTH_TOKEN
                   valueFrom:
                     secretKeyRef:
-                      name: carman-model
+                      name: {{ .Values.agent.modelSecret }}
                       key: token
-                # The ladder: one attempt each, in this order. A write that
-                # memory refused goes to the next rung with the reason.
                 - name: CARMAN_MODELS
-                  value: claude-sonnet-5-5,claude-sonnet-5-5,claude-opus-5-5,claude-fable-5-1
-                # No further attempt starts once a night has cost this much.
+                  value: {{ join "," .Values.dreamer.models | quote }}
                 - name: CARMAN_BUDGET_USD
-                  value: "3"
+                  value: {{ .Values.dreamer.budgetUSD | quote }}
               volumeMounts:
                 - name: home
                   mountPath: /home/agent
               resources:
-                requests:
-                  cpu: 100m
-                  memory: 256Mi
-                limits:
-                  memory: 1Gi
+                {{- toYaml .Values.dreamer.resources | nindent 16 }}
           volumes:
             # The harness keeps its session files here; nothing outlives the run.
             - name: home

@@ -22,12 +22,19 @@ In the namespace `carman`:
 - `secret/cmem-tokens`, made on the first deploy: one random token each for
   the laptop, worker and consolidation roles. Later deploys leave it alone.
 
-`deploy/k8s/base` is the same for every cluster. `deploy/k8s/local` is the
-overlay for the local cluster; `CARMAN_OVERLAY` selects another.
+- `cronjob/dreamer`, the nightly consolidation of the memory (see "The
+  dreamer" below), switched off until it has a model credential.
+
+All of it is one Helm chart, `charts/carman` (ADR 0030), with no secret in
+it. What differs between clusters is a values file: `deploy/values/local.yaml`
+for the local cluster, and `CARMAN_VALUES=NAME` selects
+`deploy/values/NAME.yaml`. The deploy script renders the chart and applies
+it, and needs `kubectl` and `helm`. A cluster that deploys from charts by
+itself can use the chart directly, with `memory.image` and `agent.image` set.
 
 ## Reaching it from the laptop
 
-The local cluster is k3s in a Lima VM. The local overlay makes the service a
+The local cluster is k3s in a Lima VM. The local values make the service a
 LoadBalancer on port 8377. Lima forwards a LoadBalancer's port to the laptop,
 so the laptop reaches the service at `http://127.0.0.1:8377`, on the loopback
 address only. The forward appears a few seconds after the service does.
@@ -89,12 +96,13 @@ token when `claude` starts and pass it as `CMEM_TOKEN`, with the hook settings
 from the flake's `cmem-claude-code-settings` package given to `claude
 --settings`.
 - **Deploy to a cluster with a registry.** Build and push the image yourself,
-  set `CARMAN_IMAGE`, and add an overlay that says how the service is reached.
+  set `CARMAN_IMAGE` and `CARMAN_AGENT_IMAGE`, and add a values file that says
+  how the service is reached.
 
 ## The dreamer
 
-The consolidation routine (`routines/consolidate.md`) also runs in the
-cluster, as the CronJob `dreamer`: once a night, with the consolidation
+The consolidation routine (`routines/consolidate.md`) and then the distilling
+routine (`routines/distill.md`) run in the cluster, as the CronJob `dreamer`: once a night, with the consolidation
 role's token and the memory command as its only tool (ADR 0027). A deploy
 creates it switched off.
 

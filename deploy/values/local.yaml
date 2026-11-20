@@ -1,0 +1,8 @@
+# The local cluster: k3s in a virtual machine on a laptop. Its service load
+# balancer publishes the memory service on the machine's port 8377, and the
+# virtual machine forwards a LoadBalancer's port to the laptop's loopback
+# address, so the laptop reaches the service at http://127.0.0.1:8377 and
+# nothing on the network does.
+memory:
+  service:
+    type: LoadBalancer

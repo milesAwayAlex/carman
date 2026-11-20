@@ -1,6 +1,6 @@
 # 0019. The memory service runs on Kubernetes from the start, on the local cluster first
 
-Status: Accepted (2026-11-18). Built and running on the local cluster.
+Status: Accepted (2026-11-18). Built and running on the local cluster. Its choice of plain manifests with kustomize overlays is superseded by ADR 0030.
 
 ## Context
 

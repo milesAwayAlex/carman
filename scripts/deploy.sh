@@ -20,9 +20,11 @@
 #   scripts/deploy.sh CONTEXT dreamer log       the report of the latest run
 #   scripts/deploy.sh CONTEXT agent-image       build the agent image and print its name
 #
-# What is applied is an overlay under deploy/k8s; `local` unless CARMAN_OVERLAY
-# names another. CMEM_URL is where this machine reaches the service, and is
-# http://127.0.0.1:8377 unless set, which is right for the local overlay.
+# What is applied is the chart in charts/carman, rendered with the values in
+# deploy/values/NAME.yaml; NAME is `local` unless CARMAN_VALUES names another.
+# CMEM_URL is where this machine reaches the service, and is
+# http://127.0.0.1:8377 unless set, which is right for the local values.
+# Needs kubectl and helm.
 #
 # The image is built with `docker build`. On the local cluster (context devvm)
 # that builds straight into the cluster's container runtime, so no registry is
@@ -50,8 +52,8 @@ action="${2:-deploy}"
 kube=(kubectl --context "$context" --namespace carman)
 # CARMAN_KUBE_SERVER overrides the API address, for reaching it through a tunnel.
 [ -z "${CARMAN_KUBE_SERVER:-}" ] || kube+=(--server "$CARMAN_KUBE_SERVER")
-overlay="deploy/k8s/${CARMAN_OVERLAY:-local}"
-[ -d "$overlay" ] || die "no overlay at $overlay"
+values="deploy/values/${CARMAN_VALUES:-local}.yaml"
+[ -f "$values" ] || die "no values file at $values"
 url="${CMEM_URL:-http://127.0.0.1:8377}"
 
 answers() { curl -fsS -m 3 -o /dev/null "$url/healthz" 2>/dev/null; }
@@ -124,8 +126,11 @@ EOF
     # Whether the dreamer's schedule is on is a setting of the cluster, not of
     # the manifest: a deploy leaves it as it was, and off the first time.
     dreaming="$("${kube[@]}" get cronjob dreamer -o 'jsonpath={.spec.suspend}' 2>/dev/null || true)"
-    kubectl kustomize "$overlay" |
-        sed -e "s|CMEM_IMAGE|$CARMAN_IMAGE|" -e "s|AGENT_IMAGE|$CARMAN_AGENT_IMAGE|" -e "s|suspend: true|suspend: ${dreaming:-true}|" |
+    # Rendered and applied, not installed as a release: the cluster's objects
+    # are the record, and a chart consumer elsewhere (a GitOps controller,
+    # `helm install`) uses the same chart its own way.
+    helm template carman charts/carman --namespace carman -f "$values" \
+        --set "memory.image=$CARMAN_IMAGE" --set "agent.image=$CARMAN_AGENT_IMAGE" --set "dreamer.suspend=${dreaming:-true}" |
         "${kube[@]}" apply -f -
     "${kube[@]}" rollout status statefulset/cmem --timeout=120s
     sleep 3 # a port forward to this machine, if there is one, takes a moment

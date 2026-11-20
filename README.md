@@ -60,7 +60,8 @@ Go and git come from the Nix flake; nothing else needs installing.
 | `internal/`, `cmd/cmem` | The memory library, the HTTP service, the CLI and the hook |
 | `routines/` | Prompts a harness runs: consolidating memory, importing Claude Code's memories |
 | `adapters/claude-code` | The hook's settings and install notes |
-| `deploy/` | Kubernetes manifests |
+| `charts/carman` | The Helm chart: the memory service and the agents beside it |
+| `deploy/` | The images, the values for each kind of cluster, how to deploy and recover |
 | `bench/` | The benchmarks and their results |
 | `nix/packages/` | Nix packages, one per component |
 

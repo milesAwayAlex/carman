@@ -1,33 +1,29 @@
-# The carman memory service on Kubernetes. Applied through an overlay by
-# scripts/deploy.sh, which fills in the image and creates the token secret;
-# see deploy/README.md.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: carman
----
-# Inside the cluster the service is http://cmem.carman.svc:8377. How anything
-# outside the cluster reaches it is the overlay's business.
+# The memory service. Inside the cluster it is http://cmem:{{ .Values.memory.service.port }} in
+# this namespace.
 apiVersion: v1
 kind: Service
 metadata:
   name: cmem
-  namespace: carman
+  namespace: {{ .Release.Namespace }}
 spec:
+  type: {{ .Values.memory.service.type }}
   selector:
     app: cmem
   ports:
     - name: http
-      port: 8377
+      port: {{ .Values.memory.service.port }}
       targetPort: http
 ---
 # One replica, and it must stay one: the service keeps the whole library in
 # memory and serializes writes, so two instances on one library would diverge.
+# What makes it resilient is not a second copy but a fast restart on a volume
+# that outlives the pod: on start it clears stale locks and commits any note
+# that was written and not yet recorded.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: cmem
-  namespace: carman
+  namespace: {{ .Release.Namespace }}
 spec:
   serviceName: cmem
   replicas: 1
@@ -46,7 +42,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: cmem
-          image: CMEM_IMAGE
+          image: {{ required "memory.image is required" .Values.memory.image }}
           imagePullPolicy: IfNotPresent
           env:
             # A directory inside the volume, so that the service creates it and
@@ -56,7 +52,7 @@ spec:
             - name: CMEM_TOKENS
               valueFrom:
                 secretKeyRef:
-                  name: cmem-tokens
+                  name: {{ .Values.memory.tokensSecret }}
                   key: CMEM_TOKENS
           ports:
             - name: http
@@ -73,11 +69,7 @@ spec:
             periodSeconds: 20
             failureThreshold: 3
           resources:
-            requests:
-              cpu: 10m
-              memory: 32Mi
-            limits:
-              memory: 256Mi
+            {{- toYaml .Values.memory.resources | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -96,6 +88,9 @@ spec:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
+        {{- with .Values.memory.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
         resources:
           requests:
-            storage: 1Gi
+            storage: {{ .Values.memory.storage }}
