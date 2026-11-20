@@ -169,7 +169,7 @@ func statusFor(err error) int {
 	case errors.Is(err, memory.ErrNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, memory.ErrNotCurrent), errors.Is(err, memory.ErrSimilar), errors.Is(err, memory.ErrLessTrusted),
-		errors.Is(err, memory.ErrRunFull):
+		errors.Is(err, memory.ErrRunFull), errors.Is(err, memory.ErrLosesSpecifics):
 		return http.StatusConflict
 	case errors.Is(err, memory.ErrSecret):
 		return http.StatusUnprocessableEntity
@@ -532,6 +532,7 @@ type EntryRequest struct {
 	Sources []memory.Source `json:"sources,omitempty"` // episodes the entry rests on
 	From    []string        `json:"from,omitempty"`    // entries whose sources it inherits
 	Absorbs []string        `json:"absorbs,omitempty"` // supersede only: further entries merged into it
+	Drops   []string        `json:"drops,omitempty"`   // supersede only: specifics left out on purpose, "SPECIFIC: why"
 	Global  bool            `json:"global,omitempty"`  // supersede only: the new entry applies everywhere
 }
 
@@ -550,7 +551,7 @@ func (req EntryRequest) curation(supersedes string) (memory.Curation, error) {
 		return memory.Curation{}, fmt.Errorf("%w: an entry is global or has a scope, not both", errBadRequest)
 	}
 	return memory.Curation{
-		Run: req.Run, Supersedes: supersedes, Absorbs: req.Absorbs, From: req.From, Global: req.Global,
+		Run: req.Run, Supersedes: supersedes, Absorbs: req.Absorbs, From: req.From, Global: req.Global, Drops: req.Drops,
 		Entry: memory.NewEntry{
 			CreatedBy: memory.AuthorDreamer, Kind: req.Kind, Text: req.Text, Scope: req.Scope, Sources: req.Sources,
 		},

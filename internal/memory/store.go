@@ -152,6 +152,7 @@ type Entry struct {
 	ValidTo        *time.Time `json:"valid_to,omitempty"`
 	Supersedes     *string    `json:"supersedes,omitempty"`
 	Absorbs        []string   `json:"absorbs,omitempty"` // further entries merged into this one
+	Drops          []string   `json:"drops,omitempty"`   // specifics of the replaced entries it leaves out on purpose
 	Run            string     `json:"run,omitempty"`     // the consolidation run that wrote it
 	Status         Status     `json:"status"`
 	Contradictions int        `json:"contradictions"`
@@ -233,6 +234,7 @@ type Change struct {
 	Entry    string    `json:"entry"`              // the entry added, or the one retired
 	Replaced []string  `json:"replaced,omitempty"` // entries the new one took the place of
 	Text     string    `json:"text"`               // the new entry's text, or the reason for retiring
+	Drops    []string  `json:"drops,omitempty"`    // specifics of the replaced entries left out on purpose, and why
 }
 
 // DefaultRunCap is how many entries one consolidation run may add, replace or
@@ -255,6 +257,10 @@ type Curation struct {
 	// copies them, so a merged or reworded entry keeps what backed the
 	// originals without the caller being able to claim a source of its own.
 	From []string
+	// Drops names specifics of the replaced entries that the new text leaves
+	// out on purpose, each as "SPECIFIC: why". Anything else left out is
+	// refused (ErrLosesSpecifics); what is named here is kept in the log.
+	Drops []string
 }
 
 // RecallQuery selects entries. Every field is optional.
@@ -421,7 +427,7 @@ func (s *Store) apply(n note) {
 		for _, src := range n.Sources {
 			e.Sources = append(e.Sources, Source{EpisodeID: src.Episode, Human: src.Human})
 		}
-		e.Run, e.Absorbs = n.Run, n.Absorbs
+		e.Run, e.Absorbs, e.Drops = n.Run, n.Absorbs, n.Drops
 		var replaced []string
 		if old := n.Supersedes; old != "" {
 			e.Supersedes = &old
@@ -440,7 +446,7 @@ func (s *Store) apply(n note) {
 		if len(replaced) > 0 {
 			action = "supersede"
 		}
-		s.logChange(n.Run, Change{At: n.Created, Action: action, Entry: n.ID, Replaced: replaced, Text: n.body}, max(1, len(replaced)))
+		s.logChange(n.Run, Change{At: n.Created, Action: action, Entry: n.ID, Replaced: replaced, Text: n.body, Drops: n.Drops}, max(1, len(replaced)))
 	case typeFlag:
 		s.flags[n.Entry] = append(s.flags[n.Entry], Flag{ID: n.ID, CreatedAt: n.Created, Origin: n.Origin, Reason: n.body})
 	case typeRetirement:
@@ -895,6 +901,23 @@ func (s *Store) Curate(c Curation) (Entry, error) {
 			return fail(err)
 		}
 	}
+	// A rewrite keeps every specific of what it replaces, or says which it
+	// drops. Asked at the moment of the write, so that the one who can put
+	// it right is told while it still has the texts in front of it.
+	if c.Supersedes != "" {
+		olds := []string{s.entries[c.Supersedes].Text}
+		for _, old := range c.Absorbs {
+			olds = append(olds, s.entries[old].Text)
+		}
+		if lost := lostSpecifics(c.Entry.Text, olds, c.Drops); len(lost) > 0 {
+			return fail(fmt.Errorf("%w: %s", ErrLosesSpecifics, lostMessage(lost)))
+		}
+		for _, d := range c.Drops {
+			if err := checkSecrets(d); err != nil {
+				return fail(err)
+			}
+		}
+	}
 	e := c.Entry
 	switch {
 	case c.Global:
@@ -924,7 +947,7 @@ func (s *Store) Curate(c Curation) (Entry, error) {
 	if err != nil {
 		return fail(err)
 	}
-	n.Run, n.Absorbs = c.Run, c.Absorbs
+	n.Run, n.Absorbs, n.Drops = c.Run, c.Absorbs, c.Drops
 	message := fmt.Sprintf("Add %s: %s", n.Kind, summary(n.body))
 	if c.Supersedes != "" {
 		message = fmt.Sprintf("Supersede %s: %s", strings.Join(append([]string{c.Supersedes}, c.Absorbs...), ", "), summary(n.body))

@@ -41,6 +41,14 @@ The new text keeps every specific from all of them: names, numbers, commands,
 flags, times, and the reason why. If the entries differ on a detail, that is a
 disagreement, not a duplicate; see below.
 
+Memory checks this as you write. A new text that lacks a number, a command or
+an identifier found in the entries it replaces is refused, and the refusal
+lists what is missing. Put those back in and run the command again. When one
+of them is meant to go, because a correction replaced that value, say so for
+each: `--drops 'SPECIFIC: why'`. It is kept in the run's log. Do not use
+`--drops` to get a merge through; if you cannot keep a specific and cannot say
+why it should go, leave the entries as they are and list them.
+
 **An entry that a newer entry has replaced.** This is the case when the newer
 entry says the older one's content has changed (a renamed thing, a tool
 swapped for another), or when the older entry is flagged as out of date and a
@@ -56,9 +64,10 @@ reads "Corrected in part by NEW_ID", where NEW_ID is a note that states the
 one thing that changed. The entry is otherwise good. If the entry is short (a few paragraphs at most) and the
 correcting note is at least as well backed as the entry (both told by a
 person, or the entry itself unverified), write the entry again with the
-correction worked in, and nothing else changed, keeping the entry's kind:
+correction worked in, and nothing else changed, keeping the entry's kind. The
+value the correction replaced is the one thing that goes, and you say so:
 
-    cmem supersede ID --run RUN --kind KIND --absorb NEW_ID --from ID --from NEW_ID 'TEXT'
+    cmem supersede ID --run RUN --kind KIND --absorb NEW_ID --from ID --from NEW_ID --drops 'OLD VALUE: corrected by NEW_ID' 'TEXT'
 
 If the entry is a long document, or it was told by a person and the
 correction is only an agent's unverified observation, leave both. The pointer
@@ -117,7 +126,10 @@ If the scoped one adds a detail the other lacks, it is not a repeat; leave it.
 - **A flagged entry that no other entry corrects stays.** The flag is a
   question for the owner. List it in your report.
 - **Two entries that disagree, where neither says it replaces the other,
-  both stay.** List them in your report.
+  both stay.** Which of them is true is a fact about the world, and nothing
+  in memory settles it. Put it in your report as one question a person can
+  answer in a line: what the two entries say, by ID, and what you would do
+  with each answer.
 - **Do not reword for style**, and do not touch entries that are fine.
 - **Long documents are not merged.** An entry of more than a page (a plan, a
   write-up of an incident, a how-to) cannot be merged with another without
@@ -145,6 +157,8 @@ End with a short report:
 
 - the run's ID;
 - each change in one line, with why;
-- what you left for the owner to decide, and why, including scoped entries
-  that look as if they might apply everywhere;
+- questions only a person can answer, each in a line (see "Two entries that
+  disagree");
+- what else you left alone, and why, including scoped entries that look as
+  if they might apply everywhere;
 - how to undo the run: `cmem consolidate revert RUN 'REASON'`.

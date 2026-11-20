@@ -107,13 +107,17 @@ capped, and can be reverted as a unit:
   cmem add --run RUN --kind KIND [--scope TAG]... --source EPISODE_ID... TEXT...
         A new entry resting on episodes.
   cmem supersede ID --run RUN --kind KIND [--scope TAG]... [--global]
-                 [--absorb ID]... [--from ID]... [--source EPISODE_ID]... TEXT...
+                 [--absorb ID]... [--from ID]... [--drops 'SPECIFIC: why']...
+                 [--source EPISODE_ID]... TEXT...
         A new entry in place of entry ID. --absorb merges further entries
         into it. --from ID gives it the sources of entry ID; name every entry
         whose meaning the new one carries, or it loses what backed them.
         The new entry keeps the scope of the entries it replaces. When they
         differ you must say: --scope for each tag it should have, or --global
         for an entry that applies everywhere.
+        The new text must keep every number, command and identifier of the
+        entries it replaces; a write that loses one is refused and says
+        which. --drops 'SPECIFIC: why' leaves one out on purpose, on record.
   cmem retire ID --run RUN REASON...
         Withdraw an entry with nothing in its place.
   cmem consolidate log [RUN]
@@ -861,7 +865,7 @@ func (c *command) curate(args []string, path func(id string) string, leading int
 		id, args = args[0], args[1:]
 	}
 	var req server.EntryRequest
-	var scope, sources, from, absorbs list
+	var scope, sources, from, absorbs, drops list
 	c.flags.StringVar(&req.Run, "run", c.getenv("CMEM_RUN"), "the consolidation run this belongs to")
 	c.flags.StringVar((*string)(&req.Kind), "kind", "", "fact, procedure, pitfall or preference")
 	c.flags.Var(&scope, "scope", "what this is about (repeatable)")
@@ -869,13 +873,14 @@ func (c *command) curate(args []string, path func(id string) string, leading int
 	c.flags.Var(&from, "from", "ID of an entry whose sources this inherits (repeatable)")
 	if leading == 1 {
 		c.flags.Var(&absorbs, "absorb", "ID of a further entry merged into this one (repeatable)")
+		c.flags.Var(&drops, "drops", "a specific of the replaced entries left out on purpose, as 'SPECIFIC: why' (repeatable)")
 		c.flags.BoolVar(&req.Global, "global", false, "the new entry applies everywhere, whatever scope the old ones had")
 	}
 	text, err := c.parse(args)
 	if err != nil {
 		return err
 	}
-	req.Text, req.Scope, req.From, req.Absorbs = text, scope, from, absorbs
+	req.Text, req.Scope, req.From, req.Absorbs, req.Drops = text, scope, from, absorbs, drops
 	for _, episodeID := range sources {
 		req.Sources = append(req.Sources, memory.Source{EpisodeID: episodeID})
 	}
@@ -988,6 +993,9 @@ func printRun(w io.Writer, run memory.Run) {
 		switch change.Action {
 		case "supersede":
 			fmt.Fprintf(w, "    - %s replaced %s: %s\n", change.Entry, strings.Join(change.Replaced, ", "), text)
+			for _, d := range change.Drops {
+				fmt.Fprintf(w, "        left out on purpose: %s\n", d)
+			}
 		case "retire":
 			fmt.Fprintf(w, "    - retired %s: %s\n", change.Entry, text)
 		default:

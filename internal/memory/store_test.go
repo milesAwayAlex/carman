@@ -907,6 +907,61 @@ func TestAReplacementKeepsItsScopeUnlessToldOtherwise(t *testing.T) {
 	}
 }
 
+// M4: a rewrite by the consolidation role keeps every number, command and
+// identifier of the entries it replaces, or says which it drops and why.
+func TestM4_ARewriteKeepsEverySpecificOrSaysWhichItDrops(t *testing.T) {
+	s := newStore(t)
+	passed := mustEpisode(t, s, OutcomePassed)
+	deploy := mustAdd(t, s, "Staging is deployed with `make deploy ENV=staging`; the suite takes 14 minutes on the runner ci-large_2.", passed)
+	vpn := mustAdd(t, s, "A staging deploy needs the VPN up, see ticket OPS-311. The runBook says so too.", passed)
+	run, err := s.StartRun("Merge the two notes about staging deploys.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	merge := func(text string, drops ...string) error {
+		_, err := s.Curate(Curation{Run: run.ID, Supersedes: deploy.ID, Absorbs: []string{vpn.ID}, From: []string{deploy.ID, vpn.ID},
+			Entry: NewEntry{CreatedBy: AuthorDreamer, Kind: KindProcedure, Text: text}, Drops: drops})
+		return err
+	}
+	// A merge that reads well and has lost the command and the ticket.
+	err = merge("To deploy staging, bring the VPN up first and run the deploy target; the suite takes 14 minutes on ci-large_2.")
+	if !errors.Is(err, ErrLosesSpecifics) {
+		t.Fatalf("a merge that lost a command: %v, want ErrLosesSpecifics", err)
+	}
+	for _, want := range []string{"`make deploy ENV=staging`", "`OPS-311`", "`runBook`", "--drops"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %s: %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "ci-large_2") || strings.Contains(err.Error(), "`14`") {
+		t.Errorf("the refusal names something the text kept: %v", err)
+	}
+	// Nothing was written, and the run has room as before.
+	if got, _ := s.Run(run.ID); len(got.Changes) != 0 {
+		t.Errorf("a refused merge is in the run's log: %+v", got.Changes)
+	}
+	// Leaving one out on purpose is allowed when it is said, and is on record.
+	text := "To deploy staging, bring the VPN up first (ticket OPS-311, and the runBook) and run `make deploy ENV=staging`; the suite takes 9 minutes on ci-large_2."
+	if err := merge(text); !errors.Is(err, ErrLosesSpecifics) || !strings.Contains(err.Error(), "`14`") {
+		t.Fatalf("a merge that changed a number without saying so: %v", err)
+	}
+	if err := merge(text, "14: the suite takes 9 minutes since the runner was upgraded"); err != nil {
+		t.Fatalf("a merge that says what it drops: %v", err)
+	}
+	got, _ := s.Run(run.ID)
+	if len(got.Changes) != 1 || len(got.Changes[0].Drops) != 1 || !strings.HasPrefix(got.Changes[0].Drops[0], "14: ") {
+		t.Errorf("what was dropped is not in the run's log: %+v", got.Changes)
+	}
+	// And it is still there after the library is read again.
+	reopened, err := Open(s.lib.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := reopened.Run(run.ID); len(again.Changes) != 1 || len(again.Changes[0].Drops) != 1 {
+		t.Errorf("what was dropped did not survive a restart: %+v", again.Changes)
+	}
+}
+
 func TestM4_ARunIsCappedAndEveryChangeNeedsOne(t *testing.T) {
 	s := newStore(t)
 	s.RunCap = 3

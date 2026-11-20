@@ -59,6 +59,7 @@ type header struct {
 	CreatedBy  Author         `yaml:"created_by,omitempty"`
 	Supersedes string         `yaml:"supersedes,omitempty"`
 	Absorbs    []string       `yaml:"absorbs,omitempty"` // further entries merged into this one
+	Drops      []string       `yaml:"drops,omitempty"`   // specifics of the replaced entries left out on purpose
 	Sources    []sourceHeader `yaml:"sources,omitempty"`
 
 	// entry, retirement, revert: the consolidation run it belongs to or undoes

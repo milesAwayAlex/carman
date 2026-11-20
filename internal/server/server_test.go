@@ -223,6 +223,12 @@ func TestM4_OnlyTheConsolidationRoleAddsAndSupersedesEntries(t *testing.T) {
 		t.Errorf("the consolidation role citing a human: status %d, want 403", status)
 	}
 
+	// A rewrite that loses a specific of what it replaces is refused, until
+	// it says that it means to.
+	if status := call(t, srv, dreamerToken, "POST", "/v1/entries/"+note.ID+"/supersede", curated, nil); status != http.StatusConflict {
+		t.Errorf("a rewrite that drops a specific: status %d, want 409", status)
+	}
+	curated.Drops = []string{"v1: it became v2"}
 	var replacement memory.Entry
 	if status := call(t, srv, dreamerToken, "POST", "/v1/entries/"+note.ID+"/supersede", curated, &replacement); status != http.StatusCreated {
 		t.Fatalf("the consolidation role superseding: status %d", status)

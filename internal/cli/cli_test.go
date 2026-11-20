@@ -186,10 +186,20 @@ func TestM8_EveryMemoryOperationIsReachableFromTheCLI(t *testing.T) {
 		"Deploy the api by running the migration job, then the rollout.")
 	expectContains(t, out, "procedure  [repo:api]", "replaces "+noted.ID)
 
+	// A rewrite that loses a number of the entry it replaces is refused and
+	// told which; saying that it is dropped on purpose puts that on record.
+	port := strings.Fields(laptop.ok("", "note", "--kind", "fact", "--human", "alex", "--separate", "The gateway listens on port 9100."))[1]
+	rewrite := []string{"supersede", port, "--run", strings.Fields(second)[1], "--kind", "fact", "--from", port, "The gateway picks its port when it starts."}
+	if _, stderr, code := dreamer.run("", rewrite...); code == 0 || !strings.Contains(stderr, "`9100`") || !strings.Contains(stderr, "--drops") {
+		t.Errorf("a rewrite that lost a number: exit %d, %q", code, stderr)
+	}
+	dreamer.ok("", append(rewrite, "--drops", "9100: the port is no longer fixed")...)
+	expectContains(t, dreamer.ok("", "consolidate", "log", strings.Fields(second)[1]), "left out on purpose: 9100: the port is no longer fixed")
+
 	// A question that shares no words with any note says how much memory
 	// holds, so that a miss in wording is not taken for an empty memory.
 	expectContains(t, laptop.ok("", "recall", "--everywhere", "kubernetes", "ingress"),
-		"None of the 3 entries anywhere shares a word with that", "cmem index")
+		"None of the 4 entries anywhere shares a word with that", "cmem index")
 }
 
 // hookContext runs the Claude Code hook with the given input and returns the
