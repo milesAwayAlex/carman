@@ -63,6 +63,7 @@ spec:
   # Without a schedule of its own the agent is kept switched off and runs
   # only when a Job is made from it.
   schedule: {{ .schedule | default "0 0 1 1 *" | quote }}
+  timeZone: "Etc/UTC"
   suspend: {{ if .schedule }}{{ .suspend | default false }}{{ else }}true{{ end }}
   # A cluster that was not running at the scheduled time (a laptop asleep)
   # starts the run when it is back, if that is within this long.

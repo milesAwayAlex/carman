@@ -30,3 +30,17 @@ metadata:
   {{- end }}
 automountServiceAccountToken: false
 {{- end -}}
+
+{{- /* Whom a pod may ask for names: the cluster's name service, and the
+addresses a node-local cache answers on. */ -}}
+{{- define "dns.peers" -}}
+- namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: kube-system
+  podSelector:
+    matchLabels:
+      k8s-app: kube-dns
+{{- range .Values.egress.nameServers }}
+- ipBlock: {cidr: {{ . }}/32}
+{{- end }}
+{{- end -}}

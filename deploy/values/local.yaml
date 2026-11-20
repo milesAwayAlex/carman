@@ -10,6 +10,15 @@ memory:
 # of this namespace.
 isolated: false
 
+# On a laptop the proxy's way out is the laptop's own, private networks
+# included (a VPN's routes, for one), and an agent may need them. What stays
+# closed is the cluster itself: k3s's pod and service ranges, and link-local.
+# The node's own network belongs here too and differs by machine: a service's
+# address is the node's by the time the rule is applied, so without it the
+# cluster's API stays reachable. Give the whole list in .local/values.yaml.
+egress:
+  closedTo: [10.42.0.0/16, 10.43.0.0/16, 169.254.0.0/16]
+
 # Which hosts the egress proxy holds a credential for belongs to the
 # installation: list them under egress.credentials in the git-ignored
 # .local/values.yaml, which scripts/deploy.sh adds to these values. Each

@@ -11,6 +11,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
 spec:
   schedule: {{ .Values.backup.schedule | quote }}
+  timeZone: "Etc/UTC"
   startingDeadlineSeconds: {{ .Values.backup.catchUpSeconds }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3

@@ -81,12 +81,14 @@ backup:
 # the cluster by hand (scripts/deploy.sh CONTEXT secret).
 externalSecrets:
   enabled: false
-  # The cluster's store of secrets, as an ExternalSecret names it.
-  store: {name: "", kind: SecretStore}
-  refreshInterval: 15m
+  # The cluster's store of secrets, as an ExternalSecret names it, and how
+  # often what is read from it is read again. Only values read from the
+  # store are ever read again.
+  store: {name: "", kind: SecretStore, refreshInterval: 15m}
   memoryTokens:
     # Make the three role tokens in the cluster, once, so that they exist
-    # nowhere else. Otherwise they are read from the store, by these keys.
+    # nowhere else: they are never made again or refreshed, whatever the
+    # store's interval. Otherwise they are read from the store, by these keys.
     generate: false
     laptop: ""
     worker: ""
@@ -113,6 +115,10 @@ egress:
   # cache's own. A rule that selects pods does not cover a listener on the
   # node.
   nameServers: []
+  # Where the proxy itself may not go: private, link-local and shared address
+  # ranges, which is where a cluster's other workloads and its network's
+  # other machines are. Empty leaves the proxy free to go anywhere it can.
+  closedTo: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10]
   resources:
     requests: {cpu: 20m, memory: 64Mi}
     limits: {memory: 256Mi}

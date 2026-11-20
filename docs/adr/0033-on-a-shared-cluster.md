@@ -40,6 +40,15 @@ reachable from other namespaces merely because no policy says otherwise.
 - **`isolated`, on by default**: pods in the namespace accept connections
   only from one another. The local values turn it off, because there the
   laptop arrives through the cluster's load balancer.
+- **The proxy reaches only public addresses** (`egress.closedTo`, the
+  private, link-local and shared ranges by default). Agent pods reach only
+  the proxy; without this they would reach, through it, everything the proxy
+  can: other workloads and the cluster's private network. The local values
+  close only the cluster's own ranges, because there the way out is the
+  laptop's own and an agent may need its private routes. Found by a review
+  of the first installation's chart, and shown on the local cluster: before,
+  an agent pod got an answer from the cluster's API through the proxy;
+  after, none.
 - **Secrets by External Secrets Operator, where the cluster runs it**
   (`externalSecrets`). The role tokens are either read from the cluster's
   store or, with `memoryTokens.generate`, made in the cluster once and kept

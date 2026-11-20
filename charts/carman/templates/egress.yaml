@@ -134,11 +134,36 @@ spec:
       ports:
         - {protocol: TCP, port: 8377}
     - to:
-        - namespaceSelector: {}
-        {{- range .Values.egress.nameServers }}
-        - ipBlock: {cidr: {{ . }}/32}
-        {{- end }}
+        {{- include "dns.peers" . | nindent 8 }}
       ports:
         - {protocol: UDP, port: 53}
         - {protocol: TCP, port: 53}
+{{- if .Values.egress.closedTo }}
+---
+# The proxy goes out to the world and to nothing private. Without this an
+# agent could ask it for a tunnel to another workload on the cluster or to an
+# address on the cluster's own network, and "only through the proxy" would
+# mean "anywhere the proxy can go".
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: proxy-reaches-only-the-outside
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: egress
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        {{- include "dns.peers" . | nindent 8 }}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- toYaml .Values.egress.closedTo | nindent 14 }}
+{{- end }}
 {{- end }}

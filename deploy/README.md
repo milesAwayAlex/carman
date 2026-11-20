@@ -115,7 +115,10 @@ setting in the values:
 - **Isolation.** `isolated: true`, the default, lets only pods of the
   namespace connect to its pods. Agent pods may ask names only of the
   cluster's name service; where the nodes answer for it themselves (a
-  node-local cache), list its addresses under `egress.nameServers`.
+  node-local cache), list its addresses under `egress.nameServers`. The
+  proxy itself goes only to public addresses (`egress.closedTo` lists the
+  ranges it may not reach), so an agent cannot use it as a way to the
+  cluster's other workloads or its private network.
 - **Secrets.** With `externalSecrets.enabled`, External Secrets Operator
   makes the role tokens: from the cluster's store, or in the cluster itself
   with `memoryTokens.generate`. Read the laptop's once:

@@ -10,6 +10,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
 spec:
   schedule: {{ .Values.dreamer.schedule | quote }}
+  timeZone: "Etc/UTC"
   suspend: {{ .Values.dreamer.suspend }}
   # A cluster that was not running at the scheduled time (a laptop asleep)
   # starts the run when it is back, if that is within this long.
