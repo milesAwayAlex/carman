@@ -148,11 +148,14 @@ func carryOver(a attempt, open []memory.Refusal, runs []string) string {
 	b.WriteString("\n\n## From an earlier attempt tonight\n\n")
 	b.WriteString("An earlier attempt at this routine has already run tonight")
 	if len(runs) > 0 {
-		fmt.Fprintf(&b, " (runs %s; read `cmem consolidate log` first, and do nothing twice)", strings.Join(runs, ", "))
+		fmt.Fprintf(&b, " (runs %s; read `cmem consolidate log` first)", strings.Join(runs, ", "))
 	}
 	b.WriteString(". What it finished stands. You are here for what it did not finish.\n")
 	if a.failed {
-		b.WriteString("\nIt ended in an error before it was done, so check what it changed before changing anything.\n")
+		// True of any routine, not only one that works on memory: whatever
+		// it was allowed to do outside, it may already have done.
+		b.WriteString("\nIt ended in an error before it was done. Before you do anything that leaves a mark " +
+			"(a write to memory, a comment, a pull request, a message), find out whether that attempt already did it, and do nothing twice.\n")
 	}
 	for _, refusal := range open {
 		fmt.Fprintf(&b, "\n- It tried to replace %s and memory refused the write: %s. The change was not made. "+
