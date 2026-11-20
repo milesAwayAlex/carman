@@ -26,15 +26,23 @@ Built so far:
   inconclusive; `bench/transfer` is the benchmark to trust for now.
 - `adapters/claude-code`: how to install the hook.
 
-- `deploy/`: the memory service on Kubernetes, deployed with
-  `scripts/deploy.sh CONTEXT`. It runs on the local cluster.
+- `charts/carman` and `deploy/`: the Helm chart for the memory service and
+  the agents beside it, deployed with `scripts/deploy.sh CONTEXT`. It runs on
+  the local cluster.
+- The dreamer: the first agent. `routines/consolidate.md` and
+  `routines/distill.md` run nightly as a CronJob in the agent image
+  (`deploy/agent`), through `cmem routine`, which retries what the memory
+  refused up a ladder of models (ADRs 0027 to 0029).
+  `scripts/deploy.sh CONTEXT dreamer run|on|off|log`.
 - `flake.nix` and `nix/packages/`: the Nix packages. carman is meant to grow
   beyond memory, so each component is its own file under `nix/packages` and
   its own attribute; `cmem` is the first.
 
 Not built yet: a backup of the library, the task-stream benchmark (M7), a
-second harness (M8), and everything outside memory. The build order is in
-DESIGN.md, section 11.
+second harness (M8), and agents that do work outside memory: the egress
+proxy that holds their credentials, a workspace and wider tools, triggers
+other than a schedule, and a way for results to reach the owner. The build
+order is in DESIGN.md, section 11.
 
 ## Read first
 
