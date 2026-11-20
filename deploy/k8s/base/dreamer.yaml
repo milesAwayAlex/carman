@@ -37,7 +37,9 @@ spec:
             - name: dreamer
               image: AGENT_IMAGE
               imagePullPolicy: IfNotPresent
-              args: ["consolidate"]
+              # In this order: tidy what is there, then distil finished
+              # working documents into lessons (at most three a night).
+              args: ["consolidate", "distill"]
               env:
                 - name: CMEM_URL
                   value: http://cmem:8377
