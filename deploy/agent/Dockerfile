@@ -6,6 +6,7 @@ ARG CLAUDE_CODE_VERSION=2.1.311
 # What an agent that works on code and clusters reaches for besides the harness.
 ARG GH_VERSION=2.63.2
 ARG KUBECTL_VERSION=1.33.0
+ARG TOFU_VERSION=1.10.6
 RUN apt-get update -qq \
  && apt-get install -y -qq --no-install-recommends ca-certificates curl git jq gnupg \
  && curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
@@ -19,6 +20,9 @@ RUN apt-get update -qq \
     | tar -xz -C /usr/local/bin --strip-components=2 "gh_${GH_VERSION}_linux_${arch}/bin/gh" \
  && curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${arch}/kubectl" \
  && chmod 0755 /usr/local/bin/kubectl && gh --version && kubectl version --client \
+ && curl -fsSL "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_${arch}.tar.gz" \
+    | tar -xz -C /usr/local/bin tofu \
+ && tofu version | head -1 \
  && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
  && claude --version \
  && useradd --uid 10001 --create-home agent

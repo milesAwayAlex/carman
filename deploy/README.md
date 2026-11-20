@@ -206,5 +206,5 @@ the cluster is back, if that is within the agent's `catchUpSeconds` (a day
 unless said; twelve hours for the dreamer); after that it waits for its next
 time. Keeping the machine awake is the machine's business.
 
-The agent image has `git`, `gh`, `kubectl`, `gcloud`, `curl` and `jq`. It
+The agent image has `git`, `gh`, `kubectl`, `gcloud`, `tofu`, `curl` and `jq`. It
 works in `/work`, which is empty at the start of a run and gone at the end.
