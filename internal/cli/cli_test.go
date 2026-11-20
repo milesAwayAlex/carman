@@ -913,6 +913,54 @@ func TestM5_OnlyWhatTheShellRunsCountsAsAProgram(t *testing.T) {
 	}
 }
 
+// M4: a routine that memory refused a write, and that never made it, is run
+// again with the refusal in hand by the next model up, within a budget.
+func TestM4_ARefusedWriteIsRetriedWithItsReasonUpALadderOfModels(t *testing.T) {
+	laptop, _, dreamer := newService(t)
+	port := strings.Fields(laptop.ok("", "note", "--kind", "fact", "--human", "alex", "The gateway listens on port 9100 behind the proxy."))[1]
+	file := filepath.Join(t.TempDir(), "tidy.md")
+	os.WriteFile(file, []byte("Tidy the memory."), 0o644)
+
+	type call struct{ model, prompt string }
+	var calls []call
+	defer func(real func(*command, string, string) attempt) { runHarness = real }(runHarness)
+	runHarness = func(_ *command, model, prompt string) attempt {
+		calls = append(calls, call{model, prompt})
+		run := strings.Fields(dreamer.ok("", "consolidate", "start", "Tidy", "by", model))[1]
+		text := "The gateway listens behind the proxy."
+		if model == "large" {
+			text = "The gateway listens on port 9100, behind the proxy."
+		}
+		_, stderr, code := dreamer.run("", "supersede", port, "--run", run, "--kind", "fact", "--from", port, text)
+		return attempt{report: fmt.Sprintf("%s: exit %d %s", model, code, stderr), cost: 1}
+	}
+
+	out := dreamer.ok("", "routine", "--models", "small,small,large", file)
+	if len(calls) != 3 || calls[0].model != "small" || calls[2].model != "large" {
+		t.Fatalf("the ladder was climbed as %+v\n%s", calls, out)
+	}
+	if strings.Contains(calls[0].prompt, "earlier attempt") {
+		t.Errorf("the first attempt was told of an earlier one")
+	}
+	expectContains(t, calls[1].prompt, "Tidy the memory.", "From an earlier attempt tonight", port, "`9100`", "--drops")
+	expectContains(t, out, "attempt 1 of at most 3, small", "1 write(s) were refused and not made", "attempt 3 of at most 3, large", "Done in 3 attempt(s), $3.00")
+	// The entry was replaced once, by the attempt that kept the number.
+	expectContains(t, laptop.ok("", "recall", "gateway", "port"), "port 9100, behind the proxy")
+	if log := dreamer.ok("", "consolidate", "log"); strings.Contains(log, "refused, and not done since") {
+		t.Errorf("a refusal that was put right is still listed as undone:\n%s", log)
+	}
+
+	// A ladder that ends, or a budget that runs out, says what is left.
+	other := strings.Fields(laptop.ok("", "note", "--kind", "fact", "--human", "alex", "--separate", "The cache holds 512 items at most."))[1]
+	port = other
+	calls = nil
+	stdout, stderr, code := dreamer.run("", "routine", "--models", "small,small,small", "--budget", "2", file)
+	if code == 0 || len(calls) != 2 || !strings.Contains(stdout, "Stopped before attempt 3: $2.00 spent") || !strings.Contains(stderr, "not finished") {
+		t.Errorf("a budget of two attempts: exit %d, %d attempts\n%s\n%s", code, len(calls), stdout, stderr)
+	}
+	expectContains(t, dreamer.ok("", "consolidate", "log"), "refused, and not done since: replacing "+other)
+}
+
 // The installed binary is a relay: it sends its command line to the service,
 // which runs the command and says what to print. A change to what a command
 // does then reaches every machine when the service is deployed.

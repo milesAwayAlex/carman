@@ -1,7 +1,8 @@
 # 0029: Consolidation is checked as it writes; what fails is retried with the reason, then escalated
 
-Status: Accepted (2026-11-19). The check at the write is built. Retry, the
-ladder of models and the nightly cap are not.
+Status: Accepted (2026-11-19). Built: the check at the write, the record of
+what was refused, retry with the reason, the ladder and the cap. Not built:
+starting an entry at the rung it needed last time, and a second reader.
 
 ## Context
 

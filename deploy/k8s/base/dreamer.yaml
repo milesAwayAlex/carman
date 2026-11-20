@@ -52,8 +52,13 @@ spec:
                     secretKeyRef:
                       name: carman-model
                       key: token
-                - name: CARMAN_MODEL
-                  value: claude-sonnet-5-5
+                # The ladder: one attempt each, in this order. A write that
+                # memory refused goes to the next rung with the reason.
+                - name: CARMAN_MODELS
+                  value: claude-sonnet-5-5,claude-sonnet-5-5,claude-opus-5-5,claude-fable-5-1
+                # No further attempt starts once a night has cost this much.
+                - name: CARMAN_BUDGET_USD
+                  value: "3"
               volumeMounts:
                 - name: home
                   mountPath: /home/agent

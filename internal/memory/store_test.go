@@ -936,9 +936,11 @@ func TestM4_ARewriteKeepsEverySpecificOrSaysWhichItDrops(t *testing.T) {
 	if strings.Contains(err.Error(), "ci-large_2") || strings.Contains(err.Error(), "`14`") {
 		t.Errorf("the refusal names something the text kept: %v", err)
 	}
-	// Nothing was written, and the run has room as before.
-	if got, _ := s.Run(run.ID); len(got.Changes) != 0 {
-		t.Errorf("a refused merge is in the run's log: %+v", got.Changes)
+	// Nothing was written, and the run has room as before. What was refused
+	// is on record with its reason, for whoever tries next.
+	if got, _ := s.Run(run.ID); len(got.Changes) != 0 || len(got.Unresolved) != 1 ||
+		!strings.Contains(got.Unresolved[0].Reason, "make deploy ENV=staging") || !slices.Contains(got.Unresolved[0].Entries, vpn.ID) {
+		t.Errorf("after a refused merge the run is %+v", got)
 	}
 	// Leaving one out on purpose is allowed when it is said, and is on record.
 	text := "To deploy staging, bring the VPN up first (ticket OPS-311, and the runBook) and run `make deploy ENV=staging`; the suite takes 9 minutes on ci-large_2."
@@ -957,7 +959,11 @@ func TestM4_ARewriteKeepsEverySpecificOrSaysWhichItDrops(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again, _ := reopened.Run(run.ID); len(again.Changes) != 1 || len(again.Changes[0].Drops) != 1 {
+	// The refusals are settled: the merge they were about has been made.
+	if len(got.Unresolved) != 0 {
+		t.Errorf("a merge that went through is still listed as refused: %+v", got.Unresolved)
+	}
+	if again, _ := reopened.Run(run.ID); len(again.Changes) != 1 || len(again.Changes[0].Drops) != 1 || len(again.Unresolved) != 0 {
 		t.Errorf("what was dropped did not survive a restart: %+v", again.Changes)
 	}
 }

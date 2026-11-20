@@ -111,6 +111,12 @@ Then:
     scripts/deploy.sh CONTEXT dreamer log    # the latest run's report
     scripts/deploy.sh CONTEXT dreamer off
 
+A write that memory refuses (a merge that lost a number or a command of the
+entries it replaced) is put right by the agent on the spot. One that is
+still undone when the session ends is tried again with the refusal in hand,
+by the next model in `CARMAN_MODELS`, until that ladder or `CARMAN_BUDGET_USD`
+ends (ADR 0029). Both are set on the CronJob.
+
 Every run is in memory's own log and can be undone whole:
 `cmem consolidate log`, then `cmem consolidate revert RUN REASON` with the
 consolidation role's token (`.local/cmem-dreamer.env`).

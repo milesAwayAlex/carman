@@ -42,7 +42,7 @@ type RemoteResponse struct {
 }
 
 // localOnly are the commands that act on the caller's own machine.
-var localOnly = map[string]bool{"serve": true, "check": true, "scope": true, "import": true}
+var localOnly = map[string]bool{"serve": true, "check": true, "scope": true, "import": true, "routine": true}
 
 // readsStdin are the commands whose input may arrive on standard input.
 var readsStdin = map[string]bool{"hook": true, "record": true, "flashback": true}

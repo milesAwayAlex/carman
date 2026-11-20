@@ -5,7 +5,8 @@
 #   run-routine NAME        for example: run-routine consolidate
 #
 # From the environment: CMEM_URL and CMEM_TOKEN (the role the routine works
-# in), the harness's own model credential, and CARMAN_MODEL.
+# in), the harness's own model credential, CARMAN_MODELS (the ladder of
+# models, in order) and CARMAN_BUDGET_USD (what one run may spend).
 set -eu
 routine="${1:?name a routine, for example: consolidate}"
 file="/routines/$routine.md"
@@ -14,5 +15,7 @@ file="/routines/$routine.md"
 
 # The session hook and the harness's own memory are for working sessions.
 export CMEM_HOOK=off CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-echo "run-routine: $routine, model ${CARMAN_MODEL:-claude-sonnet-5-5}, memory at $CMEM_URL"
-exec claude -p "$(cat "$file")" --model "${CARMAN_MODEL:-claude-sonnet-5-5}" --allowedTools "Bash(cmem *)"
+echo "run-routine: $routine, models ${CARMAN_MODELS:-claude-sonnet-5-5}, budget \$${CARMAN_BUDGET_USD:-none}, memory at $CMEM_URL"
+# `cmem routine` runs the harness, and runs it again up the ladder of models
+# for whatever memory refused and was not then done (ADR 0029).
+exec cmem routine "$file"

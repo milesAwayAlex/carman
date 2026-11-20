@@ -225,6 +225,17 @@ type Run struct {
 	Cap        int        `json:"cap"`
 	RevertedAt *time.Time `json:"reverted_at,omitempty"`
 	Reverted   string     `json:"reverted_because,omitempty"`
+	// Unresolved are the writes this run was refused and has not made since:
+	// what a later attempt has to decide, with the reason it was refused.
+	Unresolved []Refusal `json:"unresolved,omitempty"`
+}
+
+// Refusal is one write a consolidation run was refused.
+type Refusal struct {
+	At      time.Time `json:"at"`
+	Run     string    `json:"run"`
+	Entries []string  `json:"entries"` // the entries the write would have replaced
+	Reason  string    `json:"reason"`
 }
 
 // Change is one thing a run did.
@@ -355,6 +366,7 @@ type Store struct {
 	last     time.Time
 	issuedIn string          // the second the IDs in issued were given in
 	issued   map[string]bool // IDs given in that second
+	refusals []Refusal       // writes that consolidation runs were refused
 	problems []string
 }
 
@@ -383,6 +395,7 @@ func Open(dir string) (*Store, error) {
 		s.apply(n)
 	}
 	s.loadShown()
+	s.loadRefusals()
 	return s, nil
 }
 
@@ -835,7 +848,55 @@ func (s *Store) runView(r *Run) Run {
 	out := *r
 	out.Changes = slices.Clone(r.Changes)
 	out.Cap = s.RunCap
+	// A refusal is settled once the entries it was about have been replaced
+	// or retired, by this run or any other. The latest refusal for the same
+	// entries is the one that says why it is still undone.
+	latest := map[string]Refusal{}
+	for _, refusal := range s.refusals {
+		if refusal.Run == r.ID {
+			latest[strings.Join(refusal.Entries, ",")] = refusal
+		}
+	}
+	for _, refusal := range latest {
+		current := true
+		for _, id := range refusal.Entries {
+			e, ok := s.entries[id]
+			current = current && ok && s.current(e, time.Time{})
+		}
+		if current {
+			out.Unresolved = append(out.Unresolved, refusal)
+		}
+	}
+	slices.SortFunc(out.Unresolved, func(a, b Refusal) int { return a.At.Compare(b.At) })
 	return out
+}
+
+func (s *Store) refusalLog() string { return filepath.Join(s.lib.dir, ".cmem", "refusals.jsonl") }
+
+// refuse records a write that a run was refused. Like the record of what
+// sessions were shown, it is a working file beside the library and not part
+// of it: it says what was attempted, which the notes never do.
+func (s *Store) refuse(run string, entries []string, reason string) {
+	refusal := Refusal{At: time.Now().UTC(), Run: run, Entries: entries, Reason: reason}
+	s.refusals = append(s.refusals, refusal)
+	os.MkdirAll(filepath.Dir(s.refusalLog()), 0o755)
+	if f, err := os.OpenFile(s.refusalLog(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+		defer f.Close()
+		json.NewEncoder(f).Encode(refusal)
+	}
+}
+
+func (s *Store) loadRefusals() {
+	data, err := os.ReadFile(s.refusalLog())
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		var refusal Refusal
+		if json.Unmarshal([]byte(line), &refusal) == nil && refusal.Run != "" {
+			s.refusals = append(s.refusals, refusal)
+		}
+	}
 }
 
 // Run returns one consolidation run with everything it changed.
@@ -910,7 +971,9 @@ func (s *Store) Curate(c Curation) (Entry, error) {
 			olds = append(olds, s.entries[old].Text)
 		}
 		if lost := lostSpecifics(c.Entry.Text, olds, c.Drops); len(lost) > 0 {
-			return fail(fmt.Errorf("%w: %s", ErrLosesSpecifics, lostMessage(lost)))
+			reason := lostMessage(lost)
+			s.refuse(c.Run, append([]string{c.Supersedes}, c.Absorbs...), "the new text left out "+reason)
+			return fail(fmt.Errorf("%w: %s", ErrLosesSpecifics, reason))
 		}
 		for _, d := range c.Drops {
 			if err := checkSecrets(d); err != nil {

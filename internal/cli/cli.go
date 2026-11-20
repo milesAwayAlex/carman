@@ -121,7 +121,12 @@ capped, and can be reverted as a unit:
   cmem retire ID --run RUN REASON...
         Withdraw an entry with nothing in its place.
   cmem consolidate log [RUN]
-        What runs changed.
+        What runs changed, and what they were refused and have not done.
+  cmem routine FILE [--models A,B,C] [--budget DOLLARS]
+        Carry out a routine (a prompt file) through the harness. A write that
+        memory refused and that was never made is tried again with the
+        refusal in hand, by the next model on the ladder, until the ladder or
+        the budget ends. Runs on this machine.
   cmem consolidate revert RUN REASON...
         Undo everything a run did.
 
@@ -200,6 +205,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdin i
 		"flag": c.flag, "record": c.record, "add": c.add, "supersede": c.supersede,
 		"index": c.index, "flashback": c.flashback, "hook": c.hook, "check": c.check,
 		"retire": c.retire, "consolidate": c.consolidate, "import": c.importMemory, "scope": c.scope,
+		"routine": c.routine,
 	}
 	run, ok := commands[args[0]]
 	if !ok {
@@ -1001,6 +1007,9 @@ func printRun(w io.Writer, run memory.Run) {
 		default:
 			fmt.Fprintf(w, "    - added %s: %s\n", change.Entry, text)
 		}
+	}
+	for _, refusal := range run.Unresolved {
+		fmt.Fprintf(w, "    - refused, and not done since: replacing %s: %s\n", strings.Join(refusal.Entries, ", "), refusal.Reason)
 	}
 }
 
