@@ -63,6 +63,8 @@ reachable from other namespaces merely because no policy says otherwise.
 - The backup uses the agent image for the cloud provider's command-line
   tool. It knows one kind of destination (`gs://`); another provider is
   another case in `deploy/agent/backup-library`.
-- The agent image holds a harness under its vendor's licence. Whether that
-  image may be public is the owner's decision; the registry keeps a new
-  image private until its owner says otherwise.
+- Both images are public, as the repository is: the registry gives an image
+  pushed from a public repository's workflow the repository's visibility.
+  The agent image holds a harness under its vendor's licence; whether that
+  image should stay public is the owner's decision, and a private one needs
+  a pull secret on the cluster.
