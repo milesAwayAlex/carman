@@ -60,6 +60,7 @@ type header struct {
 	Supersedes string         `yaml:"supersedes,omitempty"`
 	Absorbs    []string       `yaml:"absorbs,omitempty"` // further entries merged into this one
 	Drops      []string       `yaml:"drops,omitempty"`   // specifics of the replaced entries left out on purpose
+	From       []string       `yaml:"from,omitempty"`    // the entries a lesson, or a document's pointer, was drawn from
 	Sources    []sourceHeader `yaml:"sources,omitempty"`
 
 	// entry, retirement, revert: the consolidation run it belongs to or undoes

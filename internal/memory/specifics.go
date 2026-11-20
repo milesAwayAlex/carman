@@ -11,7 +11,27 @@ import (
 // the entries it replaces.
 var ErrLosesSpecifics = fmt.Errorf("the new text leaves out specifics of the entries it replaces")
 
+// ErrNotInSource refuses a lesson that says something exact which the entry
+// it is drawn from does not.
+var ErrNotInSource = fmt.Errorf("the text says more than its source")
+
 var codeSpan = regexp.MustCompile("`([^`\n]{1,200})`")
+
+// entryIDs are left out of the comparison: a lesson or a pointer names
+// entries, and no document contains the IDs of what was written after it.
+var entryIDs = regexp.MustCompile(`\b\d{8}-\d{6}-[a-z2-7]{4}\b`)
+
+func quoteList(items []string) string {
+	shown, more := items, ""
+	if len(shown) > 12 {
+		shown, more = shown[:12], fmt.Sprintf(" and %d more", len(items)-12)
+	}
+	quoted := make([]string, len(shown))
+	for i, s := range shown {
+		quoted[i] = "`" + s + "`"
+	}
+	return strings.Join(quoted, ", ") + more
+}
 
 // specifics returns the parts of a text that a rewrite of it must not lose
 // by accident: what is written as code, and the words that carry a number or

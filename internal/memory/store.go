@@ -153,6 +153,7 @@ type Entry struct {
 	Supersedes     *string    `json:"supersedes,omitempty"`
 	Absorbs        []string   `json:"absorbs,omitempty"` // further entries merged into this one
 	Drops          []string   `json:"drops,omitempty"`   // specifics of the replaced entries it leaves out on purpose
+	From           []string   `json:"from,omitempty"`    // the entries a lesson, or a document's pointer, was drawn from
 	Run            string     `json:"run,omitempty"`     // the consolidation run that wrote it
 	Status         Status     `json:"status"`
 	Contradictions int        `json:"contradictions"`
@@ -272,6 +273,11 @@ type Curation struct {
 	// out on purpose, each as "SPECIFIC: why". Anything else left out is
 	// refused (ErrLosesSpecifics); what is named here is kept in the log.
 	Drops []string
+	// Distilled says the new entry stands in place of a long document whose
+	// lessons this run has already written as entries of their own (added
+	// with From naming the document). It is a pointer to the document, not
+	// a rewrite of it, so it need not carry the document's specifics.
+	Distilled bool
 }
 
 // RecallQuery selects entries. Every field is optional.
@@ -364,9 +370,10 @@ type Store struct {
 	corpus   *corpus
 	shown    map[string]map[string]bool // session ID -> entries already put in front of it
 	last     time.Time
-	issuedIn string          // the second the IDs in issued were given in
-	issued   map[string]bool // IDs given in that second
-	refusals []Refusal       // writes that consolidation runs were refused
+	issuedIn string                    // the second the IDs in issued were given in
+	issued   map[string]bool           // IDs given in that second
+	refusals []Refusal                 // writes that consolidation runs were refused
+	lessons  map[string]map[string]int // run -> document -> lessons the run has drawn from it
 	problems []string
 }
 
@@ -380,7 +387,7 @@ func Open(dir string) (*Store, error) {
 		lib: lib, episodes: map[string]Episode{}, entries: map[string]Entry{},
 		supersededBy: map[string][]string{}, retirements: map[string][]retirement{}, flags: map[string][]Flag{},
 		runs: map[string]*Run{}, RunCap: DefaultRunCap, corpus: newCorpus(),
-		shown: map[string]map[string]bool{},
+		shown: map[string]map[string]bool{}, lessons: map[string]map[string]int{},
 	}
 	notes, problems, err := lib.load()
 	if err != nil {
@@ -440,7 +447,15 @@ func (s *Store) apply(n note) {
 		for _, src := range n.Sources {
 			e.Sources = append(e.Sources, Source{EpisodeID: src.Episode, Human: src.Human})
 		}
-		e.Run, e.Absorbs, e.Drops = n.Run, n.Absorbs, n.Drops
+		e.Run, e.Absorbs, e.Drops, e.From = n.Run, n.Absorbs, n.Drops, n.From
+		if n.Supersedes == "" {
+			for _, document := range n.From {
+				if s.lessons[n.Run] == nil {
+					s.lessons[n.Run] = map[string]int{}
+				}
+				s.lessons[n.Run][document]++
+			}
+		}
 		var replaced []string
 		if old := n.Supersedes; old != "" {
 			e.Supersedes = &old
@@ -965,7 +980,40 @@ func (s *Store) Curate(c Curation) (Entry, error) {
 	// A rewrite keeps every specific of what it replaces, or says which it
 	// drops. Asked at the moment of the write, so that the one who can put
 	// it right is told while it still has the texts in front of it.
-	if c.Supersedes != "" {
+	// A lesson drawn from a document says nothing the document does not: a
+	// distillation leaves things out, and may not put things in.
+	sourced := func(text string) error {
+		var documents []string
+		for _, id := range c.From {
+			if from, ok := s.entries[id]; ok {
+				documents = append(documents, from.Text)
+			}
+		}
+		if added := lostSpecifics(strings.Join(documents, "\n"), []string{entryIDs.ReplaceAllString(text, " ")}, nil); len(added) > 0 {
+			reason := "the text has " + quoteList(added) + ", which the entry it is drawn from does not. Say only what that entry says, in its own numbers and names"
+			s.refuse(c.Run, c.From, reason)
+			return fmt.Errorf("%w: %s", ErrNotInSource, reason)
+		}
+		return nil
+	}
+	switch {
+	case c.Distilled && (c.Supersedes == "" || len(c.Absorbs) > 0):
+		return fail(fmt.Errorf("%w: a distilled document is one entry, superseded by its pointer", ErrInvalid))
+	case c.Distilled && s.lessons[c.Run][c.Supersedes] == 0:
+		return fail(fmt.Errorf("%w: write the document's lessons first, each with `cmem add --run RUN --from %s`, and then its pointer", ErrInvalid, c.Supersedes))
+	case c.Distilled:
+		if !slices.Contains(c.From, c.Supersedes) {
+			c.From = append(c.From, c.Supersedes)
+		}
+		if err := sourced(c.Entry.Text); err != nil {
+			return fail(err)
+		}
+	case c.Supersedes == "" && len(c.From) > 0:
+		if err := sourced(c.Entry.Text); err != nil {
+			return fail(err)
+		}
+	}
+	if c.Supersedes != "" && !c.Distilled {
 		olds := []string{s.entries[c.Supersedes].Text}
 		for _, old := range c.Absorbs {
 			olds = append(olds, s.entries[old].Text)
@@ -985,6 +1033,11 @@ func (s *Store) Curate(c Curation) (Entry, error) {
 	switch {
 	case c.Global:
 		e.Scope = nil
+	case len(e.Scope) == 0 && c.Supersedes == "" && len(c.From) > 0:
+		// A lesson is for whoever the document it came from was for.
+		if from, ok := s.entries[c.From[0]]; ok {
+			e.Scope = slices.Clone(from.Scope)
+		}
 	case len(e.Scope) == 0 && c.Supersedes != "":
 		e.Scope = slices.Clone(s.entries[c.Supersedes].Scope)
 		for _, old := range c.Absorbs {
@@ -1011,6 +1064,9 @@ func (s *Store) Curate(c Curation) (Entry, error) {
 		return fail(err)
 	}
 	n.Run, n.Absorbs, n.Drops = c.Run, c.Absorbs, c.Drops
+	if c.Supersedes == "" || c.Distilled {
+		n.From = c.From
+	}
 	message := fmt.Sprintf("Add %s: %s", n.Kind, summary(n.body))
 	if c.Supersedes != "" {
 		message = fmt.Sprintf("Supersede %s: %s", strings.Join(append([]string{c.Supersedes}, c.Absorbs...), ", "), summary(n.body))

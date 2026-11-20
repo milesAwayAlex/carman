@@ -106,6 +106,14 @@ capped, and can be reverted as a unit:
         Every current entry, with its sources and the flags against it.
   cmem add --run RUN --kind KIND [--scope TAG]... --source EPISODE_ID... TEXT...
         A new entry resting on episodes.
+  cmem add --run RUN --kind KIND --from ID TEXT...
+        A lesson drawn from entry ID, a long document. It keeps what backed
+        the document and is for whoever the document was for. It may not say
+        a number, command or name that the document does not.
+  cmem supersede ID --run RUN --kind fact --distilled TEXT...
+        After its lessons are added: put a short pointer in place of the
+        document ID, saying what it was and how to read it. The document
+        stays in history, and cmem get ID still reads it.
   cmem supersede ID --run RUN --kind KIND [--scope TAG]... [--global]
                  [--absorb ID]... [--from ID]... [--drops 'SPECIFIC: why']...
                  [--source EPISODE_ID]... TEXT...
@@ -880,6 +888,7 @@ func (c *command) curate(args []string, path func(id string) string, leading int
 	if leading == 1 {
 		c.flags.Var(&absorbs, "absorb", "ID of a further entry merged into this one (repeatable)")
 		c.flags.Var(&drops, "drops", "a specific of the replaced entries left out on purpose, as 'SPECIFIC: why' (repeatable)")
+		c.flags.BoolVar(&req.Distilled, "distilled", false, "the text is a pointer to a long document whose lessons this run has already added")
 		c.flags.BoolVar(&req.Global, "global", false, "the new entry applies everywhere, whatever scope the old ones had")
 	}
 	text, err := c.parse(args)
@@ -1285,6 +1294,9 @@ func printEntry(w io.Writer, e memory.Entry) {
 	fmt.Fprintf(w, "    sources: %s\n", strings.Join(sources, "; "))
 	if e.Supersedes != nil {
 		fmt.Fprintf(w, "    replaces %s\n", strings.Join(append([]string{*e.Supersedes}, e.Absorbs...), ", "))
+	}
+	if len(e.From) > 0 && e.Supersedes == nil {
+		fmt.Fprintf(w, "    drawn from %s, which `cmem get` still reads\n", strings.Join(e.From, ", "))
 	}
 	if e.ValidTo != nil {
 		fmt.Fprintf(w, "    no longer current since %s\n", e.ValidTo.Format(time.RFC3339))

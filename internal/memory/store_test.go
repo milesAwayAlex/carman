@@ -968,6 +968,53 @@ func TestM4_ARewriteKeepsEverySpecificOrSaysWhichItDrops(t *testing.T) {
 	}
 }
 
+// M4: a long document is distilled, not rewritten. Its lessons become
+// entries that keep its backing and say nothing it does not; a pointer then
+// takes its place, and the document stays readable.
+func TestM4_ADocumentIsDistilledIntoLessonsAndAPointer(t *testing.T) {
+	s := newStore(t)
+	text := "Working notes on the queue move, closed 2026-08-30.\n\n" + strings.Repeat("- Day by day: nothing of note, 4,112 requests seen.\n", 60) +
+		"- Lesson: a replay older than 48 hours must use `tools/replay --account ID`, or events are applied twice.\n"
+	document, err := s.Remember(NewNote{Entry: NewEntry{CreatedBy: AuthorAgent, Kind: KindFact, Text: text, Scope: []string{"repo:alpha"}, Sources: []Source{{Human: "alex"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _ := s.StartRun("Distil the queue notes.")
+	pointer := Curation{Run: run.ID, Supersedes: document.ID, Distilled: true,
+		Entry: NewEntry{CreatedBy: AuthorDreamer, Kind: KindFact, Text: "Working notes on the queue move, closed 2026-08-30. Kept in history."}}
+	// The pointer comes after the lessons, not in place of them.
+	if _, err := s.Curate(pointer); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "lessons first") {
+		t.Fatalf("a pointer with no lesson written: %v", err)
+	}
+	lesson := func(text string) (Entry, error) {
+		return s.Curate(Curation{Run: run.ID, From: []string{document.ID}, Entry: NewEntry{CreatedBy: AuthorDreamer, Kind: KindPitfall, Text: text}})
+	}
+	// A lesson may not say what the document does not.
+	if _, err := lesson("A replay older than 72 hours must use `tools/replay --account ID`."); !errors.Is(err, ErrNotInSource) || !strings.Contains(err.Error(), "`72`") {
+		t.Fatalf("a lesson with a number of its own: %v", err)
+	}
+	kept, err := lesson("A replay of events older than 48 hours must use `tools/replay --account ID`, or the events are applied twice.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// It is for whoever the document was for, rests on what the document rested on, and says where it came from.
+	if !equal(kept.Scope, []string{"repo:alpha"}) || len(kept.Sources) != 1 || kept.Sources[0].Human != "alex" || kept.Status != StatusActive || !equal(kept.From, []string{document.ID}) {
+		t.Errorf("the lesson is %+v", kept)
+	}
+	replaced, err := s.Curate(pointer)
+	if err != nil {
+		t.Fatalf("the pointer, after the lesson: %v", err)
+	}
+	// The document is out of the current entries and still there to be read.
+	if got, err := s.Entry(document.ID); err != nil || got.Text != strings.TrimSpace(text) || got.ValidTo == nil {
+		t.Errorf("the distilled document: %v, current=%v", err, got.ValidTo == nil)
+	}
+	current := s.CurrentEntries(time.Time{})
+	if len(current) != 2 || !slices.ContainsFunc(current, func(e Entry) bool { return e.ID == replaced.ID }) {
+		t.Errorf("after distilling, %d entries are current", len(current))
+	}
+}
+
 func TestM4_ARunIsCappedAndEveryChangeNeedsOne(t *testing.T) {
 	s := newStore(t)
 	s.RunCap = 3
