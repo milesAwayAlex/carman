@@ -118,6 +118,12 @@ spec:
                   value: {{ .budgetUSD | default 2 | quote }}
                 - name: CARMAN_TOOLS
                   value: {{ .tools | default "memory" | quote }}
+                {{- with .scope }}
+                # What the agent's work is about, as memory names it: the
+                # entries for this scope are the ones it is shown and searches.
+                - name: CMEM_SCOPE
+                  value: {{ . | quote }}
+                {{- end }}
                 {{- if .mcp }}
                 - name: CARMAN_MCP_CONFIG
                   value: /etc/carman/mcp/mcp.json

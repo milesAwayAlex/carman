@@ -71,6 +71,7 @@ egress:
 #       models: [claude-sonnet-5-5]   # the ladder
 #       budgetUSD: 2
 #       tools: all                    # "memory" (the default): the memory command only
+#       scope: repo:example.com/org/name   # which repository's memory it works with
 #       mcp: {tracker: https://mcp.example.com/mcp}
 #       google: true                  # give it the cloud identity below
 agents: []
