@@ -1,0 +1,75 @@
+{
+ "about": "Documents for the distilling test (run.py distill). Two are the notes of finished work, with lessons planted among details of the moment; one is work in progress and one is a reference in use, and those two must be left as they are. A lesson is found by words only it has; noise is a detail of the moment that no entry drawn from the document should carry.",
+ "crowd": [
+  "no-force-push",
+  "tz-tests",
+  "registry-mirror",
+  "cdn-purge",
+  "node-cache",
+  "pdb-rollout"
+ ],
+ "documents": [
+  {
+   "key": "webhooks",
+   "expect": "distil",
+   "scope": [
+    "repo:git.example.com/acme/alpha"
+   ],
+   "text": "Working notes on moving the payments webhooks to the new endpoint. Closed 2026-08-14: the old endpoint is switched off and nothing is outstanding.\n\n- Jul 20: Kickoff. The provider sends webhooks to one URL per account; we move from /hooks/pay to /v2/hooks/pay. Count on the old endpoint today: 1,204 events.\n- Jul 21: Read the provider's docs with the team at standup. Nothing surprising.\n- Jul 22: First try in staging. Signature checks fail on every event. PR #4411 opened to investigate.\n- Jul 23: Found it. The signature is computed over the raw request body, and our framework parses JSON before the handler sees it, which reorders keys. The route has to be registered with `rawBody: true` so that the handler gets the bytes as sent. Signature checks pass after that. PR #4411 merged.\n- Jul 24: p95 of the new handler in staging was 412 ms, mostly the database write. Good enough.\n- Jul 24: Load test of the new handler: 50 events a second for ten minutes, no errors, queue depth never above 40.\n- Jul 25: Wrote the dashboard: deliveries, failures by reason, handler latency. Asked for it to be added to the on-call rotation's list.\n- Jul 26: Reviewed the handler's idempotency with the ledger team. Each event's id is stored for 30 days; a repeat is acknowledged and dropped.\n- Jul 27: Cutover plan drafted. The user was clear about timing: cutovers are done on a Tuesday morning and never on a Friday, so that there are working days after it to watch.\n- Jul 28: Cutover in staging, Tuesday. Clean.\n- Jul 29: Staging event count for the day: 318. No failures.\n- Aug 3: Asked the provider how long they retry a failed delivery. Answer: 72 hours, with growing gaps.\n- Aug 4: Production cutover, Tuesday 9:10. New URL saved in the provider's dashboard.\n- Aug 4: An hour later the old endpoint was removed by the cleanup job, and deliveries the provider had queued for the old URL began to fail. Because the provider retries for 72 hours, the old endpoint has to keep answering 200 for three days after a cutover. Put it back at 11:40.\n- Aug 5: 37 events had failed in that window. Replayed them with `scripts/replay-webhooks --since 2026-08-04T10:00:00Z --dry-run` to see what it would do, then the same command without `--dry-run`. The dry run first is worth it: the first time it would have replayed a whole week because of a wrong timestamp.\n- Aug 5: Compared the replayed events against the provider's export for the same window. All 37 accounted for; two were refunds, which the ledger had already picked up from the nightly reconciliation, so they were skipped by the idempotency key and not applied twice.\n- Aug 5: Finance asked whether any customer had been charged twice. None had. Sent them the list of the 37 events with their amounts; total value 9,412.50.\n- Aug 5: The cleanup job that removed the old endpoint is the generic one that deletes routes with no traffic for an hour. Added the old webhook route to its ignore list until the 13th.\n- Aug 6: Reviewed the provider dashboard with the team: delivery success for the day 99.8%, median delivery time 1.9 s.\n- Aug 6: Event counts back to normal: 1,190.\n- Aug 7: Old endpoint still answering 200, traffic on it is down to 2 events an hour.\n- Aug 10: No traffic on the old endpoint since Aug 8.\n- Aug 11: Standup: agreed to remove the old endpoint on Friday. Moved to Thursday after the user's reminder about Fridays.\n- Aug 13: Old endpoint removed, Thursday.\n- Aug 14: Closed. Dashboard for the new endpoint is the \"Payments webhooks v2\" board.\n",
+   "lessons": {
+    "the raw body for signatures": "rawBody",
+    "the old endpoint must answer for 72 hours": "72 hours|three days",
+    "replay with a dry run first": "replay-webhooks",
+    "cutovers on a Tuesday, never a Friday": "Tuesday"
+   },
+   "noise": [
+    "1,204",
+    "#4411",
+    "412 ms",
+    "\\b318\\b",
+    "1,190",
+    "standup",
+    "9,412",
+    "99.8%"
+   ]
+  },
+  {
+   "key": "search-outage",
+   "expect": "distil",
+   "scope": [
+    "repo:git.example.com/acme/alpha"
+   ],
+   "text": "Incident review: the search outage of 2026-07-02. Written up 2026-07-06; all follow-ups are done and the review is closed.\n\nTimeline (times are local):\n- 14:32 Search starts returning errors for every query. Ticket INC-88 opened by support.\n- 14:35 On-call (Priya) sees the primary node at 100% CPU and the index locked.\n- 14:41 Cause found: a full rebuild had been started by hand with `reindex --full`, which takes an exclusive lock on the index for as long as it runs. It had been running for nine minutes.\n- 14:44 The rebuild is cancelled. The lock is not released; the primary stays unresponsive.\n- 14:52 Decision to fail over. The replica is promoted with `searchctl promote replica-2`, and then the `search-live` alias is pointed at it. The order matters: repointing the alias first sends queries to a node that still refuses writes.\n- 15:09 Search answers again. 37 minutes of outage in all.\n- 15:30 The old primary is rebuilt from the replica and rejoins as a replica.\n\nDetail of the failover, for the record:\n- 14:53 Replica-2 was chosen over replica-1 because its replication lag was 2 seconds against 41.\n- 14:58 The promote command returned after 4 minutes; most of that was the node replaying its log.\n- 15:02 First attempt to repoint the alias failed with a permissions error: the on-call role could read aliases and not change them. A second engineer with the admin role did it at 15:07.\n- 15:09 Queries succeed. Error rate back under 0.1% by 15:12.\n- 15:30 to 17:45 The old primary copied 61 GB from the new one and rejoined.\n- Next morning: support replied to the 212 contacts with a short explanation. Three enterprise customers were called by their account managers.\n\nWhat we learned:\n- A rebuild during the day is never done with `reindex --full`. `reindex --shadow` builds a second index beside the live one and swaps them at the end, with no lock; it takes about twice as long and needs the disk space for two indexes.\n- The site could have kept working without search. The application falls back to querying the database when the search cluster is down, but only when it is started with `SEARCH_FALLBACK=1`, and production was not. It is now.\n- Nobody was paged for eight minutes because the alert was on error rate over five minutes. Changed to two.\n\nFollow-ups, all done by 2026-07-06: the runbook page for failover was rewritten; `SEARCH_FALLBACK=1` set in production; the alert window changed; the manual rebuild command now asks for confirmation.\n\nNumbers for the record: 4,870 failed queries, 212 support contacts, 3 enterprise customers affected.\n",
+   "lessons": {
+    "rebuild with --shadow, not --full": "reindex --shadow",
+    "the database fallback needs its setting": "SEARCH_FALLBACK",
+    "promote the replica, then repoint the alias": "searchctl promote"
+   },
+   "noise": [
+    "INC-88",
+    "Priya",
+    "14:32",
+    "4,870",
+    "\\b212\\b",
+    "61 GB",
+    "15:07"
+   ]
+  },
+  {
+   "key": "login-rollout",
+   "expect": "leave",
+   "scope": [
+    "repo:git.example.com/acme/alpha"
+   ],
+   "text": "Working notes on rolling out the new login page. In progress.\n\n- Nov 3 2026: Design signed off. Three steps: internal users, then 10% of customers, then everyone.\n- Nov 5 2026: Internal rollout done. Two bugs found, both in the password reset link, both fixed.\n- Nov 10 2026: 10% rollout started. Conversion on the new page is 61.2% against 58.9% on the old one, on three days of data.\n- Nov 12 2026: A customer with a hardware key could not sign in. The new page does not yet offer the hardware-key prompt when the password field is empty. Fix is in review.\n- Nov 17 2026: Hardware-key fix released to the 10% group. Watching for a week.\n- Nov 18 2026: Sign-in errors in the 10% group: 0.4%, the same as the old page.\n\n- Nov 18 2026: Accessibility pass on the new page. Two contrast failures on the secondary button and a missing label on the show-password toggle. Both fixed the same day and released to the 10% group.\n- Nov 18 2026: Support has had 14 contacts mentioning the new page since Nov 10: 9 could not find the single sign-on button, which moved below the fold on small screens; 3 were about the hardware key; 2 liked it. The button is moving back above the password field.\n- Nov 19 2026: Single sign-on button moved. Time to sign in for single sign-on users in the 10% group went from a median of 11.4 s to 6.2 s.\n- Nov 19 2026: Asked legal about the new wording of the consent line under the button. Waiting for an answer; it does not block the rollout but it does block the copy freeze.\n- Nov 19 2026: The old page's password reset still links to itself. Left as it is until the old page is retired.\n- Nov 19 2026: Load on the sign-in service is unchanged by the new page: 180 requests a second at the morning peak, as before.\n- Nov 19 2026: Decided with the user to keep the feature flag per customer, not global, so that one customer can be moved back to the old page without a release.\n- Nov 19 2026: Drafted the announcement for the 100% step. It goes to the customer newsletter and the status page, two working days before.\n\nNext: go to 100% on Nov 24 if the week is clean. Still open: the copy for the lockout message, and whether to keep the old page reachable at /login-classic for a month.\n"
+  },
+  {
+   "key": "runbook",
+   "expect": "leave",
+   "scope": [
+    "repo:git.example.com/acme/alpha"
+   ],
+   "text": "Release runbook for the alpha service: environments, how to deploy, smoke tests, rollback, and who to tell.\n\n## Environments\n\nThe alpha service runs in three environments. `dev` is rebuilt from main on every merge and nobody is told when it changes. `staging` is the rehearsal for production and is shared with the beta team, who run their own load tests there on Tuesday mornings. `prod` serves customers in two regions, use1 and euw2. Staging has only use1. Each environment has its own configuration file under `deploy/env/`, and a change to one of those files is released like any other change: through staging first.\n\n## Before a deploy\n\nCheck that the build for the commit is green and that the migration job, if the release has one, has been reviewed by a second person. Migrations run before the new version takes traffic, so a migration that removes a column the old version reads will break the old version while it is still serving. Split such a change over two releases. Tell the beta team in the `#alpha-releases` channel before deploying to staging on a Tuesday morning; any other time, staging is ours to use.\n\n## Deploying\n\nStaging is deployed with `make deploy ENV=staging REGION=use1`. The command builds nothing: it takes the image that CI published for the current commit and fails if there is none. It waits for the rollout to finish and prints the revision number, which is what the rollback command wants.\n\nProduction is deployed one region at a time, use1 first, with at least thirty minutes between regions, by the release captain of the week and nobody else. The captain's rota is pinned in `#alpha-releases`.\n\n## Smoke tests\n\nAfter any deploy run `scripts/smoke.sh --suite quick --env staging` (or `--env prod`). The quick suite takes about two minutes and covers sign-in, one read and one write. The full suite, `--suite full`, takes twenty minutes and is run before a production deploy, not after. A failing quick suite after a production deploy means roll back first and investigate second.\n\n## Rolling back\n\nRoll back with `make revert-release TAG=<tag> ENV=<env>`, where the tag is the release tag to return to, for example `make revert-release TAG=v41 ENV=staging`. It redeploys that tag's image and does not undo migrations. If the release that is being rolled back ran a migration, read the migration's own notes before rolling back: some need a manual step, and the notes say which.\n\n## Freezes\n\nProduction is frozen from the 20th of December to the 3rd of January, and for the last three working days of every quarter. Staging is never frozen. A fix for an incident may go out during a freeze with the approval of the on-call lead, recorded in the incident's channel.\n\n## Who to tell\n\nEvery production deploy is announced in `#alpha-releases` before it starts and again when the smoke tests pass. Customer-facing changes also go to the support lead a day ahead, with a sentence a support agent could repeat to a customer.\n"
+  }
+ ]
+}

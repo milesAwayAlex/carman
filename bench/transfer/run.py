@@ -515,6 +515,90 @@ def consolidate(run_dir: Path, model: str, dreamer_model: str, probes: bool) -> 
     return all(r["ok"] for r in results)
 
 
+def distill(run_dir: Path, dreamer_model: str) -> dict:
+    """Run the distilling routine on a library holding finished and unfinished
+    documents, and check what became of each."""
+    spec = json.loads((HERE / "distill.json").read_text())
+    retrieval = {e["key"]: e for e in json.loads((HERE.parent / "retrieval" / "set.json").read_text())["entries"]}
+    routine = (cmem_arm.REPO / "routines" / "distill.md").read_text() + f"\n\nToday's date is {time.strftime('%Y-%m-%d', time.gmtime())} (UTC).\n"
+    library = run_dir / "library"
+    library.parent.mkdir(parents=True, exist_ok=True)
+    service = cmem_arm.Service(library)
+    ids: dict[str, str] = {}
+    try:
+        for key in spec["crowd"]:
+            service.call("POST", "/v1/notes", {"kind": retrieval[key]["kind"], "text": retrieval[key]["text"], "human": "bench", "separate": True})
+        for doc in spec["documents"]:
+            ids[doc["key"]] = service.call("POST", "/v1/notes", {"kind": "fact", "text": doc["text"], "human": "bench", "separate": True, "scope": doc["scope"]})["id"]
+        before = service.call("GET", "/v1/entries")
+        dreamer = Workspace("none", {"id": "dreamer", "files": {}}, run_dir / "dreamer", dreamer_model, [])
+        dreamer.env.update({"CMEM_URL": service.env()["CMEM_URL"], "CMEM_TOKEN": service.dreamer})
+        call = dreamer.claude("distill", "repo-a", routine)
+        after = service.call("GET", "/v1/entries")
+        runs = [r for r in service.call("GET", "/v1/runs") if not r.get("reverted_at")]
+        whole = {doc["key"]: service.call("GET", f"/v1/entries/{ids[doc['key']]}") for doc in spec["documents"]}
+        refused = sum(1 for line in (library.with_name("library.serve.log")).read_text(errors="replace").splitlines() if "write refused" in line)
+    finally:
+        service.stop()
+    current = {e["id"]: e for e in after}
+    results, found, wanted, leaked, noise_total = [], 0, 0, 0, 0
+    def check(name: str, problems: list[str]) -> None:
+        results.append({"check": name, "ok": not problems, "problems": problems})
+    for doc in spec["documents"]:
+        doc_id, key = ids[doc["key"]], doc["key"]
+        if doc["expect"] == "leave":
+            check(f"{key}: left as it was", [] if doc_id in current else ["it is no longer current"])
+            continue
+        drawn = [e for e in after if doc_id in (e.get("from") or [])]
+        pointers = [e for e in drawn if e.get("supersedes") == doc_id]
+        lessons = [e for e in drawn if e.get("supersedes") != doc_id]
+        check(f"{key}: out of the current entries, with a pointer in its place",
+              (["it is still current"] if doc_id in current else []) +
+              ([] if len(pointers) == 1 else [f"{len(pointers)} pointers"]) +
+              [f"the pointer is {len(p['text'])} characters" for p in pointers if len(p["text"]) > 900] +
+              ["the pointer does not say how to read the document" for p in pointers if doc_id not in p["text"] and "cmem get" not in p["text"]])
+        check(f"{key}: still readable in full", [] if (whole[key].get("text") or "").strip() == doc["text"].strip() else ["its text is not what was stored"])
+        missing = []
+        for name, pattern in doc["lessons"].items():
+            wanted += 1
+            if any(re.search(pattern, e["text"]) for e in lessons):
+                found += 1
+            else:
+                missing.append(name)
+        check(f"{key}: its lessons are entries of their own ({len(doc['lessons']) - len(missing)} of {len(doc['lessons'])})", [f"no lesson about: {m}" for m in missing])
+        check(f"{key}: each lesson is short, for the same repository, and as trusted as the document",
+              [f"{e['id']} is {len(e['text'])} characters" for e in lessons if len(e["text"]) > 700] +
+              [f"{e['id']} has scope {e.get('scope')}" for e in lessons if sorted(e.get("scope") or []) != sorted(doc["scope"])] +
+              [f"{e['id']} is {e['status']}" for e in lessons if e["status"] != "active"])
+        carried = []
+        for pattern in doc["noise"]:
+            noise_total += 1
+            hits = [e["id"] for e in drawn if re.search(pattern, e["text"])]
+            if hits:
+                leaked += 1
+                carried.append(f"{pattern!r} is in {', '.join(hits)}")
+        check(f"{key}: details of the moment were left behind ({len(doc['noise']) - len(carried)} of {len(doc['noise'])})", carried)
+    crowd_ids = {e["id"] for e in before} - set(ids.values())
+    check("the other entries were not touched", [f"{i} is no longer current" for i in crowd_ids if i not in current])
+    size = lambda entries: sum(len(e["text"]) if not e.get("text_length") else e["text_length"] for e in entries)
+    summary = {
+        "dreamer_model": dreamer_model, "checks": results, "passed": sum(r["ok"] for r in results), "of": len(results),
+        "lessons_found": found, "lessons_wanted": wanted, "noise_carried": leaked, "noise_total": noise_total,
+        "lesson_entries": sum(1 for e in after if e.get("from") and not e.get("supersedes")),
+        "characters_before": size(before), "characters_after": size(after), "runs": len(runs), "refused_writes": refused,
+        "cost": call["cost"], "turns": call["turns"], "seconds": call["seconds"], "error": call["error"],
+    }
+    print(f"distilling by {dreamer_model}: {summary['passed']} of {summary['of']} checks; lessons {found} of {wanted}; "
+          f"details carried over {leaked} of {noise_total}; {summary['lesson_entries']} lesson entries; "
+          f"current text {summary['characters_before']} -> {summary['characters_after']} characters; "
+          f"{refused} write(s) refused; est ${call['cost']:.3f}, {call['turns']} turns, {call['seconds']:.0f}s"
+          + ("; THE SESSION ERRORED" if call["error"] else ""), flush=True)
+    for r in results:
+        print(f"  {'ok  ' if r['ok'] else 'FAIL'} {r['check']}" + "".join(f"\n         {p}" for p in r["problems"]), flush=True)
+    (run_dir / "distill.json").write_text(json.dumps(summary, indent=2) + "\n")
+    return summary
+
+
 def report(run_dir: Path) -> None:
     rows = [json.loads(line) for line in (run_dir / "results.jsonl").read_text().splitlines()]
     rows.sort(key=lambda r: (r["arm"], r["case"], r.get("run", 0)))
@@ -612,6 +696,8 @@ def main() -> int:
     tidy.add_argument("--model", default="claude-sonnet-5-5", help="the model for the probes")
     tidy.add_argument("--dreamer-model", default="claude-sonnet-5-5", help="the model that consolidates")
     tidy.add_argument("--no-probes", action="store_true")
+    still = sub.add_parser("distill", help="the distilling routine on finished and unfinished documents, one run for each model named")
+    still.add_argument("--dreamer-models", default="claude-sonnet-5-5", help="the models to compare, separated by commas")
     sub.add_parser("show").add_argument("path", type=Path)
     sub.add_parser("report").add_argument("run_dir", type=Path)
     args = parser.parse_args()
@@ -626,6 +712,15 @@ def main() -> int:
     if not os.environ.get(TOKEN):
         print(f"{TOKEN} is not set; run this through scripts/bench-transfer.sh", file=sys.stderr)
         return 1
+    if args.command == "distill":
+        run_dir = ROOT / (time.strftime("%Y%m%dT%H%M%S") + "-distill")
+        print(f"run directory: {run_dir}", flush=True)
+        rows = [distill(run_dir / model, model) for model in args.dreamer_models.split(",")]
+        print(f"\n{'model':<22}{'checks':<9}{'lessons':<9}{'details carried':<17}{'refused':<9}{'est $':>7}{'seconds':>9}")
+        for r in rows:
+            print(f"{r['dreamer_model']:<22}{str(r['passed']) + '/' + str(r['of']):<9}{str(r['lessons_found']) + '/' + str(r['lessons_wanted']):<9}"
+                  f"{str(r['noise_carried']) + '/' + str(r['noise_total']):<17}{r['refused_writes']:<9}{r['cost']:>7.3f}{r['seconds']:>9.0f}")
+        return 0
     if args.command == "consolidate":
         run_dir = ROOT / (time.strftime("%Y%m%dT%H%M%S") + "-consolidate")
         run_dir.mkdir(parents=True)

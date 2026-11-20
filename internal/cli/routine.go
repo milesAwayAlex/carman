@@ -86,6 +86,9 @@ func (c *command) routine(args []string) error {
 		*budget, _ = strconv.ParseFloat(c.getenv("CARMAN_BUDGET_USD"), 64)
 	}
 	started := time.Now().UTC().Add(-time.Second)
+	// A routine may need to know how old something is, and a model does not
+	// know what day it is.
+	today := "\n\nToday's date is " + started.Format("2006-01-02") + " (UTC).\n"
 	spent, carried := 0.0, ""
 	for rung, model := range ladder {
 		if *budget > 0 && spent >= *budget {
@@ -93,7 +96,7 @@ func (c *command) routine(args []string) error {
 			break
 		}
 		fmt.Fprintf(c.stdout, "== attempt %d of at most %d, %s ==\n", rung+1, len(ladder), model)
-		a := runHarness(c, model, string(text)+carried)
+		a := runHarness(c, model, string(text)+carried+today)
 		spent += a.cost
 		fmt.Fprintf(c.stdout, "%s\n", strings.TrimSpace(a.report))
 

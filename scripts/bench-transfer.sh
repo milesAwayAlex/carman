@@ -4,6 +4,7 @@
 #
 #   scripts/bench-transfer.sh run --arms none,oracle --cases kubectl-context
 #   scripts/bench-transfer.sh consolidate
+#   scripts/bench-transfer.sh distill --dreamer-models claude-haiku-5-5,claude-sonnet-5-5
 #   scripts/bench-transfer.sh show PATH/probe-same.jsonl
 #
 # `run` and `consolidate` call a model on the owner's Claude subscription. The token comes from
@@ -27,9 +28,9 @@ if [ -f .local/bench.env ]; then
     set +a
 fi
 
-if [ "${1:-}" = run ] || [ "${1:-}" = consolidate ]; then
+if [ "${1:-}" = run ] || [ "${1:-}" = consolidate ] || [ "${1:-}" = distill ]; then
     [ -z "${ANTHROPIC_API_KEY:-}" ] || die "ANTHROPIC_API_KEY is set; the benchmark must run on the subscription token only. Unset it."
-    if pgrep -f "bench/transfer/run.py (run|consolidate)|clbench (run|smoke)" >/dev/null; then
+    if pgrep -f "bench/transfer/run.py (run|consolidate|distill)|clbench (run|smoke)" >/dev/null; then
         die "another benchmark run is in progress; wait for it to finish"
     fi
     # The host's cmem and the image's cmem are rebuilt so neither is stale.
