@@ -42,8 +42,20 @@ var runHarness = func(c *command, model, prompt string) attempt {
 		cmd = exec.CommandContext(c.ctx, "sh", "-c", custom)
 		cmd.Stdin = strings.NewReader(prompt)
 	} else {
-		cmd = exec.CommandContext(c.ctx, "claude", "-p", prompt, "--model", model,
-			"--allowedTools", "Bash(cmem *)", "--output-format", "json")
+		// What the agent may use. By default the memory command and nothing
+		// else. CARMAN_TOOLS=all is for an agent whose limits are set around
+		// it and not inside it: a pod that can reach only the egress proxy
+		// and holds no credential of its own.
+		args := []string{"-p", prompt, "--model", model, "--output-format", "json"}
+		if c.getenv("CARMAN_TOOLS") == "all" {
+			args = append(args, "--permission-mode", "bypassPermissions")
+		} else {
+			args = append(args, "--allowedTools", "Bash(cmem *)")
+		}
+		if config := c.getenv("CARMAN_MCP_CONFIG"); config != "" {
+			args = append(args, "--mcp-config", config)
+		}
+		cmd = exec.CommandContext(c.ctx, "claude", args...)
 	}
 	cmd.Env = append(os.Environ(), "CARMAN_MODEL="+model)
 	var stderr bytes.Buffer

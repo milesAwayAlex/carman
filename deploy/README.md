@@ -170,3 +170,35 @@ an `initialize`. Without trust in carman's authority the same call is
 refused by the client, as it should be.
 
 `egress.enabled: false` in the values takes the proxy and the policy out.
+
+## Agents beyond the dreamer
+
+An agent is a routine run in the agent image with what it needs to work
+outside memory. Each is an entry under `agents` in the values and becomes a
+CronJob `agent-NAME`; one with no schedule runs only when asked. Which
+agents an installation has, the hosts its proxy holds credentials for, and
+the cloud identity its agents take are the installation's own business:
+they go in `.local/values.yaml`, which is git-ignored and which the deploy
+script adds to the values when it is there.
+
+    scripts/deploy.sh CONTEXT routine .local/routines/NAME.md   # put a routine in the cluster
+    scripts/deploy.sh CONTEXT agent run NAME                    # run it once and show its report
+    scripts/deploy.sh CONTEXT agent log NAME
+
+What an agent can be given, each by a line in its entry:
+
+- `tools: all`. Every tool of the harness, where the default is the memory
+  command alone. The limits are then around the agent and not inside it: its
+  pod reaches only the egress proxy and the memory service, and holds no
+  credential but the model's.
+- `mcp`. MCP servers by name and address. The credential for each is the
+  proxy's to add.
+- `google: true`. A cloud identity with no stored key: the pod's own token,
+  signed by this cluster, is exchanged for a short-lived token of the service
+  account named under `cloud.google`. The cloud side has to trust this
+  cluster's token issuer first (workload identity federation, with the
+  cluster's public keys uploaded). On a managed cluster of the same provider,
+  its workload identity does this and `cloud.google` stays empty.
+
+The agent image has `git`, `gh`, `kubectl`, `gcloud`, `curl` and `jq`. It
+works in `/work`, which is empty at the start of a run and gone at the end.

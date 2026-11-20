@@ -21,9 +21,19 @@ if [ -f "${CARMAN_EXTRA_CA:-/nonexistent}" ]; then
     export NODE_EXTRA_CA_CERTS="$CARMAN_EXTRA_CA" SSL_CERT_FILE=/tmp/ca-bundle.crt CURL_CA_BUNDLE=/tmp/ca-bundle.crt \
         GIT_SSL_CAINFO=/tmp/ca-bundle.crt REQUESTS_CA_BUNDLE=/tmp/ca-bundle.crt
 fi
+# A cloud provider's command-line tools take their identity from a file the
+# chart mounts when the agent has one (ADR 0031): no key, a token exchanged
+# for the pod's own.
+if [ -f "${GOOGLE_APPLICATION_CREDENTIALS:-/nonexistent}" ] && command -v gcloud >/dev/null; then
+    gcloud auth login --quiet --cred-file="$GOOGLE_APPLICATION_CREDENTIALS" >/dev/null 2>&1 ||
+        echo "run-routine: the cloud identity could not be set up; cloud commands will fail" >&2
+fi
 failed=0
 for routine in "$@"; do
-    file="/routines/$routine.md"
+    # A routine that belongs to one installation is in the cluster, not in
+    # the image; it wins over one of the same name that is.
+    file="/etc/carman/routines/$routine.md"
+    [ -f "$file" ] || file="/routines/$routine.md"
     [ -f "$file" ] || { echo "run-routine: no routine named $routine" >&2; exit 2; }
     echo "run-routine: $routine, models ${CARMAN_MODELS:-claude-sonnet-5-5}, budget \$${CARMAN_BUDGET_USD:-none} for this routine, memory at $CMEM_URL"
     # `cmem routine` runs the harness, and runs it again up the ladder of

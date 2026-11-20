@@ -19,6 +19,9 @@
 #   scripts/deploy.sh CONTEXT dreamer run       run it once now and show what it reported
 #   scripts/deploy.sh CONTEXT dreamer log       the report of the latest run
 #   scripts/deploy.sh CONTEXT agent-image       build the agent image and print its name
+#   scripts/deploy.sh CONTEXT routine FILE      put a routine of this installation's own in the cluster
+#   scripts/deploy.sh CONTEXT agent run NAME    run an agent once now and show what it reported
+#   scripts/deploy.sh CONTEXT agent log NAME    the report of its latest run
 #
 # What is applied is the chart in charts/carman, rendered with the values in
 # deploy/values/NAME.yaml; NAME is `local` unless CARMAN_VALUES names another.
@@ -54,11 +57,27 @@ kube=(kubectl --context "$context" --namespace carman)
 [ -z "${CARMAN_KUBE_SERVER:-}" ] || kube+=(--server "$CARMAN_KUBE_SERVER")
 values="deploy/values/${CARMAN_VALUES:-local}.yaml"
 [ -f "$values" ] || die "no values file at $values"
+# What belongs to one installation and not to the repository: its agents,
+# the cloud identity they take. Git-ignored, and optional.
+chart_values=(-f "$values")
+[ ! -f .local/values.yaml ] || chart_values+=(-f .local/values.yaml)
 url="${CMEM_URL:-http://127.0.0.1:8377}"
 
 answers() { curl -fsS -m 3 -o /dev/null "$url/healthz" 2>/dev/null; }
 
 secret() { "${kube[@]}" get secret cmem-tokens -o "jsonpath={.data.$1}" | base64 -d; }
+
+# Waits until a Job has finished one way or the other, and says which.
+finished() {
+    local job="$1" limit="$2" state="" waited=0
+    while [ "$waited" -lt "$limit" ]; do
+        state="$("${kube[@]}" get "job/$job" -o 'jsonpath={.status.conditions[?(@.status=="True")].type}' 2>/dev/null)"
+        case "$state" in *Complete*) return 0 ;; *Failed*) return 1 ;; esac
+        sleep 5
+        waited=$((waited + 5))
+    done
+    return 1
+}
 
 # The build context has to be somewhere the container runtime can see.
 build_root="${CARMAN_BENCH_ROOT:-$HOME/carman-bench}/build"
@@ -160,7 +179,7 @@ EOF
     # the manifest: a deploy leaves it as it was, and off the first time.
     dreaming="$("${kube[@]}" get cronjob dreamer -o 'jsonpath={.spec.suspend}' 2>/dev/null || true)"
     # What the egress proxy is to hold a credential for, from the values.
-    egress="$(helm template carman charts/carman --namespace carman -f "$values" --set memory.image=m:0 --set agent.image=a:0 --show-only templates/egress.yaml 2>/dev/null || true)"
+    egress="$(helm template carman charts/carman --namespace carman "${chart_values[@]}" --set memory.image=m:0 --set agent.image=a:0 --show-only templates/egress.yaml 2>/dev/null || true)"
     egress_hosts="$(printf '%s\n' "$egress" | sed -n 's/^  hosts: "\(.*\)"$/\1/p')"
     egress_keys="$(printf '%s\n' "$egress" | sed -n 's/^  keys: "\(.*\)"$/\1/p')"
     if [ -n "$egress_hosts" ]; then
@@ -174,7 +193,7 @@ EOF
     # Rendered and applied, not installed as a release: the cluster's objects
     # are the record, and a chart consumer elsewhere (a GitOps controller,
     # `helm install`) uses the same chart its own way.
-    helm template carman charts/carman --namespace carman -f "$values" \
+    helm template carman charts/carman --namespace carman "${chart_values[@]}" \
         --set "memory.image=$CARMAN_IMAGE" --set "agent.image=$CARMAN_AGENT_IMAGE" --set "dreamer.suspend=${dreaming:-true}" |
         "${kube[@]}" apply -f -
     "${kube[@]}" rollout status statefulset/cmem --timeout=120s
@@ -273,6 +292,36 @@ agent-image)
     build_agent
     echo "$CARMAN_AGENT_IMAGE"
     ;;
+routine)
+    file="${3:-}"
+    [ -f "$file" ] || die "name the routine's file, for example .local/routines/review.md"
+    "${kube[@]}" get configmap carman-routines >/dev/null 2>&1 || "${kube[@]}" create configmap carman-routines >/dev/null
+    "${kube[@]}" create configmap carman-routines "--from-file=$(basename "$file")=$file" --dry-run=client -o json |
+        python3 -c 'import json, sys; print(json.dumps({"data": json.load(sys.stdin)["data"]}))' |
+        "${kube[@]}" patch configmap carman-routines --type merge --patch-file /dev/stdin >/dev/null
+    echo "the cluster holds routine $(basename "$file" .md)"
+    ;;
+agent)
+    name="${4:-}"
+    [ -n "$name" ] || die "say: agent run NAME, or agent log NAME"
+    "${kube[@]}" get cronjob "agent-$name" >/dev/null 2>&1 || die "no agent named $name; agents are listed under 'agents' in the values"
+    case "${3:-}" in
+    run)
+        job="agent-$name-$(date -u +%Y%m%d-%H%M%S)"
+        "${kube[@]}" create job "$job" "--from=cronjob/agent-$name" >/dev/null
+        echo "started $job; waiting for it to finish (up to an hour)"
+        finished "$job" 3600 || echo "the run did not complete; what it printed follows" >&2
+        "${kube[@]}" logs "job/$job" --tail=-1
+        ;;
+    log)
+        job="$("${kube[@]}" get jobs -l "app=agent-$name" --sort-by=.metadata.creationTimestamp -o name 2>/dev/null | tail -1)"
+        [ -n "$job" ] || job="$("${kube[@]}" get jobs --sort-by=.metadata.creationTimestamp -o name | grep "/agent-$name-" | tail -1)"
+        [ -n "$job" ] || die "$name has not run yet"
+        "${kube[@]}" logs "$job" --tail=-1
+        ;;
+    *) die "say: agent run NAME, or agent log NAME" ;;
+    esac
+    ;;
 dreamer)
     case "${3:-}" in
     on | off)
@@ -285,8 +334,7 @@ dreamer)
         job="dreamer-$(date -u +%Y%m%d-%H%M%S)"
         "${kube[@]}" create job "$job" --from=cronjob/dreamer >/dev/null
         echo "started $job; waiting for it to finish (up to 30 minutes)"
-        "${kube[@]}" wait --for=condition=complete --timeout=1800s "job/$job" >/dev/null 2>&1 ||
-            echo "the run did not complete; what it printed follows" >&2
+        finished "$job" 1800 || echo "the run did not complete; what it printed follows" >&2
         "${kube[@]}" logs "job/$job" --tail=-1
         ;;
     log)
@@ -299,6 +347,6 @@ dreamer)
     esac
     ;;
 *)
-    die "unknown action $action; say deploy, status, check, backup, restore, env, token, secret, agent-image or dreamer"
+    die "unknown action $action; say deploy, status, check, backup, restore, env, token, secret, agent-image, dreamer, routine or agent"
     ;;
 esac

@@ -7,8 +7,13 @@ ARG CLAUDE_CODE_VERSION=2.1.311
 ARG GH_VERSION=2.63.2
 ARG KUBECTL_VERSION=1.33.0
 RUN apt-get update -qq \
- && apt-get install -y -qq --no-install-recommends ca-certificates curl git jq \
- && rm -rf /var/lib/apt/lists/* \
+ && apt-get install -y -qq --no-install-recommends ca-certificates curl git jq gnupg \
+ && curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
+ && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" > /etc/apt/sources.list.d/google-cloud-sdk.list \
+ && apt-get update -qq \
+ && apt-get install -y -qq --no-install-recommends google-cloud-cli google-cloud-cli-gke-gcloud-auth-plugin \
+ && rm -rf /var/lib/apt/lists/* /usr/lib/google-cloud-sdk/platform/bundledpythonunix \
+ && gcloud --version | head -1 \
  && arch="$(dpkg --print-architecture)" \
  && curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${arch}.tar.gz" \
     | tar -xz -C /usr/local/bin --strip-components=2 "gh_${GH_VERSION}_linux_${arch}/bin/gh" \

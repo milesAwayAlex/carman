@@ -7,14 +7,8 @@ memory:
   service:
     type: LoadBalancer
 
-# The egress proxy holds a credential for the code host (its API, and git
-# over HTTPS) and for the issue tracker's MCP endpoint. Each is put in the cluster by a pipe, as the
-# whole header value:
-#   printf 'Bearer %s' "$(PROGRAM-THAT-PRINTS-THE-TOKEN)" | scripts/deploy.sh CONTEXT secret carman-egress github
-egress:
-  credentials:
-    - {host: api.github.com, key: github}
-    # git over HTTPS goes to another host and wants the token as a password:
-    #   printf 'Basic %s' "$(printf 'x-access-token:%s' "$(TOKEN)" | base64 | tr -d '\n')" | ... secret carman-egress github-git
-    - {host: github.com, key: github-git}
-    - {host: mcp.linear.app, key: linear}
+# Which hosts the egress proxy holds a credential for belongs to the
+# installation: list them under egress.credentials in the git-ignored
+# .local/values.yaml, which scripts/deploy.sh adds to these values. Each
+# credential is put in the cluster by a pipe, as the whole header value:
+#   printf 'Bearer %s' "$(PROGRAM-THAT-PRINTS-THE-TOKEN)" | scripts/deploy.sh CONTEXT secret carman-egress KEY

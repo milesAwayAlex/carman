@@ -60,3 +60,30 @@ egress:
   resources:
     requests: {cpu: 20m, memory: 64Mi}
     limits: {memory: 256Mi}
+
+# Agents beyond the dreamer. Each runs its routines in the agent image, as a
+# working agent in memory, leaving the cluster only through the egress proxy.
+#   agents:
+#     - name: example
+#       routines: [example]           # in the image, or put in the cluster with
+#                                     # scripts/deploy.sh CONTEXT routine FILE
+#       schedule: "0 15 * * 1"        # optional; without it, runs only when asked
+#       models: [claude-sonnet-5-5]   # the ladder
+#       budgetUSD: 2
+#       tools: all                    # "memory" (the default): the memory command only
+#       mcp: {tracker: https://mcp.example.com/mcp}
+#       google: true                  # give it the cloud identity below
+agents: []
+
+cloud:
+  # The cloud identity an agent pod can take, with no stored key: the pod's
+  # own token, signed by this cluster, is exchanged for a short-lived one of
+  # a service account. On a managed cluster of the same provider the
+  # provider's workload identity does this by itself and these stay empty.
+  google:
+    # The identity provider that trusts this cluster's tokens, by its full
+    # resource name (//iam.googleapis.com/projects/NUMBER/locations/global/
+    # workloadIdentityPools/POOL/providers/PROVIDER).
+    audience: ""
+    # The service account an agent acts as.
+    serviceAccount: ""
