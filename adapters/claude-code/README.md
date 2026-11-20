@@ -56,6 +56,9 @@ Optional settings:
   set, each new prompt has it choose from the entries the session has not
   seen. Raise the `UserPromptSubmit` hook's timeout to cover it.
 - **Off for one session.** `CMEM_HOOK=off`.
+- **What to do when memory is down.** `CMEM_UNREACHABLE_HINT` is a sentence
+  added to what a starting session is told when the service cannot be
+  reached: the command that diagnoses it on this machine, for instance.
 
 ## Bringing your built-in memories along
 

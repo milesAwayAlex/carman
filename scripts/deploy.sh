@@ -135,6 +135,13 @@ EOF
         echo "the service is running in the cluster but does not answer at $url from this machine;"
         echo "see deploy/README.md, \"Reaching it from the laptop\""
     fi
+    # Every deploy that changes a binary makes a new image tag. Where images
+    # are built straight into the cluster's runtime, the old ones only fill
+    # its disk: remove those this deploy did not use. One that a finished Job
+    # still names is left by the runtime, and that is fine.
+    for old in $(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E '^carman-(cmem|agent):' || true); do
+        [ "$old" = "$CARMAN_IMAGE" ] || [ "$old" = "$CARMAN_AGENT_IMAGE" ] || docker rmi "$old" >/dev/null 2>&1 || true
+    done
     ;;
 status)
     "${kube[@]}" get statefulset,pod,pvc,service -o wide

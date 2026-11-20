@@ -117,7 +117,7 @@ func runRemote(ctx context.Context, args []string, getenv func(string) string, e
 		if name == "hook" {
 			// A hook must never break its session. The one thing worth
 			// saying is said once, when the session starts.
-			unreachableNotice(req.Stdin, err, stdout)
+			unreachableNotice(req.Stdin, err, getenv("CMEM_UNREACHABLE_HINT"), stdout)
 			return 0, true
 		}
 		fmt.Fprintf(stderr, "cmem %s: cannot reach the memory service at %s: %v\n", name, base, err)
@@ -180,19 +180,26 @@ const relayedHookLimit = 10000
 
 // unreachableNotice prints, for a session that is starting, the line that
 // tells the agent its memory is not there.
-func unreachableNotice(event string, cause error, stdout io.Writer) {
+func unreachableNotice(event string, cause error, hint string, stdout io.Writer) {
 	var in claudeCodeInput
 	if json.Unmarshal([]byte(event), &in) != nil || in.Event != "SessionStart" || in.Source == "resume" {
 		return
 	}
 	json.NewEncoder(stdout).Encode(map[string]any{
-		"hookSpecificOutput": map[string]string{"hookEventName": in.Event, "additionalContext": unreachableText(cause)},
+		"hookSpecificOutput": map[string]string{"hookEventName": in.Event, "additionalContext": unreachableText(cause, hint)},
 	})
 }
 
-func unreachableText(cause error) string {
-	return "Long-term memory (cmem) could not be reached at the start of this session, so nothing was " +
-		"recalled and `cmem` commands may fail. Tell the user once, briefly. (" + summaryLine(cause.Error()) + ")\n"
+// unreachableText is what a starting session is told. hint is whatever the
+// machine's own setup wants said about getting the service back
+// (CMEM_UNREACHABLE_HINT): the command that diagnoses it, for instance.
+func unreachableText(cause error, hint string) string {
+	text := "Long-term memory (cmem) could not be reached at the start of this session, so nothing was " +
+		"recalled and `cmem` commands may fail. Tell the user once, briefly. (" + summaryLine(cause.Error()) + ")"
+	if hint = strings.TrimSpace(hint); hint != "" {
+		text += " " + hint
+	}
+	return text + "\n"
 }
 
 // remotelyRunnable are the commands the service will run for a caller.

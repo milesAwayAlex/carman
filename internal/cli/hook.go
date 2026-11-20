@@ -112,7 +112,7 @@ func (c *command) claudeCodeHook(raw []byte) {
 		}
 		if err := c.call(http.MethodPost, "/v1/index", req, &resp); err != nil {
 			if c.indexPart == 1 {
-				context = unreachableText(err)
+				context = unreachableText(err, c.getenv("CMEM_UNREACHABLE_HINT"))
 			}
 			break
 		}

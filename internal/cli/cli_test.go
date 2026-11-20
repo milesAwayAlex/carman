@@ -431,6 +431,11 @@ func TestM5_TheClaudeCodeHookVolunteersMemoryAtTheMomentsThatMatter(t *testing.T
 	offline := shell{t, map[string]string{"CMEM_URL": "http://127.0.0.1:1", "CMEM_TOKEN": "x"}}
 	expectContains(t, hookContext(t, offline, map[string]any{"hook_event_name": "SessionStart", "session_id": "s6"}),
 		"could not be reached", "Tell the user")
+	// The machine's own setup can add what to do about it.
+	offline.env["CMEM_UNREACHABLE_HINT"] = "Run `fix-the-vm` to see what is wrong."
+	expectContains(t, hookContext(t, offline, map[string]any{"hook_event_name": "SessionStart", "session_id": "s6b"}),
+		"could not be reached", "Run `fix-the-vm` to see what is wrong.")
+	delete(offline.env, "CMEM_UNREACHABLE_HINT")
 	unrelated["session_id"] = "s6"
 	if got := hookContext(t, offline, unrelated); got != "" {
 		t.Errorf("with the service unreachable the hook printed at a later moment:\n%s", got)
