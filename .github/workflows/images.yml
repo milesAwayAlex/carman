@@ -64,6 +64,8 @@ jobs:
           context: build/agent
           platforms: linux/amd64,linux/arm64
           provenance: false
+          # A published image does not hand out the harness; the pod fetches it.
+          build-args: HARNESS=at-start
           push: true
           tags: |
             ${{ env.registry }}/cmem-agent:${{ github.sha }}

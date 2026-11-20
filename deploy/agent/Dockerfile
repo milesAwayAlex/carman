@@ -4,6 +4,12 @@
 # (scripts/deploy.sh, .github/workflows/images.yml).
 FROM node:22-slim
 ARG CLAUDE_CODE_VERSION=2.1.311
+# The harness is its vendor's, under the vendor's terms, and not this
+# project's to hand out. "included" puts it in the image, for an image that
+# stays where it was built. "at-start" leaves it out, for an image that is
+# published: the pod fetches that version from the vendor's own package when
+# it starts (run-routine).
+ARG HARNESS=included
 # What an agent that works on code and clusters reaches for besides the harness.
 ARG GH_VERSION=2.63.2
 ARG KUBECTL_VERSION=1.33.0
@@ -24,8 +30,7 @@ RUN apt-get update -qq \
  && curl -fsSL "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_${arch}.tar.gz" \
     | tar -xz -C /usr/local/bin tofu \
  && tofu version | head -1 \
- && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
- && claude --version \
+ && if [ "$HARNESS" = included ]; then npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} && claude --version; fi \
  && useradd --uid 10001 --create-home agent
 ARG TARGETARCH
 COPY cmem-${TARGETARCH} /usr/local/bin/cmem
@@ -33,5 +38,5 @@ COPY run-routine backup-library /usr/local/bin/
 COPY routines /routines
 RUN chmod 0755 /usr/local/bin/cmem /usr/local/bin/run-routine /usr/local/bin/backup-library && cmem help > /dev/null
 USER 10001
-ENV HOME=/home/agent
+ENV HOME=/home/agent HARNESS_VERSION=${CLAUDE_CODE_VERSION}
 ENTRYPOINT ["run-routine"]

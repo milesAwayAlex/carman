@@ -28,6 +28,15 @@ if [ -f "${GOOGLE_APPLICATION_CREDENTIALS:-/nonexistent}" ] && command -v gcloud
     gcloud auth login --quiet --cred-file="$GOOGLE_APPLICATION_CREDENTIALS" >/dev/null 2>&1 ||
         echo "run-routine: the cloud identity could not be set up; cloud commands will fail" >&2
 fi
+# A published image carries no harness (see the Dockerfile): fetch the version
+# the image was built for, into the pod's own home.
+if ! command -v claude >/dev/null; then
+    echo "run-routine: fetching the harness, version $HARNESS_VERSION"
+    npm install -g --prefix "$HOME/.harness" --no-fund --no-audit --no-update-notifier --loglevel=error "@anthropic-ai/claude-code@$HARNESS_VERSION" ||
+        { echo "run-routine: the harness could not be fetched" >&2; exit 1; }
+    export PATH="$HOME/.harness/bin:$PATH"
+    claude --version >/dev/null || { echo "run-routine: the harness was fetched and does not run" >&2; exit 1; }
+fi
 failed=0
 for routine in "$@"; do
     # A routine that belongs to one installation is in the cluster, not in
