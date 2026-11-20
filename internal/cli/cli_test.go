@@ -1015,6 +1015,44 @@ func TestARoutineWaitsOutTheUsageLimit(t *testing.T) {
 	}
 }
 
+// The library can leave the service whole, and be a library again elsewhere:
+// the same entries, and the history behind them.
+func TestTheLibraryIsBackedUpAndRestoredElsewhere(t *testing.T) {
+	laptop, worker, _ := newService(t)
+	first := strings.Fields(laptop.ok("", "note", "--kind", "fact", "--human", "alex", "The gateway listens on port 9100."))[1]
+	laptop.ok("", "note", "--kind", "fact", "--human", "alex", "--replaces", first, "The gateway listens on port 9200.")
+	worker.ok("", "note", "--kind", "pitfall", "--evidence", "saw it fail", "The cache must be warmed before the first request.")
+
+	dir := t.TempDir()
+	file := filepath.Join(dir, "library.bundle")
+	// Any role that can read memory can take a copy of it.
+	expectContains(t, worker.ok("", "backup", file), "2 current entries with their whole history")
+	if info, err := os.Stat(file); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("the backup file: %v, mode %v", err, info.Mode().Perm())
+	}
+	if _, stderr, code := worker.run("", "backup", file); code == 0 || !strings.Contains(stderr, "already exists") {
+		t.Errorf("a backup over another: exit %d, %q", code, stderr)
+	}
+
+	copyDir := filepath.Join(dir, "copy")
+	expectContains(t, worker.ok("", "restore", file, copyDir), "2 current entries", "cmem serve --library "+copyDir)
+	restored, err := memory.Open(copyDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// What is current, and what was replaced, are both there.
+	if now := restored.CurrentEntries(time.Time{}); len(now) != 2 {
+		t.Errorf("the restored library has %d current entries", len(now))
+	}
+	if old, err := restored.Entry(first); err != nil || !strings.Contains(old.Text, "9100") || old.ValidTo == nil {
+		t.Errorf("the replaced entry in the restored library: %v", err)
+	}
+	// It is never restored over something.
+	if _, stderr, code := worker.run("", "restore", file, copyDir); code == 0 || !strings.Contains(stderr, "not empty") {
+		t.Errorf("a restore over a library: exit %d, %q", code, stderr)
+	}
+}
+
 // The installed binary is a relay: it sends its command line to the service,
 // which runs the command and says what to print. A change to what a command
 // does then reaches every machine when the service is deployed.

@@ -131,3 +131,20 @@ or the VM's state disk does lose it, and so does a VM rebuilt from nothing.
 - Starting the VM with the laptop.
 - Anything that tells you the service is down, other than the line a session
   shows when it starts.
+
+## A copy that needs no cluster
+
+Any machine that can reach the service, with any role's token, can take the
+whole library away as one file and make a library of it somewhere else:
+
+    cmem backup library.bundle
+    cmem restore library.bundle DIR
+
+The file is a git bundle: every note ever written, with its history.
+`cmem restore` checks the copy and prints how to serve it on that machine,
+which is what to do when the service is out of reach or there is no network:
+
+    CMEM_TOKENS=laptop=SOME-TOKEN cmem serve --library DIR --listen 127.0.0.1:8378
+
+and point sessions at it with `CMEM_URL` and `CMEM_TOKEN`. Notes written to
+such a copy stay in it; bringing them back into the service is not built.

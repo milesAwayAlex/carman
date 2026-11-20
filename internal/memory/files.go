@@ -247,6 +247,18 @@ func (l library) git(args ...string) (string, error) {
 	return string(out), nil
 }
 
+// bundle writes the whole library, with its history, as one git bundle: a
+// file another git can clone or fetch from.
+func (l library) bundle() ([]byte, error) {
+	cmd := exec.Command("git", "-C", l.dir, "bundle", "create", "-", "HEAD", "--all")
+	var out, problems bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &problems
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("git bundle: %w: %s", err, bytes.TrimSpace(problems.Bytes()))
+	}
+	return out.Bytes(), nil
+}
+
 func (l library) commit(message string, paths ...string) error {
 	if _, err := l.git(append([]string{"add", "--"}, paths...)...); err != nil {
 		return err

@@ -1866,6 +1866,39 @@ func (s *Store) loadShown() {
 	}
 }
 
+// Export is the whole library as it stands: every note ever written, as a
+// git bundle, with the commit it was taken at and how many entries are
+// current. A copy made from it is a library in its own right: it can be
+// served, and because notes are only ever added, two copies of one library
+// differ only in the notes one has and the other does not.
+type Export struct {
+	Format  string `json:"format"` // "git-bundle"
+	Commit  string `json:"commit"`
+	Entries int    `json:"entries"` // current entries, for the one who made the copy to check against
+	Bundle  []byte `json:"bundle"`
+}
+
+// Export takes a copy of the library between writes.
+func (s *Store) Export() (Export, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	commit, err := s.lib.git("rev-parse", "HEAD")
+	if err != nil {
+		return Export{}, fmt.Errorf("memory: export: %w", err)
+	}
+	bundle, err := s.lib.bundle()
+	if err != nil {
+		return Export{}, fmt.Errorf("memory: export: %w", err)
+	}
+	current := 0
+	for _, e := range s.entries {
+		if s.current(e, time.Time{}) {
+			current++
+		}
+	}
+	return Export{Format: "git-bundle", Commit: strings.TrimSpace(commit), Entries: current, Bundle: bundle}, nil
+}
+
 // Check reports anything wrong with the library: notes that could not be
 // read, and notes that were changed or removed after they were written.
 func (s *Store) Check() ([]string, error) {

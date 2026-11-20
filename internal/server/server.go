@@ -93,6 +93,8 @@ func (s *Server) Routes() []Route {
 		{http.MethodPost, "/v1/entries/{id}/retire", dreamer, true, s.retire},
 		{http.MethodPost, "/v1/runs", dreamer, true, s.startRun},
 		{http.MethodGet, "/v1/runs", everyone, false, s.listRuns},
+		// Every role can already read every note; this is all of them at once.
+		{http.MethodGet, "/v1/library", everyone, false, s.exportLibrary},
 		{http.MethodGet, "/v1/runs/{id}", everyone, false, s.getRun},
 		{http.MethodPost, "/v1/runs/{id}/revert", dreamer, true, s.revertRun},
 		// These two read, but also log what they showed so that a session is
@@ -622,6 +624,8 @@ func (s *Server) startRun(r *http.Request, _ Role) (any, error) {
 }
 
 func (s *Server) listRuns(_ *http.Request, _ Role) (any, error) { return s.store.Runs(), nil }
+
+func (s *Server) exportLibrary(_ *http.Request, _ Role) (any, error) { return s.store.Export() }
 
 func (s *Server) getRun(r *http.Request, _ Role) (any, error) { return s.store.Run(r.PathValue("id")) }
 

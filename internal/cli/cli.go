@@ -130,6 +130,11 @@ capped, and can be reverted as a unit:
         Withdraw an entry with nothing in its place.
   cmem consolidate log [RUN]
         What runs changed, and what they were refused and have not done.
+  cmem backup FILE
+        Write the whole library, with its history, to FILE on this machine.
+  cmem restore FILE DIR
+        Make a library in the new directory DIR from a backup, ready to be
+        served here: for when the service is out of reach, or to work offline.
   cmem routine FILE [--models A,B,C] [--budget DOLLARS]
         Carry out a routine (a prompt file) through the harness. A write that
         memory refused and that was never made is tried again with the
@@ -213,7 +218,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdin i
 		"flag": c.flag, "record": c.record, "add": c.add, "supersede": c.supersede,
 		"index": c.index, "flashback": c.flashback, "hook": c.hook, "check": c.check,
 		"retire": c.retire, "consolidate": c.consolidate, "import": c.importMemory, "scope": c.scope,
-		"routine": c.routine,
+		"routine": c.routine, "backup": c.backup, "restore": c.restore,
 	}
 	run, ok := commands[args[0]]
 	if !ok {
@@ -242,6 +247,9 @@ type command struct {
 	indexPart      int           // hook only: which part of the session index to print
 	api            http.Handler  // set when running inside the service: requests are answered in-process
 }
+
+// timeZero asks for what is current now.
+var timeZero time.Time
 
 // list is a flag that may be given several times.
 type list []string
