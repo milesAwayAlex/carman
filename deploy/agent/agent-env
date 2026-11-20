@@ -1,0 +1,78 @@
+# What every agent in this image needs before the harness starts, whether it
+# runs a routine or a person is at its keyboard. Sourced, not run:
+#
+#   . agent-env        the environment: trust in the proxy, where tools are
+#   agent_setup        what takes a moment: the cloud identity, the harness
+#                      if the image left it out, the plugins the agent was given
+
+# The harness's own memory is off: there is one memory, and the hook that
+# agent_setup puts in the harness's settings is how it reaches the agent.
+export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+# Where the egress proxy answers in a host's name, its certificate comes from
+# an authority of this installation. Trust it beside the public ones, for
+# every kind of program an agent runs.
+if [ -f "${EGRESS_CA:-/nonexistent}" ]; then
+    cat /etc/ssl/certs/ca-certificates.crt "$EGRESS_CA" > /tmp/ca-bundle.crt
+    export NODE_EXTRA_CA_CERTS="$EGRESS_CA" SSL_CERT_FILE=/tmp/ca-bundle.crt CURL_CA_BUNDLE=/tmp/ca-bundle.crt \
+        GIT_SSL_CAINFO=/tmp/ca-bundle.crt REQUESTS_CA_BUNDLE=/tmp/ca-bundle.crt
+fi
+# Commands of this installation's own (scripts/deploy.sh CONTEXT tool FILE),
+# and the harness where it was fetched at start.
+export PATH="/etc/agent/bin:$HOME/.harness/bin:$PATH"
+
+agent_setup() {
+    # A cloud provider's command-line tools take their identity from a file
+    # the chart mounts when the agent has one (ADR 0031): no key, a token
+    # exchanged for the pod's own.
+    if [ -f "${GOOGLE_APPLICATION_CREDENTIALS:-/nonexistent}" ] && command -v gcloud >/dev/null; then
+        gcloud auth login --quiet --cred-file="$GOOGLE_APPLICATION_CREDENTIALS" >/dev/null 2>&1 ||
+            echo "agent: the cloud identity could not be set up; cloud commands will fail" >&2
+    fi
+    # A published image carries no harness (see the Dockerfile): fetch the
+    # version the image was built for, into the pod's own home.
+    if ! command -v claude >/dev/null; then
+        echo "agent: fetching the harness, version $HARNESS_VERSION"
+        npm install -g --prefix "$HOME/.harness" --no-fund --no-audit --no-update-notifier --loglevel=error "@anthropic-ai/claude-code@$HARNESS_VERSION" ||
+            { echo "agent: the harness could not be fetched" >&2; return 1; }
+        claude --version >/dev/null || { echo "agent: the harness was fetched and does not run" >&2; return 1; }
+    fi
+    # The harness's settings for whoever starts it here: the memory hook (the
+    # index when a session starts, a flashback where a memory is likely to
+    # matter), and how it treats what it is about to do. They go in the user's
+    # own settings because a machine-wide file is not read when the account's
+    # organisation sends settings of its own. What the user has set stays.
+    mkdir -p "$HOME/.claude"
+    python3 - <<'PY' || echo "agent: the harness's settings could not be written; it starts without the memory hook" >&2
+import json, os
+path = os.path.expanduser("~/.claude/settings.json")
+try:
+    settings = json.load(open(path))
+except Exception:
+    settings = {}
+ours = json.load(open("/usr/local/lib/agent-settings.json"))
+settings.setdefault("env", {}).update(ours.get("env", {}))
+allow = settings.setdefault("permissions", {}).setdefault("allow", [])
+allow += [rule for rule in ours.get("permissions", {}).get("allow", []) if rule not in allow]
+settings["hooks"] = {**settings.get("hooks", {}), **ours.get("hooks", {})}
+mode = os.environ.get("AGENT_PERMISSION_MODE")
+if mode:
+    settings["permissions"]["defaultMode"] = mode
+json.dump(settings, open(path, "w"), indent=2)
+PY
+    # Plugins the agent was given: skills, subagents and MCP servers that come
+    # as one package. Fetched now, so the agent has each as it is today; where
+    # the home outlives the pod, what is there already is brought up to date.
+    # One that cannot be installed is said so and the agent goes on without it.
+    for marketplace in ${AGENT_MARKETPLACES:-}; do
+        claude plugin marketplace add "$marketplace" >/dev/null 2>&1 || claude plugin marketplace update >/dev/null 2>&1 ||
+            echo "agent: the plugin marketplace $marketplace could not be added" >&2
+    done
+    for plugin in ${AGENT_PLUGINS:-}; do
+        if claude plugin install "$plugin" --scope user >/dev/null 2>&1; then
+            claude plugin update "$plugin" >/dev/null 2>&1 || true
+            echo "agent: plugin $plugin"
+        else
+            echo "agent: the plugin $plugin could not be installed; the agent goes on without it" >&2
+        fi
+    done
+}

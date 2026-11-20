@@ -42,6 +42,10 @@ agent:
   # takes them (OWNER/REPO, OWNER/REPO#REF, a URL). An agent names the
   # plugins it wants from them.
   marketplaces: []
+  # What an interactive agent's pod may use, unless its entry says otherwise.
+  interactiveResources:
+    requests: {cpu: 250m, memory: 1Gi}
+    limits: {memory: 4Gi}
 
 dreamer:
   # Off until a model credential is in place; `scripts/deploy.sh CONTEXT
@@ -146,6 +150,13 @@ egress:
 #       plugins: [NAME@MARKETPLACE]   # installed afresh at every start
 #       env: {EXAMPLE_TOKEN: held-by-the-egress-proxy}   # for tools that insist on a variable
 #       google: true                  # give it the cloud identity below
+#     - name: desk
+#       interactive: true             # a standing pod a person attaches to, in place of a job:
+#                                     # scripts/deploy.sh CONTEXT agent attach desk
+#       storage: 20Gi                 # its home, which outlives the pod
+#       permissionMode: auto          # how the harness treats what it is about to do
+#       memoryRole: laptop            # the default when interactive: a person is at the keyboard
+#                                     # (plugins, mcp, env, google and resources as above)
 agents: []
 
 cloud:

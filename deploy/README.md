@@ -229,6 +229,29 @@ script adds to the values when it is there.
     scripts/deploy.sh CONTEXT agent run NAME                    # run it once and show its report
     scripts/deploy.sh CONTEXT agent log NAME
 
+### An interactive agent
+
+An entry with `interactive: true` is not a job but a pod that stays, with a
+home that outlives it (ADR 0034). The harness is not started for you: the
+pod keeps a tmux session, and you work in it as on your own machine.
+
+    scripts/deploy.sh CONTEXT agent attach NAME
+
+attaches your terminal; detach with tmux's prefix and `d`, and whatever runs
+goes on. Start the harness with `claude` in `~/work`, and after a restart of
+the pod or the machine pick the conversation up with `claude --continue`.
+It has the memory hook, the laptop's role in memory, and whatever the entry
+gives it of the list below. `storage` sets the size of its home and
+`permissionMode` how the harness treats what it is about to do (`auto`
+unless said).
+
+The shell in it is plain unless you bring your own: build an image on
+`node:22-slim` with your shell, tmux configuration and tools, name it in
+`CARMAN_AGENT_BASE`, and the agent image is built on it. A home that is a
+volume hides what an image puts there, so have the base leave an executable
+in `/usr/local/lib/agent-start.d` that links your configuration into the
+home; it runs at every start.
+
 What an agent can be given, each by a line in its entry:
 
 - `tools: all`. Every tool of the harness, where the default is the memory

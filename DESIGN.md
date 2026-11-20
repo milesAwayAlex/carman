@@ -337,6 +337,9 @@ which are the weakest parts. Three things are meant to keep that manageable:
   namespace closed to others, tokens made in the cluster, and workers
   reaching the service inside it. The laptop is to come in over a private
   network whose client runs inside the memory pod (not built).
+- Agents run beside the memory as jobs or, when interactive, as a standing
+  pod with a persistent home and a tmux session a person attaches to (ADR
+  0034). Every agent that does ordinary work has the memory hook.
 - Nothing the chart puts on a cluster carries the project's name, and
   `scripts/chart-export.sh` writes the chart out under another (ADR 0032).
 - One token per role, generated at the first deploy and kept in a Secret.

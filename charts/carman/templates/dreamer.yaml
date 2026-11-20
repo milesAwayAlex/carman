@@ -60,6 +60,10 @@ spec:
                     secretKeyRef:
                       name: {{ .Values.agent.modelSecret }}
                       key: token
+                # A consolidation pass reads the whole library itself; the
+                # hook that shows working sessions their memory is off for it.
+                - name: CMEM_HOOK
+                  value: "off"
                 - name: CMEM_ROUTINE_MODELS
                   value: {{ join "," .Values.dreamer.models | quote }}
                 - name: CMEM_ROUTINE_BUDGET_USD

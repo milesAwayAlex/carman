@@ -4,6 +4,189 @@ image with what it needs to work outside memory. One CronJob for each; an
 agent with no schedule runs only when asked (scripts/deploy.sh CONTEXT agent
 run NAME).
 */ -}}
+{{- /* An agent's pod: the same whether it is a job that runs a routine or a
+standing pod a person attaches to. */ -}}
+{{- define "agent.podspec" -}}
+{{- $root := .root }}
+{{- $google := and .agent.google $root.Values.cloud.google.audience $root.Values.cloud.google.serviceAccount }}
+{{- with .agent }}
+{{- if not .interactive }}
+restartPolicy: Never
+{{- end }}
+serviceAccountName: agent
+automountServiceAccountToken: false
+{{- with (include "pod.placement" $root) }}{{ . | trim | nindent 0 }}{{- end }}
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile: {type: RuntimeDefault}
+containers:
+  - name: agent
+    image: {{ required "agent.image is required" $root.Values.agent.image }}
+    imagePullPolicy: IfNotPresent
+    {{- if .interactive }}
+    # A standing pod a person attaches to: the session lives in tmux and
+    # goes on when they detach.
+    command: ["agent-session"]
+    workingDir: /home/agent
+    {{- else }}
+    args: {{ toJson .routines }}
+    workingDir: /work
+    {{- end }}
+    env:
+      - name: CMEM_URL
+        value: http://cmem:{{ $root.Values.memory.service.port }}
+      # A working agent: it may note what it learns and may not
+      # rewrite what others wrote. With a person at the keyboard it is
+      # the laptop's role, which may record what that person said.
+      - name: CMEM_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: {{ $root.Values.memory.tokensSecret }}
+            key: {{ .memoryRole | default (ternary "laptop" "worker" (default false .interactive)) }}
+      - name: CLAUDE_CODE_OAUTH_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: {{ $root.Values.agent.modelSecret }}
+            key: token
+      {{- if .interactive }}
+      # How the harness treats what it is about to do, when started here.
+      - name: AGENT_PERMISSION_MODE
+        value: {{ .permissionMode | default "auto" | quote }}
+      {{- else }}
+      - name: CMEM_ROUTINE_MODELS
+        value: {{ join "," (.models | default (list "claude-sonnet-5-5")) | quote }}
+      - name: CMEM_ROUTINE_BUDGET_USD
+        value: {{ .budgetUSD | default 2 | quote }}
+      - name: CMEM_ROUTINE_TOOLS
+        value: {{ .tools | default "memory" | quote }}
+      {{- with .waitForLimitMinutes }}
+      # How long a run may wait for the plan's usage limit to reset
+      # before it gives up. The deadline above has to allow for it.
+      - name: CMEM_ROUTINE_WAIT_FOR_LIMIT_MINUTES
+        value: {{ . | quote }}
+      {{- end }}
+      {{- end }}
+      {{- with .scope }}
+      # What the agent's work is about, as memory names it: the
+      # entries for this scope are the ones it is shown and searches.
+      - name: CMEM_SCOPE
+        value: {{ . | quote }}
+      {{- end }}
+      {{- if .mcp }}
+      - name: CMEM_ROUTINE_MCP_CONFIG
+        value: /etc/agent/mcp/mcp.json
+      {{- end }}
+      {{- if .plugins }}
+      # Installed when the pod starts, from the marketplaces named,
+      # so that a run has the plugin as it is that day.
+      - name: AGENT_MARKETPLACES
+        value: {{ join " " $root.Values.agent.marketplaces | quote }}
+      - name: AGENT_PLUGINS
+        value: {{ join " " .plugins | quote }}
+      {{- end }}
+      {{- range $name, $value := .env }}
+      - name: {{ $name }}
+        value: {{ $value | quote }}
+      {{- end }}
+      {{- if $root.Values.egress.enabled }}
+      - name: HTTPS_PROXY
+        value: http://egress:3128
+      - name: NO_PROXY
+        value: cmem,localhost,127.0.0.1
+      - name: EGRESS_CA
+        value: /etc/agent/egress/ca.crt
+      # Tools that refuse to start without a credential get a
+      # placeholder; the proxy puts the real one on the request.
+      - name: GH_TOKEN
+        value: held-by-the-egress-proxy
+      {{- end }}
+      {{- if $google }}
+      - name: GOOGLE_APPLICATION_CREDENTIALS
+        value: /etc/agent/google/credentials.json
+      {{- end }}
+    volumeMounts:
+      - name: home
+        mountPath: /home/agent
+      {{- if not .interactive }}
+      - name: work
+        mountPath: /work
+      {{- end }}
+      - name: routines
+        mountPath: /etc/agent/routines
+        readOnly: true
+      - name: tools
+        mountPath: /etc/agent/bin
+        readOnly: true
+      {{- if $root.Values.egress.enabled }}
+      - name: egress-ca
+        mountPath: /etc/agent/egress
+        readOnly: true
+      {{- end }}
+      {{- if .mcp }}
+      - name: mcp
+        mountPath: /etc/agent/mcp
+        readOnly: true
+      {{- end }}
+      {{- if $google }}
+      - name: google
+        mountPath: /etc/agent/google
+        readOnly: true
+      - name: identity
+        mountPath: /var/run/secrets/agent/identity
+        readOnly: true
+      {{- end }}
+    resources:
+      {{- toYaml (.resources | default (ternary $root.Values.agent.interactiveResources $root.Values.dreamer.resources (default false .interactive))) | nindent 6 }}
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+volumes:
+  {{- if not .interactive }}
+  - name: home
+    emptyDir: {}
+  # Where the agent checks things out and works. Gone with the pod.
+  - name: work
+    emptyDir: {}
+  {{- end }}
+  - name: routines
+    configMap:
+      name: routines
+      optional: true
+  # Commands of this installation's own, put on the agent's PATH.
+  - name: tools
+    configMap:
+      name: tools
+      optional: true
+      defaultMode: 0555
+  {{- if $root.Values.egress.enabled }}
+  - name: egress-ca
+    configMap:
+      name: egress-ca
+      optional: true
+  {{- end }}
+  {{- if .mcp }}
+  - name: mcp
+    configMap:
+      name: agent-{{ .name }}-mcp
+  {{- end }}
+  {{- if $google }}
+  - name: google
+    configMap:
+      name: google-identity
+  - name: identity
+    projected:
+      sources:
+        - serviceAccountToken:
+            audience: {{ $root.Values.cloud.google.audience | quote }}
+            expirationSeconds: 3600
+            path: token
+  {{- end }}
+{{- end }}
+{{- end -}}
 {{- if .Values.agents }}
 # What agent pods are to the cluster: nothing. The account exists so that a
 # pod has an identity of its own to present elsewhere.
@@ -33,7 +216,6 @@ data:
 {{- end }}
 {{- end }}
 {{- range .Values.agents }}
-{{- $google := and .google $.Values.cloud.google.audience $.Values.cloud.google.serviceAccount }}
 {{- if .mcp }}
 ---
 # The MCP servers this agent is given. One named by an address is a remote
@@ -56,6 +238,43 @@ data:
       {{- end }}
     }}
 {{- end }}
+{{- if .interactive }}
+---
+# An interactive agent: one pod that stays, with a home that outlives it.
+# The harness's transcripts are in that home, so a conversation is picked up
+# again after the pod, or the machine under it, has restarted.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: agent-{{ .name }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  serviceName: agent-{{ .name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-{{ .name }}
+  template:
+    metadata:
+      labels:
+        app: agent-{{ .name }}
+        app.kubernetes.io/component: agent
+        {{- with (include "pod.labels" $) }}{{ . | trim | nindent 8 }}{{- end }}
+    spec:
+      {{- include "agent.podspec" (dict "root" $ "agent" .) | nindent 6 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: home
+        {{- with $.Values.podLabels }}
+        labels:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .storage | default "20Gi" }}
+{{- else }}
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -86,159 +305,6 @@ spec:
             app.kubernetes.io/component: agent
             {{- with (include "pod.labels" $) }}{{ . | trim | nindent 12 }}{{- end }}
         spec:
-          restartPolicy: Never
-          serviceAccountName: agent
-          automountServiceAccountToken: false
-          {{- with (include "pod.placement" $) }}{{ . | trim | nindent 10 }}{{- end }}
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 10001
-            runAsGroup: 10001
-            fsGroup: 10001
-            seccompProfile: {type: RuntimeDefault}
-          containers:
-            - name: agent
-              image: {{ required "agent.image is required" $.Values.agent.image }}
-              imagePullPolicy: IfNotPresent
-              args: {{ toJson .routines }}
-              workingDir: /work
-              env:
-                - name: CMEM_URL
-                  value: http://cmem:{{ $.Values.memory.service.port }}
-                # A working agent: it may note what it learns and may not
-                # rewrite what others wrote.
-                - name: CMEM_TOKEN
-                  valueFrom:
-                    secretKeyRef:
-                      name: {{ $.Values.memory.tokensSecret }}
-                      key: {{ .memoryRole | default "worker" }}
-                - name: CLAUDE_CODE_OAUTH_TOKEN
-                  valueFrom:
-                    secretKeyRef:
-                      name: {{ $.Values.agent.modelSecret }}
-                      key: token
-                - name: CMEM_ROUTINE_MODELS
-                  value: {{ join "," (.models | default (list "claude-sonnet-5-5")) | quote }}
-                - name: CMEM_ROUTINE_BUDGET_USD
-                  value: {{ .budgetUSD | default 2 | quote }}
-                - name: CMEM_ROUTINE_TOOLS
-                  value: {{ .tools | default "memory" | quote }}
-                {{- with .waitForLimitMinutes }}
-                # How long a run may wait for the plan's usage limit to reset
-                # before it gives up. The deadline above has to allow for it.
-                - name: CMEM_ROUTINE_WAIT_FOR_LIMIT_MINUTES
-                  value: {{ . | quote }}
-                {{- end }}
-                {{- with .scope }}
-                # What the agent's work is about, as memory names it: the
-                # entries for this scope are the ones it is shown and searches.
-                - name: CMEM_SCOPE
-                  value: {{ . | quote }}
-                {{- end }}
-                {{- if .mcp }}
-                - name: CMEM_ROUTINE_MCP_CONFIG
-                  value: /etc/agent/mcp/mcp.json
-                {{- end }}
-                {{- if .plugins }}
-                # Installed when the pod starts, from the marketplaces named,
-                # so that a run has the plugin as it is that day.
-                - name: AGENT_MARKETPLACES
-                  value: {{ join " " $.Values.agent.marketplaces | quote }}
-                - name: AGENT_PLUGINS
-                  value: {{ join " " .plugins | quote }}
-                {{- end }}
-                {{- range $name, $value := .env }}
-                - name: {{ $name }}
-                  value: {{ $value | quote }}
-                {{- end }}
-                {{- if $.Values.egress.enabled }}
-                - name: HTTPS_PROXY
-                  value: http://egress:3128
-                - name: NO_PROXY
-                  value: cmem,localhost,127.0.0.1
-                - name: EGRESS_CA
-                  value: /etc/agent/egress/ca.crt
-                # Tools that refuse to start without a credential get a
-                # placeholder; the proxy puts the real one on the request.
-                - name: GH_TOKEN
-                  value: held-by-the-egress-proxy
-                {{- end }}
-                {{- if $google }}
-                - name: GOOGLE_APPLICATION_CREDENTIALS
-                  value: /etc/agent/google/credentials.json
-                {{- end }}
-              volumeMounts:
-                - name: home
-                  mountPath: /home/agent
-                - name: work
-                  mountPath: /work
-                - name: routines
-                  mountPath: /etc/agent/routines
-                  readOnly: true
-                - name: tools
-                  mountPath: /etc/agent/bin
-                  readOnly: true
-                {{- if $.Values.egress.enabled }}
-                - name: egress-ca
-                  mountPath: /etc/agent/egress
-                  readOnly: true
-                {{- end }}
-                {{- if .mcp }}
-                - name: mcp
-                  mountPath: /etc/agent/mcp
-                  readOnly: true
-                {{- end }}
-                {{- if $google }}
-                - name: google
-                  mountPath: /etc/agent/google
-                  readOnly: true
-                - name: identity
-                  mountPath: /var/run/secrets/agent/identity
-                  readOnly: true
-                {{- end }}
-              resources:
-                {{- toYaml (.resources | default $.Values.dreamer.resources) | nindent 16 }}
-              securityContext:
-                allowPrivilegeEscalation: false
-                capabilities:
-                  drop: ["ALL"]
-          volumes:
-            - name: home
-              emptyDir: {}
-            # Where the agent checks things out and works. Gone with the pod.
-            - name: work
-              emptyDir: {}
-            - name: routines
-              configMap:
-                name: routines
-                optional: true
-            # Commands of this installation's own, put on the agent's PATH.
-            - name: tools
-              configMap:
-                name: tools
-                optional: true
-                defaultMode: 0555
-            {{- if $.Values.egress.enabled }}
-            - name: egress-ca
-              configMap:
-                name: egress-ca
-                optional: true
-            {{- end }}
-            {{- if .mcp }}
-            - name: mcp
-              configMap:
-                name: agent-{{ .name }}-mcp
-            {{- end }}
-            {{- if $google }}
-            - name: google
-              configMap:
-                name: google-identity
-            - name: identity
-              projected:
-                sources:
-                  - serviceAccountToken:
-                      audience: {{ $.Values.cloud.google.audience | quote }}
-                      expirationSeconds: 3600
-                      path: token
-            {{- end }}
+          {{- include "agent.podspec" (dict "root" $ "agent" .) | nindent 10 }}
+{{- end }}
 {{- end }}

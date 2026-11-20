@@ -44,3 +44,4 @@ To change a decision, add a new record and mark the old one superseded.
 | [0031](0031-agents-reach-the-outside-through-a-proxy.md) | Agents reach the outside through a proxy that holds their credentials | Accepted |
 | [0032](0032-what-runs-on-a-cluster-does-not-carry-the-project-name.md) | What runs on a cluster does not carry the project's name | Proposed |
 | [0033](0033-on-a-shared-cluster.md) | On a shared, managed cluster: published images, secrets made in the cluster, a nightly copy to a bucket | Proposed |
+| [0034](0034-an-interactive-agent.md) | An agent can be interactive: a standing pod a person attaches to | Proposed |

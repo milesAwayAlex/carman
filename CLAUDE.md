@@ -43,6 +43,14 @@ Built so far:
   beyond memory, so each component is its own file under `nix/packages` and
   its own attribute; `cmem` is the first.
 
+- Agents beyond the dreamer: entries under `agents` in the values, each a
+  job on a schedule or on request (`scripts/deploy.sh CONTEXT agent run
+  NAME`) or, with `interactive: true`, a standing pod with a persistent home
+  and a tmux session to attach to (`agent attach NAME`, ADR 0034). They
+  leave the cluster only through the egress proxy, which holds their
+  credentials (ADR 0031), and can be given plugins, MCP servers, a cloud
+  identity and commands of the installation's own.
+
 Not built yet: the way in from a laptop to a service on a shared cluster,
 the task-stream benchmark (M7), a second harness (M8), and for agents that
 do work outside memory: triggers other than a schedule, and a way for

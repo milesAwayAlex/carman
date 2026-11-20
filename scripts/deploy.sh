@@ -23,6 +23,7 @@
 #   scripts/deploy.sh CONTEXT tool FILE         put a command of this installation's own on agents' PATH
 #   scripts/deploy.sh CONTEXT agent run NAME    run an agent once now and show what it reported
 #   scripts/deploy.sh CONTEXT agent log NAME    the report of its latest run
+#   scripts/deploy.sh CONTEXT agent attach NAME attach this terminal to an interactive agent's session
 #
 # What is applied is the chart in charts/carman, rendered with the values in
 # deploy/values/NAME.yaml; NAME is `local` unless CARMAN_VALUES names another.
@@ -137,11 +138,15 @@ build_agent() {
     local root="$build_root/agent"
     rm -rf "$root" && mkdir -p "$root"
     linux_cmem "$root"
-    cp deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/backup-library "$root/"
+    cp deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/backup-library deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/settings.json "$root/"
     cp -R routines "$root/routines"
     # A new tag whenever anything in it changes.
-    CARMAN_AGENT_IMAGE="carman-agent:$(cd "$root" && find . -type f | sort | xargs shasum -a 256 | shasum -a 256 | cut -c1-12)"
-    docker image inspect "$CARMAN_AGENT_IMAGE" >/dev/null 2>&1 || docker build -q -t "$CARMAN_AGENT_IMAGE" "$root" >/dev/null
+    # CARMAN_AGENT_BASE names an image to build on in place of the plain one:
+    # an installation's own shell and tools (deploy/agent/Dockerfile).
+    local base=()
+    [ -z "${CARMAN_AGENT_BASE:-}" ] || base=(--build-arg "BASE=$CARMAN_AGENT_BASE")
+    CARMAN_AGENT_IMAGE="carman-agent:$( (cd "$root" && find . -type f | sort | xargs shasum -a 256; echo "${CARMAN_AGENT_BASE:-}") | shasum -a 256 | cut -c1-12)"
+    docker image inspect "$CARMAN_AGENT_IMAGE" >/dev/null 2>&1 || docker build -q "${base[@]}" -t "$CARMAN_AGENT_IMAGE" "$root" >/dev/null
     echo "built $CARMAN_AGENT_IMAGE" >&2
 }
 
@@ -321,8 +326,13 @@ tool)
     ;;
 agent)
     name="${4:-}"
-    [ -n "$name" ] || die "say: agent run NAME, or agent log NAME"
-    "${kube[@]}" get cronjob "agent-$name" >/dev/null 2>&1 || die "no agent named $name; agents are listed under 'agents' in the values"
+    [ -n "$name" ] || die "say: agent run NAME, agent log NAME or agent attach NAME"
+    if [ "${3:-}" = attach ]; then
+        "${kube[@]}" get statefulset "agent-$name" >/dev/null 2>&1 || die "no interactive agent named $name; one is an entry under 'agents' in the values with interactive: true"
+        [ -t 0 ] || die "attach needs a terminal"
+        exec "${kube[@]}" exec -it "agent-$name-0" -- env AGENT_TERM="${TERM:-}" COLORTERM="${COLORTERM:-truecolor}" agent-attach
+    fi
+    "${kube[@]}" get cronjob "agent-$name" >/dev/null 2>&1 || die "no agent named $name that runs as a job; agents are listed under 'agents' in the values"
     case "${3:-}" in
     run)
         job="agent-$name-$(date -u +%Y%m%d-%H%M%S)"

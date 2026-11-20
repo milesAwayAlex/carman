@@ -1,0 +1,40 @@
+#!/bin/sh
+# An interactive agent's pod: sets the agent up, then keeps a tmux session
+# for a person to attach to (agent-attach). The session goes on when they
+# detach; if its last window is closed, a new one is there within seconds.
+# The home directory outlives the pod, and with it the harness's
+# transcripts: `claude --continue` picks a conversation up after a restart.
+set -u
+. /usr/local/lib/agent-env
+agent_setup || echo "agent-session: set-up did not finish; see above" >&2
+
+# The MCP servers this agent was given, for whoever starts the harness here.
+python3 - <<'PY' || echo "agent-session: the MCP servers could not be set up" >&2
+import json, subprocess
+try:
+    servers = json.load(open("/etc/agent/mcp/mcp.json"))["mcpServers"]
+except Exception:
+    servers = {}
+for name, spec in servers.items():
+    subprocess.run(["claude", "mcp", "remove", "--scope", "user", name], capture_output=True)
+    done = subprocess.run(["claude", "mcp", "add-json", "--scope", "user", name, json.dumps(spec)], capture_output=True, text=True)
+    print(f"agent-session: MCP server {name}" if done.returncode == 0 else f"agent-session: MCP server {name} could not be added: {done.stderr.strip()[:200]}")
+PY
+
+# What the installation's own base image wants done at each start, such as
+# putting its shell's configuration in the home.
+for step in /usr/local/lib/agent-start.d/*; do
+    [ -x "$step" ] || continue
+    "$step" || echo "agent-session: $step did not finish" >&2
+done
+
+# Work happens in a directory of its own: the harness remembers that a
+# directory is trusted, except for the home directory itself.
+mkdir -p "$HOME/work" && cd "$HOME/work"
+echo "agent-session: ready; attach with agent-attach"
+while true; do
+    # The shell in a window is a login shell; /etc/profile.d gives it the
+    # same environment as this script has.
+    tmux has-session -t main 2>/dev/null || tmux -u new-session -d -s main -c "$HOME/work"
+    sleep 5
+done
