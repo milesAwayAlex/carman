@@ -107,6 +107,12 @@ egress:
   #     - {host: api.example.com, key: example}
   credentials: []
   credentialsSecret: egress-credentials
+  # Addresses agent pods may ask for names, beside the name service's own
+  # pods. A cluster whose nodes answer for the name service themselves (a
+  # node-local cache) needs them listed: the service's address and the
+  # cache's own. A rule that selects pods does not cover a listener on the
+  # node.
+  nameServers: []
   resources:
     requests: {cpu: 20m, memory: 64Mi}
     limits: {memory: 256Mi}

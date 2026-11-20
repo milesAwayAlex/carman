@@ -135,6 +135,9 @@ spec:
         - {protocol: TCP, port: 8377}
     - to:
         - namespaceSelector: {}
+        {{- range .Values.egress.nameServers }}
+        - ipBlock: {cidr: {{ . }}/32}
+        {{- end }}
       ports:
         - {protocol: UDP, port: 53}
         - {protocol: TCP, port: 53}

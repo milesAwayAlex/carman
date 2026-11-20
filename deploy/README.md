@@ -111,7 +111,9 @@ setting in the values:
 - **Placement and labels.** `nodeSelector` and `tolerations` place every
   pod; `podLabels` go on every pod and on the library's volume.
 - **Isolation.** `isolated: true`, the default, lets only pods of the
-  namespace connect to its pods.
+  namespace connect to its pods. Agent pods may ask names only of the
+  cluster's name service; where the nodes answer for it themselves (a
+  node-local cache), list its addresses under `egress.nameServers`.
 - **Secrets.** With `externalSecrets.enabled`, External Secrets Operator
   makes the role tokens: from the cluster's store, or in the cluster itself
   with `memoryTokens.generate`. Read the laptop's once:
