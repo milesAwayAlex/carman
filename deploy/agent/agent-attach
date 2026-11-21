@@ -7,5 +7,14 @@
 # clipboard depend on it. Otherwise one that is known everywhere.
 if [ -n "${AGENT_TERM:-}" ] && infocmp "$AGENT_TERM" >/dev/null 2>&1; then TERM="$AGENT_TERM"; else TERM=xterm-256color; fi
 export TERM
+# A pod that has only just started is still being set up. Attaching now
+# would start tmux before the installation's configuration is in the home,
+# and the session would keep the old one. Wait for it.
+waited=0
+while [ ! -f /tmp/agent-session-ready ] && [ "$waited" -lt 180 ]; do
+    [ "$waited" -gt 0 ] || echo "the agent is still starting; waiting for it"
+    sleep 1
+    waited=$((waited + 1))
+done
 mkdir -p "$HOME/work" && cd "$HOME/work"
 exec tmux -u new-session -A -s main

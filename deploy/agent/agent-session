@@ -31,6 +31,8 @@ done
 # Work happens in a directory of its own: the harness remembers that a
 # directory is trusted, except for the home directory itself.
 mkdir -p "$HOME/work" && cd "$HOME/work"
+# From here on a session may be attached to: everything above is in place.
+touch /tmp/agent-session-ready
 echo "agent-session: ready; attach with agent-attach"
 while true; do
     # The shell in a window is a login shell; /etc/profile.d gives it the
