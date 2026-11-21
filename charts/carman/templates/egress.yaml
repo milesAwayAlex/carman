@@ -20,15 +20,6 @@ data:
   keys: {{ $keys | join " " | quote }}
   envoy.yaml: |
 {{ include "egress.envoy" . | indent 4 }}
-  {{- range $renewals }}
-  # Where the proxy finds a credential that is renewed beside it.
-  renewed-{{ .key }}.yaml: |
-    resources:
-      - "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret
-        name: credential-{{ .key }}
-        generic_secret:
-          secret: {filename: /etc/envoy/renewed/{{ .key }}}
-  {{- end }}
 {{- if $renewals }}
 ---
 # What a renewal has to keep between restarts, such as a sign-in.
@@ -100,7 +91,7 @@ spec:
         - name: renewed-placeholders
           image: {{ required "agent.image is required" .Values.agent.image }}
           imagePullPolicy: IfNotPresent
-          command: ["sh", "-c", "for key in {{ $renewed | join " " }}; do printf 'Bearer not-renewed-yet' > /renewed/$key; done"]
+          command: ["sh", "-c", "for key in {{ $renewed | join " " }}; do renew-credential --write $key 'Bearer not-renewed-yet'; done"]
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

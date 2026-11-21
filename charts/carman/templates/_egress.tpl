@@ -142,12 +142,14 @@ static_resources:
                           "@type": type.googleapis.com/envoy.extensions.http.injected_credentials.generic.v3.Generic
                           {{- if has .key $renewed }}
                           # One that is renewed beside the proxy is read again
-                          # whenever its file is replaced.
+                          # whenever its file is replaced. The file holds the
+                          # value itself: the proxy does not notice a change
+                          # in a file that such a file only points to.
                           credential:
                             name: credential-{{ .key }}
                             sds_config:
                               path_config_source:
-                                path: /etc/envoy/renewed-{{ .key }}.yaml
+                                path: /etc/envoy/renewed/{{ .key }}.yaml
                                 watched_directory: {path: /etc/envoy/renewed}
                           {{- else }}
                           credential: {name: credential-{{ .key }}}
