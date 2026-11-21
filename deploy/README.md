@@ -107,9 +107,11 @@ setting in the values:
 - **Images.** `.github/workflows/images.yml` builds `cmem` and `cmem-agent`
   for amd64 and arm64 on every change to them and pushes both to the
   repository owner's registry; the run's summary prints the two references
-  by digest, ready for `memory.image` and `agent.image`. The published agent
-  image holds no harness, which is not this project's to hand out: a job
-  fetches it from its vendor's package when it starts.
+  by digest, ready for `memory.image` and `agent.image`. Every agent
+  installs the harness when it starts, with its vendor's installer and from
+  its stable channel (`HARNESS_CHANNEL` in an agent's `env` names another),
+  and the published agent image carries no copy of it, which is not this
+  project's to hand out.
 - **Placement and labels.** `nodeSelector` and `tolerations` place every
   pod; `podLabels` go on every pod and on the library's volume.
 - **Isolation.** `isolated: true`, the default, lets only pods of the

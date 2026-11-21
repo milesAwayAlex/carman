@@ -11,11 +11,13 @@
 ARG BASE=node:22-slim
 FROM ${BASE}
 ARG CLAUDE_CODE_VERSION=2.1.323
+# An agent installs the harness when it starts, with its vendor's installer,
+# so it is never older than the vendor's stable channel (agent-env). The copy
+# here is what an agent falls back on when the installer cannot be reached.
 # The harness is its vendor's, under the vendor's terms, and not this
-# project's to hand out. "included" puts it in the image, for an image that
-# stays where it was built. "at-start" leaves it out, for an image that is
-# published: the pod fetches that version from the vendor's own package when
-# it starts (run-routine).
+# project's to hand out: "included" puts the copy in, for an image that
+# stays where it was built; "at-start" leaves it out, for one that is
+# published.
 ARG HARNESS=included
 # What an agent that works on code and clusters reaches for besides the harness.
 ARG GH_VERSION=2.63.2
@@ -54,5 +56,5 @@ RUN ln -s /usr/local/lib/agent-env /etc/profile.d/agent-env.sh
 COPY routines /routines
 RUN chmod 0755 /usr/local/bin/cmem /usr/local/bin/run-routine /usr/local/bin/backup-library /usr/local/bin/agent-session /usr/local/bin/agent-attach /usr/local/bin/renew-credential && cmem help > /dev/null
 USER 10001
-ENV HOME=/home/agent HARNESS_VERSION=${CLAUDE_CODE_VERSION} LANG=C.UTF-8
+ENV HOME=/home/agent LANG=C.UTF-8
 ENTRYPOINT ["run-routine"]

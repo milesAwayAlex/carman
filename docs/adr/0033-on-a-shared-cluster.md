@@ -25,13 +25,16 @@ reachable from other namespaces merely because no policy says otherwise.
 - **Images are built by a workflow in this repository** for amd64 and arm64
   and pushed to the repository owner's registry. An installation names them
   in its values, by digest.
-- **The published agent image holds no harness.** The harness is its
-  vendor's software: its package says all rights reserved and names terms of
-  use, and grants nobody the right to pass copies on. This repository's
-  licence covers this repository's code and cannot cover that. So the
-  published image leaves it out, and a pod fetches the version the image was
-  built for from the vendor's own package when it starts. An image built by
-  `scripts/deploy.sh` stays on the cluster it was built for and includes it.
+- **The harness is not in the published agent image; an agent installs it
+  when it starts.** The harness is its vendor's software: its package says
+  all rights reserved and names terms of use, and grants nobody the right
+  to pass copies on. This repository's licence covers this repository's
+  code and cannot cover that. An agent runs the vendor's own installer at
+  start, on the stable channel unless told otherwise, and the harness then
+  keeps itself up to date as it does on a person's machine (the owner:
+  harnesses change daily; be less rigid than a pinned version). An image
+  built by `scripts/deploy.sh` stays on the cluster it was built for and
+  carries a copy, used only when the installer cannot be reached.
 - **Every pod meets the restricted standard** (non-root, no privilege
   escalation, no capabilities, the runtime's default seccomp profile) **and
   has its own service account** with no token mounted.
@@ -81,6 +84,9 @@ reachable from other namespaces merely because no policy says otherwise.
   another case in `deploy/agent/backup-library`.
 - Both images are public, as the repository is: the registry gives an image
   pushed from a public repository's workflow the repository's visibility.
-- A job from the published image needs the package registry when it starts,
-  through the egress proxy, and starts some seconds later for it. A registry
-  that is down fails the run before it begins.
+- Every job downloads the harness when it starts, through the egress
+  proxy: about half a minute and a few hundred megabytes. From the
+  published image, an installer that cannot be reached fails the run before
+  it begins.
+- Two runs of one agent a week apart may use different versions of the
+  harness. What ran is in the run's first lines.

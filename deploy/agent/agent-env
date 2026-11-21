@@ -7,7 +7,9 @@
 
 # The harness's own memory is off: there is one memory, and the hook that
 # agent_setup puts in the harness's settings is how it reaches the agent.
-export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+# The harness keeps itself up to date, as its vendor's installer sets it up
+# to; what it would otherwise send about its use is off.
+export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 DISABLE_BUG_COMMAND=1
 # Where the egress proxy answers in a host's name, its certificate comes from
 # an authority of this installation. Trust it beside the public ones, for
 # every kind of program an agent runs.
@@ -17,8 +19,8 @@ if [ -f "${EGRESS_CA:-/nonexistent}" ]; then
         GIT_SSL_CAINFO=/tmp/ca-bundle.crt REQUESTS_CA_BUNDLE=/tmp/ca-bundle.crt
 fi
 # Commands of this installation's own (scripts/deploy.sh CONTEXT tool FILE),
-# and the harness where it was fetched at start.
-export PATH="/etc/agent/bin:$HOME/.harness/bin:$PATH"
+# and the harness where its installer puts it.
+export PATH="/etc/agent/bin:$HOME/.local/bin:$PATH"
 
 agent_setup() {
     # A cloud provider's command-line tools take their identity from a file
@@ -28,13 +30,21 @@ agent_setup() {
         gcloud auth login --quiet --cred-file="$GOOGLE_APPLICATION_CREDENTIALS" >/dev/null 2>&1 ||
             echo "agent: the cloud identity could not be set up; cloud commands will fail" >&2
     fi
-    # A published image carries no harness (see the Dockerfile): fetch the
-    # version the image was built for, into the pod's own home.
-    if ! command -v claude >/dev/null; then
-        echo "agent: fetching the harness, version $HARNESS_VERSION"
-        npm install -g --prefix "$HOME/.harness" --no-fund --no-audit --no-update-notifier --loglevel=error "@anthropic-ai/claude-code@$HARNESS_VERSION" ||
-            { echo "agent: the harness could not be fetched" >&2; return 1; }
-        claude --version >/dev/null || { echo "agent: the harness was fetched and does not run" >&2; return 1; }
+    # The harness is installed here by its vendor's own installer, from the
+    # channel named (stable unless HARNESS_CHANNEL says otherwise), so an
+    # agent has what a person who installed it today would have. A job's home
+    # is new each time, so a job gets the channel's current version; a home
+    # that outlives the pod keeps its copy, which updates itself. If the
+    # installer cannot be reached, an image that carries a copy uses that.
+    if [ ! -x "$HOME/.local/bin/claude" ]; then
+        if curl -fsSL https://claude.ai/install.sh | bash -s "${HARNESS_CHANNEL:-stable}" >/tmp/harness-install.log 2>&1; then
+            echo "agent: harness $("$HOME/.local/bin/claude" --version 2>/dev/null | cut -d' ' -f1), ${HARNESS_CHANNEL:-stable} channel"
+        elif command -v claude >/dev/null; then
+            echo "agent: the harness's installer could not be reached; using the image's copy, $(claude --version | cut -d' ' -f1)" >&2
+        else
+            echo "agent: the harness could not be installed: $(tail -c 300 /tmp/harness-install.log | tr '\n' ' ')" >&2
+            return 1
+        fi
     fi
     # The harness's settings for whoever starts it here: the memory hook (the
     # index when a session starts, a flashback where a memory is likely to
@@ -50,6 +60,7 @@ try:
 except Exception:
     settings = {}
 ours = json.load(open("/usr/local/lib/agent-settings.json"))
+settings["autoUpdatesChannel"] = os.environ.get("HARNESS_CHANNEL") or "stable"
 settings.setdefault("env", {}).update(ours.get("env", {}))
 allow = settings.setdefault("permissions", {}).setdefault("allow", [])
 allow += [rule for rule in ours.get("permissions", {}).get("allow", []) if rule not in allow]
