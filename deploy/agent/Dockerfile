@@ -43,8 +43,9 @@ RUN apt-get update -qq \
  && { id agent >/dev/null 2>&1 || useradd --uid 10001 --create-home --shell /bin/bash agent; }
 ARG TARGETARCH
 COPY cmem-${TARGETARCH} /usr/local/bin/cmem
-COPY run-routine backup-library agent-session agent-attach renew-credential /usr/local/bin/
+COPY run-routine backup-library agent-session agent-attach agent-resume renew-credential /usr/local/bin/
 COPY agent-env /usr/local/lib/agent-env
+COPY attention.md /usr/local/lib/agent-attention.md
 # The memory hook, which agent-env puts in the harness's settings when an
 # agent starts. The same as adapters/claude-code/settings.example.json;
 # change one, change the other. An agent that is not doing ordinary work
@@ -54,7 +55,7 @@ COPY settings.json /usr/local/lib/agent-settings.json
 # which sets PATH anew: give it the agent's environment again.
 RUN ln -s /usr/local/lib/agent-env /etc/profile.d/agent-env.sh
 COPY routines /routines
-RUN chmod 0755 /usr/local/bin/cmem /usr/local/bin/run-routine /usr/local/bin/backup-library /usr/local/bin/agent-session /usr/local/bin/agent-attach /usr/local/bin/renew-credential && cmem help > /dev/null
+RUN chmod 0755 /usr/local/bin/cmem /usr/local/bin/run-routine /usr/local/bin/backup-library /usr/local/bin/agent-session /usr/local/bin/agent-attach /usr/local/bin/agent-resume /usr/local/bin/renew-credential && cmem help > /dev/null
 USER 10001
 ENV HOME=/home/agent LANG=C.UTF-8
 ENTRYPOINT ["run-routine"]

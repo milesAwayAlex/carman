@@ -1,0 +1,21 @@
+#!/bin/sh
+# Picks up a conversation an agent had, from an interactive agent's pod.
+#
+#   agent-resume            the latest conversations of every agent
+#   agent-resume ID         open that one in the harness (the start of its id is enough)
+#
+# Jobs write their transcripts to a volume this pod can read; a message from
+# an agent gives the id.
+set -eu
+[ -d /sessions ] || { echo "agent-resume: this installation keeps no conversations (agent.sessionStorage)" >&2; exit 1; }
+if [ $# -eq 0 ]; then
+    ls -t /sessions/*/*/*.jsonl 2>/dev/null | head -20 | while read -r f; do
+        agent="$(echo "$f" | cut -d/ -f3)"
+        printf '%s  %-22s  %s\n' "$(basename "$f" .jsonl | cut -c1-8)" "$agent" "$(date -u -r "$f" '+%Y-%m-%d %H:%M UTC')"
+    done
+    exit 0
+fi
+file="$(ls -t /sessions/*/*/"$1"*.jsonl 2>/dev/null | head -1)"
+[ -n "$file" ] || { echo "agent-resume: no conversation whose id starts with $1" >&2; exit 1; }
+echo "agent-resume: $(echo "$file" | cut -d/ -f3), $(basename "$file" .jsonl)"
+exec claude --resume "$file"

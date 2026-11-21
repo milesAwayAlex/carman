@@ -52,10 +52,15 @@ Built so far:
   and can be given plugins, MCP servers, a cloud
   identity and commands of the installation's own.
 
+- The owner's attention (ADR 0036): an agent tells the owner with the
+  installation's `notify-owner` command, and a job's conversation is kept
+  so that the owner can pick it up from an interactive agent with
+  `agent-resume ID`.
+
 Not built yet: the way in from a laptop to a service on a shared cluster,
 the task-stream benchmark (M7), a second harness (M8), and for agents that
-do work outside memory: triggers other than a schedule, and a way for
-results to reach the owner. The build
+do work outside memory: triggers other than a schedule, and a way for the
+owner to answer an agent's message where it arrives. The build
 order is in DESIGN.md, section 11.
 
 ## Read first

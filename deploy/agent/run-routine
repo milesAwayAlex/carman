@@ -20,6 +20,13 @@ for routine in "$@"; do
     file="/etc/agent/routines/$routine.md"
     [ -f "$file" ] || file="/routines/$routine.md"
     [ -f "$file" ] || { echo "run-routine: no routine named $routine" >&2; exit 2; }
+    # Where the installation has a way to get the owner's attention, every
+    # routine is told of it, in the same words.
+    if [ "${CMEM_ROUTINE_TOOLS:-}" = all ] && command -v notify-owner >/dev/null; then
+        prompt="/tmp/routine-$routine.md"
+        cat "$file" /usr/local/lib/agent-attention.md > "$prompt"
+        file="$prompt"
+    fi
     echo "run-routine: $routine, models ${CMEM_ROUTINE_MODELS:-claude-sonnet-5-5}, budget \$${CMEM_ROUTINE_BUDGET_USD:-none} for this routine, memory at $CMEM_URL"
     # `cmem routine` runs the harness, and runs it again up the ladder of
     # models for whatever memory refused and was not then done (ADR 0029).

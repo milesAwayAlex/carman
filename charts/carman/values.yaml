@@ -42,6 +42,12 @@ agent:
   # takes them (OWNER/REPO, OWNER/REPO#REF, a URL). An agent names the
   # plugins it wants from them.
   marketplaces: []
+  # Keep agents' conversations after their pods are gone, in a volume of this
+  # size that every agent pod mounts: a job's transcripts go there, and from
+  # an interactive agent a person picks one up with `agent-resume ID`. Empty
+  # keeps nothing. The volume is mounted by several pods at once, which a
+  # cluster of one node allows and a larger one may not.
+  sessionStorage: ""
   # What an interactive agent's pod may use, unless its entry says otherwise.
   interactiveResources:
     requests: {cpu: 250m, memory: 1Gi}

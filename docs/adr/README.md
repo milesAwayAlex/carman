@@ -46,3 +46,4 @@ To change a decision, add a new record and mark the old one superseded.
 | [0033](0033-on-a-shared-cluster.md) | On a shared, managed cluster: published images, secrets made in the cluster, a nightly copy to a bucket | Proposed |
 | [0034](0034-an-interactive-agent.md) | An agent can be interactive: a standing pod a person attaches to | Proposed |
 | [0035](0035-credentials-that-do-not-last.md) | A credential that does not last is renewed beside the proxy | Proposed |
+| [0036](0036-the-owners-attention.md) | An agent asks for the owner's attention with one command, and the owner can pick its conversation up | Proposed |

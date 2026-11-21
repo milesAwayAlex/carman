@@ -265,6 +265,20 @@ volume hides what an image puts there, so have the base leave an executable
 in `/usr/local/lib/agent-start.d` that links your configuration into the
 home; it runs at every start.
 
+### Telling the owner, and picking a job up
+
+Put a command named `notify-owner` among your tools (`scripts/deploy.sh
+CONTEXT tool FILE`) that sends you a message however you like to be reached,
+with the recipient fixed inside it (ADR 0036). It is called as
+
+    notify-owner --urgency now|today|whenever --importance high|normal|low [--link URL] TITLE TEXT
+
+and every routine that runs with all tools is told to use it when something
+needs you. With `agent.sessionStorage` set, a job's conversation is kept
+after its pod is gone: in an interactive agent, `agent-resume` lists the
+latest and `agent-resume ID` opens one in the harness, so a notice can give
+you the id of the conversation to carry on.
+
 What an agent can be given, each by a line in its entry:
 
 - `tools: all`. Every tool of the harness, where the default is the memory

@@ -51,7 +51,12 @@ containers:
           secretKeyRef:
             name: {{ $root.Values.agent.modelSecret }}
             key: token
+      # Who this is, for whatever it says about itself.
+      - name: AGENT_NAME
+        value: {{ .name | quote }}
       {{- if .interactive }}
+      - name: AGENT_INTERACTIVE
+        value: "1"
       # How the harness treats what it is about to do, when started here.
       - name: AGENT_PERMISSION_MODE
         value: {{ .permissionMode | default "auto" | quote }}
@@ -114,6 +119,18 @@ containers:
       - name: work
         mountPath: /work
       {{- end }}
+      {{- if $root.Values.agent.sessionStorage }}
+      # Where conversations are kept after the pod is gone: a job writes its
+      # transcripts here, and an interactive agent can read them all, which
+      # is how a person picks a job's conversation up (agent-resume).
+      - name: sessions
+        {{- if .interactive }}
+        mountPath: /sessions
+        {{- else }}
+        mountPath: /home/agent/.claude/projects
+        subPath: {{ .name }}
+        {{- end }}
+      {{- end }}
       - name: routines
         mountPath: /etc/agent/routines
         readOnly: true
@@ -156,6 +173,11 @@ volumes:
     configMap:
       name: routines
       optional: true
+  {{- if $root.Values.agent.sessionStorage }}
+  - name: sessions
+    persistentVolumeClaim:
+      claimName: agent-sessions
+  {{- end }}
   # Commands of this installation's own, put on the agent's PATH.
   - name: tools
     configMap:
@@ -214,6 +236,20 @@ data:
       "credential_source": {"file": "/var/run/secrets/agent/identity/token"}
     }
 {{- end }}
+{{- end }}
+{{- if and .Values.agents .Values.agent.sessionStorage }}
+---
+# Agents' conversations, kept after their pods are gone.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: agent-sessions
+  namespace: {{ .Release.Namespace }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ .Values.agent.sessionStorage }}
 {{- end }}
 {{- range .Values.agents }}
 {{- if .mcp }}
