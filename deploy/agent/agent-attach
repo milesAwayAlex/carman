@@ -17,4 +17,17 @@ while [ ! -f /tmp/agent-session-ready ] && [ "$waited" -lt 180 ]; do
     waited=$((waited + 1))
 done
 mkdir -p "$HOME/work" && cd "$HOME/work"
+# One client for each place that attaches. When a connection is dropped
+# without a hang-up (the far end's terminal went away), the client it left
+# here goes on, attached to nothing. The next attach from the same place
+# ends it first. Other places' clients are left alone.
+if [ -n "${AGENT_ATTACH_ID:-}" ]; then
+    mark="/tmp/agent-attach/$(printf %s "$AGENT_ATTACH_ID" | tr -c 'A-Za-z0-9._-' '_')"
+    mkdir -p /tmp/agent-attach
+    old="$(cat "$mark" 2>/dev/null || true)"
+    if [ -n "$old" ] && [ "$old" != "$$" ] && grep -q tmux "/proc/$old/cmdline" 2>/dev/null; then
+        kill -HUP "$old" 2>/dev/null || true
+    fi
+    echo "$$" > "$mark"
+fi
 exec tmux -u new-session -A -s main

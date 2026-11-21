@@ -330,7 +330,12 @@ agent)
     if [ "${3:-}" = attach ]; then
         "${kube[@]}" get statefulset "agent-$name" >/dev/null 2>&1 || die "no interactive agent named $name; one is an entry under 'agents' in the values with interactive: true"
         [ -t 0 ] || die "attach needs a terminal"
-        exec "${kube[@]}" exec -it "agent-$name-0" -- env AGENT_TERM="${TERM:-}" COLORTERM="${COLORTERM:-truecolor}" agent-attach
+        # Where this attach comes from: the tmux pane it runs in, or else the
+        # terminal. A later attach from the same place replaces the client
+        # this one leaves in the pod if its connection is dropped.
+        from="$(hostname -s):$(tty 2>/dev/null | tr '/' '_')"
+        [ -z "${TMUX:-}" ] || from="$(hostname -s):tmux:$(tmux display-message -p '#{session_name}:#{window_index}.#{pane_index}' 2>/dev/null)"
+        exec "${kube[@]}" exec -it "agent-$name-0" -- env AGENT_TERM="${TERM:-}" COLORTERM="${COLORTERM:-truecolor}" AGENT_ATTACH_ID="$from" agent-attach
     fi
     "${kube[@]}" get cronjob "agent-$name" >/dev/null 2>&1 || die "no agent named $name that runs as a job; agents are listed under 'agents' in the values"
     case "${3:-}" in
