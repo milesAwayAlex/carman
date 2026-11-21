@@ -10,7 +10,7 @@
 # /usr/local/lib/agent-start.d is run when an interactive agent starts.
 ARG BASE=node:22-slim
 FROM ${BASE}
-ARG CLAUDE_CODE_VERSION=2.1.311
+ARG CLAUDE_CODE_VERSION=2.1.323
 # The harness is its vendor's, under the vendor's terms, and not this
 # project's to hand out. "included" puts it in the image, for an image that
 # stays where it was built. "at-start" leaves it out, for an image that is
