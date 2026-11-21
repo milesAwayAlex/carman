@@ -212,6 +212,17 @@ answered as the token's owner, and the issue tracker's MCP endpoint accepted
 an `initialize`. Without trust in the installation's authority the same call is
 refused by the client, as it should be.
 
+A credential that does not last (a token good for an hour, from a sign-in)
+is renewed beside the proxy (ADR 0035). Under `egress.renewals`, give the
+key and a command that prints the header value; it runs every `every`
+seconds in a container of the proxy's pod, with a home that outlives the
+pod, and the proxy reads the value again whenever it changes. Sign in once,
+by hand, in that container:
+
+    kubectl --context CONTEXT -n NAMESPACE exec -it deploy/egress -c renew-KEY -- YOUR-TOOL login
+
+and watch it with `kubectl ... logs deploy/egress -c renew-KEY`.
+
 `egress.enabled: false` in the values takes the proxy and the policy out.
 
 ## Agents beyond the dreamer

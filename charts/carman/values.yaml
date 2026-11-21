@@ -117,6 +117,18 @@ egress:
   #     - {host: api.example.com, key: example}
   credentials: []
   credentialsSecret: egress-credentials
+  # Credentials that do not last: for a host listed above, a command that is
+  # run beside the proxy every so often and prints the header value to use
+  # (for example a tool that keeps a sign-in and prints the hour's token).
+  # It runs in the agent image, outside any agent's reach, with a home that
+  # outlives the pod. Its key needs no entry in the secret.
+  #   renewals:
+  #     - key: example
+  #       every: 120                      # seconds
+  #       command: [sh, -c, "printf 'Bearer %s' \"$(example-tool token)\""]
+  #       env: {EXAMPLE_STORE: file}
+  renewals: []
+  renewalStorage: 100Mi
   # Addresses agent pods may ask for names, beside the name service's own
   # pods. A cluster whose nodes answer for the name service themselves (a
   # node-local cache) needs them listed: the service's address and the

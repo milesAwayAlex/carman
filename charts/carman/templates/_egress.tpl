@@ -1,6 +1,12 @@
 {{/* What the egress proxy runs on: see egress.yaml and ADR 0031. */}}
 {{- define "egress.envoy" -}}
 {{- $creds := .Values.egress.credentials }}
+{{- $renewed := list }}{{- range .Values.egress.renewals }}{{- $renewed = append $renewed .key }}{{- end }}
+{{- if $renewed }}
+# A credential that is read again when its file changes is fetched as a
+# discovered secret, and the proxy has to have a name to ask for one.
+node: {id: egress, cluster: egress}
+{{- end }}
 {{- if $creds }}
 bootstrap_extensions:
   - name: envoy.bootstrap.internal_listener
@@ -11,9 +17,11 @@ static_resources:
   {{- if $creds }}
   secrets:
     {{- range $creds }}
+    {{- if not (has .key $renewed) }}
     - name: credential-{{ .key }}
       generic_secret:
         secret: {filename: /etc/envoy/credentials/{{ .key }}}
+    {{- end }}
     {{- end }}
   {{- end }}
   listeners:
@@ -132,7 +140,18 @@ static_resources:
                         name: envoy.http.injected_credentials.generic
                         typed_config:
                           "@type": type.googleapis.com/envoy.extensions.http.injected_credentials.generic.v3.Generic
+                          {{- if has .key $renewed }}
+                          # One that is renewed beside the proxy is read again
+                          # whenever its file is replaced.
+                          credential:
+                            name: credential-{{ .key }}
+                            sds_config:
+                              path_config_source:
+                                path: /etc/envoy/renewed-{{ .key }}.yaml
+                                watched_directory: {path: /etc/envoy/renewed}
+                          {{- else }}
                           credential: {name: credential-{{ .key }}}
+                          {{- end }}
                           header: Authorization
                   - name: envoy.filters.http.router
                     typed_config:

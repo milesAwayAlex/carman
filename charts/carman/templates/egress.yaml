@@ -1,7 +1,9 @@
 {{- if .Values.egress.enabled }}
 {{- $creds := .Values.egress.credentials }}
+{{- $renewals := .Values.egress.renewals }}
+{{- $renewed := list }}{{- range $renewals }}{{- $renewed = append $renewed .key }}{{- end }}
 {{- $hosts := list }}{{- $keys := list }}
-{{- range $creds }}{{- $hosts = append $hosts .host }}{{- $keys = append $keys .key }}{{- end }}
+{{- range $creds }}{{- $hosts = append $hosts .host }}{{- if not (has .key $renewed) }}{{- $keys = append $keys .key }}{{- end }}{{- end }}
 # The egress proxy: the one way out of the cluster for agent pods (ADR 0031).
 # Today it passes every connection through and logs where it went. It is
 # where credentials for outside services will be attached, so that an agent
@@ -18,6 +20,29 @@ data:
   keys: {{ $keys | join " " | quote }}
   envoy.yaml: |
 {{ include "egress.envoy" . | indent 4 }}
+  {{- range $renewals }}
+  # Where the proxy finds a credential that is renewed beside it.
+  renewed-{{ .key }}.yaml: |
+    resources:
+      - "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret
+        name: credential-{{ .key }}
+        generic_secret:
+          secret: {filename: /etc/envoy/renewed/{{ .key }}}
+  {{- end }}
+{{- if $renewals }}
+---
+# What a renewal has to keep between restarts, such as a sign-in.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: egress-renewals
+  namespace: {{ .Release.Namespace }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ .Values.egress.renewalStorage }}
+{{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -41,6 +66,10 @@ metadata:
   namespace: {{ .Release.Namespace }}
 spec:
   replicas: 1
+  {{- if $renewals }}
+  # Never two at once: a renewal's sign-in may be good for one use only.
+  strategy: {type: Recreate}
+  {{- end }}
   selector:
     matchLabels:
       app: egress
@@ -60,8 +89,57 @@ spec:
         runAsNonRoot: true
         runAsUser: 10001
         runAsGroup: 10001
+        {{- if $renewals }}
+        fsGroup: 10001
+        {{- end }}
         seccompProfile: {type: RuntimeDefault}
+      {{- if $renewals }}
+      initContainers:
+        # The proxy will not start without a file for each credential; the
+        # renewal puts the real value in its place within seconds.
+        - name: renewed-placeholders
+          image: {{ required "agent.image is required" .Values.agent.image }}
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "for key in {{ $renewed | join " " }}; do printf 'Bearer not-renewed-yet' > /renewed/$key; done"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: renewed
+              mountPath: /renewed
+      {{- end }}
       containers:
+        {{- range $renewals }}
+        # Renews one credential: runs the command again and again and hands
+        # what it prints to the proxy. What the command needs to keep (a
+        # sign-in) is in its home, which no agent can reach.
+        - name: renew-{{ .key }}
+          image: {{ required "agent.image is required" $.Values.agent.image }}
+          imagePullPolicy: IfNotPresent
+          command: ["renew-credential", {{ .key | quote }}, {{ .every | default 120 | quote }}, "--"]
+          args: {{ toJson .command }}
+          env:
+            - name: HOME
+              value: /home/agent
+            {{- range $name, $value := .env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: renewed
+              mountPath: /renewed
+            - name: renewals-home
+              mountPath: /home/agent
+              subPath: {{ .key }}
+        {{- end }}
         - name: envoy
           image: {{ .Values.egress.image }}
           imagePullPolicy: IfNotPresent
@@ -82,6 +160,11 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/envoy
+            {{- if $renewals }}
+            - name: renewed
+              mountPath: /etc/envoy/renewed
+              readOnly: true
+            {{- end }}
             {{- if $creds }}
             - name: credentials
               mountPath: /etc/envoy/credentials
@@ -94,6 +177,13 @@ spec:
         - name: config
           configMap:
             name: egress
+        {{- if $renewals }}
+        - name: renewed
+          emptyDir: {medium: Memory}
+        - name: renewals-home
+          persistentVolumeClaim:
+            claimName: egress-renewals
+        {{- end }}
         {{- if $creds }}
         # One key for each host, holding the whole header value, for example
         # "Bearer ...". Put there by a pipe (scripts/deploy.sh CONTEXT secret).

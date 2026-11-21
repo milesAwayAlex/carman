@@ -48,7 +48,8 @@ Built so far:
   NAME`) or, with `interactive: true`, a standing pod with a persistent home
   and a tmux session to attach to (`agent attach NAME`, ADR 0034). They
   leave the cluster only through the egress proxy, which holds their
-  credentials (ADR 0031), and can be given plugins, MCP servers, a cloud
+  credentials (ADR 0031) and renews the ones that do not last (ADR 0035),
+  and can be given plugins, MCP servers, a cloud
   identity and commands of the installation's own.
 
 Not built yet: the way in from a laptop to a service on a shared cluster,
