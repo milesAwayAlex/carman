@@ -56,7 +56,7 @@ dreamer:
   # In this order: tidy what is there, then distil finished documents.
   routines: [consolidate, distill]
   # The ladder: one attempt each, in this order (ADR 0029).
-  models: [claude-sonnet-5-5, claude-sonnet-5-5, claude-opus-5-5, claude-fable-5-1]
+  models: [claude-sonnet-5-5, claude-sonnet-5-5, claude-opus-5-5, claude-fable-5-2]
   # No further attempt at a routine starts once it has cost this much tonight.
   budgetUSD: 3
   deadlineSeconds: 1800
