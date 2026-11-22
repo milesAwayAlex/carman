@@ -155,7 +155,10 @@ containers:
         {{- if .interactive }}
         mountPath: /sessions
         {{- else }}
-        mountPath: /home/agent/.claude/projects
+        # Not inside the home: a mount there makes its parent directory the
+        # node's, and the agent could then write nothing beside it. The
+        # agent links it into place at start (agent-env).
+        mountPath: /var/lib/agent/conversations
         subPath: {{ .name }}
         {{- end }}
       {{- end }}

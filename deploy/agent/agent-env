@@ -70,6 +70,11 @@ agent_setup() {
     # own settings because a machine-wide file is not read when the account's
     # organisation sends settings of its own. What the user has set stays.
     mkdir -p "$HOME/.claude"
+    # Where the installation keeps a job's conversations after its pod is
+    # gone: the harness writes them there by this link.
+    if [ -d /var/lib/agent/conversations ] && [ ! -e "$HOME/.claude/projects" ]; then
+        ln -s /var/lib/agent/conversations "$HOME/.claude/projects"
+    fi
     python3 - <<'PY' || echo "agent: the harness's settings could not be written; it starts without the memory hook" >&2
 import json, os
 path = os.path.expanduser("~/.claude/settings.json")
