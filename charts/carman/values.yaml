@@ -215,6 +215,8 @@ egress:
 #       memoryRole: laptop            # the default when interactive: a person is at the keyboard
 #       hostPaths: [/srv/shared]      # directories of the node, mounted at the same path: for a
 #                                     # cluster on your own machine, never a shared one
+#       groups: [10100]               # groups of the node to put the agent in, for a
+#                                     # directory or socket there that admits by group
 #                                     # (plugins, mcp, env, google and resources as above)
 agents: []
 

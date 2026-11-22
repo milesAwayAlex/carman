@@ -348,6 +348,11 @@ What an agent can be given, each by a line in its entry:
   same.
 - `env`. Extra environment variables, for a tool that insists on finding
   one; the value is a placeholder, never a credential.
+- `hostPaths` and `groups`. Directories of the node, mounted at the same
+  path, and groups of the node to put the agent in. For a cluster on your
+  own machine only: a shared folder, or the socket of a build service the
+  machine runs for its agents, which admits by group. What is behind a
+  directory of the node is as safe as the node makes it.
 - `google: true`. A cloud identity with no stored key: the pod's own token,
   signed by this cluster, is exchanged for a short-lived token of the service
   account named under `cloud.google`. The cloud side has to trust this

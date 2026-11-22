@@ -27,6 +27,11 @@ securityContext:
   runAsUser: 10001
   runAsGroup: 10001
   fsGroup: 10001
+  {{- with .groups }}
+  # Groups of the node the agent is put in, for what a directory of the
+  # node admits by group (hostPaths).
+  supplementalGroups: {{ toJson . }}
+  {{- end }}
   seccompProfile: {type: RuntimeDefault}
 containers:
   - name: agent
