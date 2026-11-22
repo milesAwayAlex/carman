@@ -8,12 +8,16 @@ run NAME).
 standing pod a person attaches to. */ -}}
 {{- define "agent.podspec" -}}
 {{- $root := .root }}
-{{- $google := and .agent.google $root.Values.cloud.google.audience $root.Values.cloud.google.serviceAccount }}
+{{- /* google: true takes the installation's service account, as the pods'
+shared account; google: {serviceAccount: EMAIL} takes one of the agent's own,
+as an account of the agent's own, so that the cloud can tell the two apart. */ -}}
+{{- $own := and (kindIs "map" .agent.google) .agent.google.serviceAccount $root.Values.cloud.google.audience }}
+{{- $google := or $own (and .agent.google $root.Values.cloud.google.audience $root.Values.cloud.google.serviceAccount) }}
 {{- with .agent }}
 {{- if not .interactive }}
 restartPolicy: Never
 {{- end }}
-serviceAccountName: agent
+serviceAccountName: {{ if $own }}agent-{{ .name }}{{ else }}agent{{ end }}
 automountServiceAccountToken: false
 {{- with (include "pod.placement" $root) }}{{ . | trim | nindent 0 }}{{- end }}
 securityContext:
@@ -210,7 +214,7 @@ volumes:
   {{- if $google }}
   - name: google
     configMap:
-      name: google-identity
+      name: google-identity{{ if $own }}-{{ .name }}{{ end }}
   - name: identity
     projected:
       sources:
@@ -225,6 +229,30 @@ volumes:
 # What agent pods are to the cluster: nothing. The account exists so that a
 # pod has an identity of its own to present elsewhere.
 {{ include "pod.account" (dict "name" "agent" "root" .) }}
+{{- end }}
+{{- range .Values.agents }}
+{{- if and (kindIs "map" .google) .google.serviceAccount $.Values.cloud.google.audience }}
+---
+# An agent with a cloud identity of its own has an account of its own, so
+# that its service account can trust this agent's pods and no others.
+{{ include "pod.account" (dict "name" (printf "agent-%s" .name) "root" $) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: google-identity-{{ .name }}
+  namespace: {{ $.Release.Namespace }}
+data:
+  credentials.json: |
+    {
+      "type": "external_account",
+      "audience": {{ $.Values.cloud.google.audience | quote }},
+      "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+      "token_url": "https://sts.googleapis.com/v1/token",
+      "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/{{ .google.serviceAccount }}:generateAccessToken",
+      "credential_source": {"file": "/var/run/secrets/agent/identity/token"}
+    }
+{{- end }}
 {{- end }}
 {{- with .Values.cloud.google }}
 {{- if and .audience .serviceAccount }}
@@ -358,28 +386,5 @@ spec:
             {{- with (include "pod.labels" $) }}{{ . | trim | nindent 12 }}{{- end }}
         spec:
           {{- include "agent.podspec" (dict "root" $ "agent" .) | nindent 10 }}
-{{- end }}
-{{- if and .namespaces $.Values.egress.enabled }}
----
-# Beside the proxy and the memory, this agent may reach the pods of the
-# namespaces its entry names: services the installation runs on the cluster
-# for its agents. Any port; what is there decides what it answers.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: agent-{{ .name }}-reaches-namespaces
-  namespace: {{ $.Release.Namespace }}
-spec:
-  podSelector:
-    matchLabels:
-      app: agent-{{ .name }}
-  policyTypes: ["Egress"]
-  egress:
-    - to:
-        {{- range .namespaces }}
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ . | quote }}
-        {{- end }}
 {{- end }}
 {{- end }}

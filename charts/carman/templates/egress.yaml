@@ -219,6 +219,17 @@ spec:
       ports:
         - {protocol: UDP, port: 53}
         - {protocol: TCP, port: 53}
+    {{- with .Values.agent.namespaces }}
+    # The pods of other namespaces the installation names: services it runs
+    # on the cluster for its agents. Any port; what is there decides what
+    # it answers.
+    - to:
+        {{- range . }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+        {{- end }}
+    {{- end }}
 {{- if .Values.egress.closedTo }}
 ---
 # The proxy goes out to the world and to nothing private. Without this an

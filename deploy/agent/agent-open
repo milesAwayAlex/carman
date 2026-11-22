@@ -10,8 +10,8 @@
 #   agent-open --all             open every remembered session (what the pod does at start)
 #
 # A session is opened as `claude --name NAME`, so sessions in the pod can
-# find and message each other. One session to a directory: a session picks
-# up the latest conversation of its directory.
+# find and message each other, and so that a session finds its own
+# conversation again among those of its directory.
 set -eu
 list="${AGENT_SESSIONS_FILE:-$HOME/.config/agent/sessions}"
 mkdir -p "$(dirname "$list")" && touch "$list"
@@ -59,19 +59,21 @@ case "${1:-}" in
     ;;
 --run)
     # What a session's window runs. The harness keeps a directory's
-    # conversations under a name made from its path; a directory that has
-    # none starts a new one.
+    # conversations under a name made from its path, and writes a session's
+    # name into its conversation: the latest one that carries this name is
+    # the one to go on with. None starts a new one.
     name="$2"; id="${3:-}"
     set +eu
     . /usr/local/lib/agent-env
     kept="$HOME/.claude/projects/$(pwd | sed 's/[^A-Za-z0-9]/-/g')"
+    if [ -z "$id" ]; then
+        mine="$(grep -l -F "\"customTitle\":\"$name\"" "$kept"/*.jsonl 2>/dev/null | xargs -r ls -t 2>/dev/null | head -1)"
+        [ -z "$mine" ] || id="$(basename "$mine" .jsonl)"
+    fi
     if [ -n "$id" ]; then
-        claude --name "$name" --resume "$id" || true
-    elif ls "$kept"/*.jsonl > /dev/null 2>&1; then
-        # Not every kept conversation can be continued (one made by a
-        # single command cannot): if the harness gives up at once, start new.
+        # If the harness gives the conversation up at once, start new.
         began="$(date +%s)"
-        claude --name "$name" --continue || { [ $(( $(date +%s) - began )) -gt 10 ] || claude --name "$name" || true; }
+        claude --name "$name" --resume "$id" || { [ $(( $(date +%s) - began )) -gt 10 ] || claude --name "$name" || true; }
     else
         claude --name "$name" || true
     fi
@@ -85,8 +87,6 @@ case "${1:-}" in
     name="$1"
     echo "$name" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]*$' || { echo "agent-open: a name is letters, digits, dots, dashes and underscores" >&2; exit 1; }
     dir="$(cd "${2:-.}" && pwd)" || { echo "agent-open: no directory ${2:-.}" >&2; exit 1; }
-    other="$(awk -F '\t' -v n="$name" -v d="$dir" '$2 == d && $1 != n {print $1}' "$list")"
-    [ -z "$other" ] || { echo "agent-open: $dir is the directory of the session $other; one session to a directory" >&2; exit 1; }
     forget "$name"
     printf '%s\t%s\n' "$name" "$dir" >> "$list"
     open_window "$name" "$dir" "${3:-}"

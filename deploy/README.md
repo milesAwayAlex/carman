@@ -245,6 +245,11 @@ there. The renewal says in its log when the service ends the sign-in; do
 the same again then. An agent reaches the service as any other, for example
 as an MCP server by its address.
 
+Services you run on the cluster for your agents (a database, a cache) are
+reached directly: name their namespaces under `agent.namespaces`, and every
+agent pod may reach the pods there. Everything else still goes through the
+proxy or does not go.
+
 `egress.enabled: false` in the values takes the proxy and the policy out.
 
 ## Agents beyond the dreamer
@@ -327,15 +332,16 @@ What an agent can be given, each by a line in its entry:
   same.
 - `env`. Extra environment variables, for a tool that insists on finding
   one; the value is a placeholder, never a credential.
-- `namespaces`. Other namespaces of the cluster whose pods the agent may
-  reach directly, for services you run there for your agents (a database,
-  a cache). Everything else still goes through the proxy or does not go.
 - `google: true`. A cloud identity with no stored key: the pod's own token,
   signed by this cluster, is exchanged for a short-lived token of the service
   account named under `cloud.google`. The cloud side has to trust this
   cluster's token issuer first (workload identity federation, with the
   cluster's public keys uploaded). On a managed cluster of the same provider,
   its workload identity does this and `cloud.google` stays empty.
+  `google: {serviceAccount: EMAIL}` gives one agent a service account of
+  its own in place of the shared one. Its pods then run under an account of
+  their own, `agent-NAME`, and that is the subject the service account has
+  to trust: the cloud can then grant something to this agent and to no other.
 
 A schedule is kept by the cluster, so it is only as punctual as the cluster
 is awake. On a laptop that sleeps, a run whose time passed is started when

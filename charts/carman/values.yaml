@@ -42,6 +42,10 @@ agent:
   # takes them (OWNER/REPO, OWNER/REPO#REF, a URL). An agent names the
   # plugins it wants from them.
   marketplaces: []
+  # Other namespaces of the cluster whose pods agents may reach directly:
+  # services the installation runs there for its agents (a database, a
+  # cache). Everything else goes through the proxy or does not go.
+  namespaces: []
   # Keep agents' conversations after their pods are gone, in a volume of this
   # size that every agent pod mounts: a job's transcripts go there, and from
   # an interactive agent a person picks one up with `agent-resume ID`. Empty
@@ -167,7 +171,9 @@ egress:
 #         wiki: {command: wiki-mcp}                # a command, in the image or among the installation's tools
 #       plugins: [NAME@MARKETPLACE]   # installed afresh at every start
 #       env: {EXAMPLE_TOKEN: held-by-the-egress-proxy}   # for tools that insist on a variable
-#       google: true                  # give it the cloud identity below
+#       google: true                  # give it the cloud identity below; or one of its own,
+#                                     # google: {serviceAccount: EMAIL}, which that account
+#                                     # must trust for this agent's pods (account agent-NAME)
 #     - name: desk
 #       interactive: true             # a standing pod a person attaches to, in place of a job:
 #                                     # scripts/deploy.sh CONTEXT agent attach desk
@@ -176,8 +182,6 @@ egress:
 #       memoryRole: laptop            # the default when interactive: a person is at the keyboard
 #       hostPaths: [/srv/shared]      # directories of the node, mounted at the same path: for a
 #                                     # cluster on your own machine, never a shared one
-#       namespaces: [services]        # other namespaces of the cluster whose pods it may reach
-#                                     # directly: services the installation runs for its agents
 #                                     # (plugins, mcp, env, google and resources as above)
 agents: []
 
