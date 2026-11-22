@@ -89,7 +89,7 @@ spec:
         # The proxy will not start without a file for each credential; the
         # renewal puts the real value in its place within seconds.
         - name: renewed-placeholders
-          image: {{ required "agent.image is required" .Values.agent.image }}
+          image: {{ .Values.egress.renewalImage | default (required "agent.image is required" .Values.agent.image) }}
           imagePullPolicy: IfNotPresent
           command: ["sh", "-c", "for key in {{ $renewed | join " " }}; do renew-credential --write $key 'Bearer not-renewed-yet'; done"]
           securityContext:
@@ -106,7 +106,7 @@ spec:
         # what it prints to the proxy. What the command needs to keep (a
         # sign-in) is in its home, which no agent can reach.
         - name: renew-{{ .key }}
-          image: {{ required "agent.image is required" $.Values.agent.image }}
+          image: {{ $.Values.egress.renewalImage | default (required "agent.image is required" $.Values.agent.image) }}
           imagePullPolicy: IfNotPresent
           command: ["renew-credential", {{ .key | quote }}, {{ .every | default 120 | quote }}, "--"]
           args: {{ toJson .command }}

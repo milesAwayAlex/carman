@@ -220,11 +220,21 @@ EOF
     # Rendered and applied, not installed as a release: the cluster's objects
     # are the record, and a chart consumer elsewhere (a GitOps controller,
     # `helm install`) uses the same chart its own way.
+    # The renewals beside the proxy run in the agent image, and the proxy's
+    # pod restarts when their image changes, which every agent then feels.
+    # They keep the image they have unless what they run has changed.
+    renewal_source="$(cat deploy/agent/renew-credential deploy/agent/oauth-credential | shasum -a 256 | cut -c1-12)-${CARMAN_AGENT_BASE:-plain}"
+    renewal_image="$CARMAN_AGENT_IMAGE"
+    if [ "$("${kube[@]}" get deployment egress -o 'jsonpath={.metadata.annotations.renewal-source}' 2>/dev/null || true)" = "$renewal_source" ]; then
+        running="$("${kube[@]}" get deployment egress -o 'jsonpath={.spec.template.spec.containers[?(@.name!="envoy")].image}' 2>/dev/null | cut -d' ' -f1)"
+        [ -z "$running" ] || renewal_image="$running"
+    fi
     helm template carman charts/carman --namespace "$namespace" "${chart_values[@]}" \
-        --set "memory.image=$CARMAN_IMAGE" --set "agent.image=$CARMAN_AGENT_IMAGE" --set "dreamer.suspend=${dreaming:-true}" |
+        --set "memory.image=$CARMAN_IMAGE" --set "agent.image=$CARMAN_AGENT_IMAGE" --set "egress.renewalImage=$renewal_image" --set "dreamer.suspend=${dreaming:-true}" |
         kubectl --context "$context" apply -f -   # every object names its namespace; one is not this one
     "${kube[@]}" rollout status statefulset/cmem --timeout=120s
     if "${kube[@]}" get deployment egress >/dev/null 2>&1; then
+        "${kube[@]}" annotate deployment egress "renewal-source=$renewal_source" --overwrite >/dev/null
         # A new certificate is read when the proxy starts.
         [ "$egress_restart" = 0 ] || "${kube[@]}" rollout restart deployment/egress >/dev/null
         "${kube[@]}" rollout status deployment/egress --timeout=120s
@@ -238,10 +248,11 @@ EOF
     fi
     # Every deploy that changes a binary makes a new image tag. Where images
     # are built straight into the cluster's runtime, the old ones only fill
-    # its disk: remove those this deploy did not use. One that a finished Job
-    # still names is left by the runtime, and that is fine.
+    # its disk: remove those this deploy did not use and no pod names (an
+    # interactive agent keeps its image until it is restarted).
+    in_use=" $("${kube[@]}" get pods -o 'jsonpath={.items[*].spec.containers[*].image} {.items[*].spec.initContainers[*].image}' 2>/dev/null) "
     for old in $(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E '^carman-(cmem|agent):' || true); do
-        [ "$old" = "$CARMAN_IMAGE" ] || [ "$old" = "$CARMAN_AGENT_IMAGE" ] || docker rmi "$old" >/dev/null 2>&1 || true
+        [ "$old" = "$CARMAN_IMAGE" ] || [ "$old" = "$CARMAN_AGENT_IMAGE" ] || [ "${in_use#* $old }" != "$in_use" ] || docker rmi "$old" >/dev/null 2>&1 || true
     done
     ;;
 status)

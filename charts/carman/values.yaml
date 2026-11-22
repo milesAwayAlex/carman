@@ -158,6 +158,10 @@ egress:
   #       command: [sh, -c, "printf 'Bearer %s' \"$(example-tool token)\""]
   #       env: {EXAMPLE_STORE: file}
   renewals: []
+  # The image renewals run in: the agent image unless said. A deploy that
+  # changes it restarts the proxy, so it is worth changing only when what
+  # the renewals run has changed.
+  renewalImage: ""
   renewalStorage: 100Mi
   # Addresses agent pods may ask for names, beside the name service's own
   # pods. A cluster whose nodes answer for the name service themselves (a
