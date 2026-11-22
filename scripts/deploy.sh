@@ -95,7 +95,9 @@ linux_cmem() {
     case "$arch" in aarch64 | arm64) arch=arm64 ;; x86_64 | amd64) arch=amd64 ;; *) die "unknown architecture $arch" ;; esac
     command -v go >/dev/null || build=(nix develop -c go build)
     rm -f "$1"/cmem-*
-    CGO_ENABLED=0 GOOS=linux GOARCH="$arch" "${build[@]}" -o "$1/cmem-$arch" ./cmd/cmem
+    # The same source gives the same file, and so the same image: without
+    # this the commit is written into it, and every commit restarts the pods.
+    CGO_ENABLED=0 GOOS=linux GOARCH="$arch" "${build[@]}" -buildvcs=false -trimpath -o "$1/cmem-$arch" ./cmd/cmem
 }
 
 # The egress proxy answers in the name of each host it holds a credential
