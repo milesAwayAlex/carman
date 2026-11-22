@@ -253,6 +253,13 @@ pod keeps a tmux session, and you work in it as on your own machine.
 attaches your terminal; detach with tmux's prefix and `d`, and whatever runs
 goes on. Start the harness with `claude` in `~/work`, and after a restart of
 the pod or the machine pick the conversation up with `claude --continue`.
+Or let the pod do it: `agent-open NAME [DIR]` starts the harness as a named
+session in a tmux window of its own and remembers it, and when the pod
+starts again every remembered session is opened again on its conversation
+(`agent-open` lists them, `agent-open --forget NAME` drops one). Named
+sessions in one pod can find and message each other. A conversation brought
+from another machine is opened once with its id, `agent-open NAME DIR ID`,
+after its transcript has been copied into the home.
 A deploy does not restart it, so what you have running goes on; it takes a
 new image when you restart it (`scripts/deploy.sh CONTEXT agent restart
 NAME`). It has the memory hook, the laptop's role in memory, and whatever

@@ -1,0 +1,91 @@
+#!/bin/sh
+# Named harness sessions in an interactive agent's pod, each in a tmux
+# window of its own, and remembered: when the pod starts again, every
+# remembered session is opened again on the conversation it had.
+#
+#   agent-open                   the remembered sessions
+#   agent-open NAME [DIR] [ID]   open one in DIR (here, if not given) and remember it;
+#                                with ID, on that conversation (one brought from elsewhere)
+#   agent-open --forget NAME     stop opening it at start; its window and conversation stay
+#   agent-open --all             open every remembered session (what the pod does at start)
+#
+# A session is opened as `claude --name NAME`, so sessions in the pod can
+# find and message each other. One session to a directory: a session picks
+# up the latest conversation of its directory.
+set -eu
+list="${AGENT_SESSIONS_FILE:-$HOME/.config/agent/sessions}"
+mkdir -p "$(dirname "$list")" && touch "$list"
+
+# The session's tmux, by its own program and socket: a login shell may find
+# another tmux first, or look for the socket elsewhere.
+sock="/tmp/tmux-$(id -u)/default"
+bin="${AGENT_TMUX:-}"
+if [ -z "$bin" ]; then
+    server="$(pgrep -o -u "$(id -u)" -f 'new-session -d -s main' || true)"
+    [ -z "$server" ] || bin="$(readlink "/proc/$server/exe" || true)"
+fi
+t() { "${bin:-tmux}" -S "$sock" "$@"; }
+self="$(command -v "$0")"
+
+forget() { awk -F '\t' -v n="$1" '$1 != n' "$list" > "$list.new" && mv "$list.new" "$list"; }
+
+open_window() {  # NAME DIR [ID]
+    [ -d "$2" ] || { echo "agent-open: $1: no directory $2" >&2; return 1; }
+    t has-session -t main 2>/dev/null || t -u new-session -d -s main -c "$HOME/work"
+    if t list-windows -t main -F '#{window_name}' | grep -qxF "$1"; then
+        echo "agent-open: $1 is open already (window $1 of the session)"
+        return 0
+    fi
+    t new-window -d -t main: -n "$1" -c "$2" "exec $self --run $1 ${3:-}"
+    echo "agent-open: $1 in $2"
+}
+
+case "${1:-}" in
+"")
+    [ -s "$list" ] || { echo "agent-open: no sessions remembered; agent-open NAME [DIR]"; exit 0; }
+    awk -F '\t' '{printf "%-24s %s\n", $1, $2}' "$list"
+    ;;
+--forget)
+    [ $# -eq 2 ] || { echo "usage: agent-open --forget NAME" >&2; exit 1; }
+    forget "$2"
+    ;;
+--all)
+    while IFS="$(printf '\t')" read -r name dir; do
+        [ -n "$name" ] && open_window "$name" "$dir" || true
+    done < "$list"
+    ;;
+--run)
+    # What a session's window runs. The harness keeps a directory's
+    # conversations under a name made from its path; a directory that has
+    # none starts a new one.
+    name="$2"; id="${3:-}"
+    set +eu
+    . /usr/local/lib/agent-env
+    kept="$HOME/.claude/projects/$(pwd | sed 's/[^A-Za-z0-9]/-/g')"
+    if [ -n "$id" ]; then
+        claude --name "$name" --resume "$id" || true
+    elif ls "$kept"/*.jsonl > /dev/null 2>&1; then
+        # Not every kept conversation can be continued (one made by a
+        # single command cannot): if the harness gives up at once, start new.
+        began="$(date +%s)"
+        claude --name "$name" --continue || { [ $(( $(date +%s) - began )) -gt 10 ] || claude --name "$name" || true; }
+    else
+        claude --name "$name" || true
+    fi
+    # The window outlives the harness: a shell is left in the directory.
+    exec "${SHELL:-/bin/bash}" -l
+    ;;
+-*)
+    echo "agent-open: unknown option $1" >&2; exit 1
+    ;;
+*)
+    name="$1"
+    echo "$name" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]*$' || { echo "agent-open: a name is letters, digits, dots, dashes and underscores" >&2; exit 1; }
+    dir="$(cd "${2:-.}" && pwd)" || { echo "agent-open: no directory ${2:-.}" >&2; exit 1; }
+    other="$(awk -F '\t' -v n="$name" -v d="$dir" '$2 == d && $1 != n {print $1}' "$list")"
+    [ -z "$other" ] || { echo "agent-open: $dir is the directory of the session $other; one session to a directory" >&2; exit 1; }
+    forget "$name"
+    printf '%s\t%s\n' "$name" "$dir" >> "$list"
+    open_window "$name" "$dir" "${3:-}"
+    ;;
+esac

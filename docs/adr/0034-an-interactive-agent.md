@@ -42,6 +42,12 @@ What was found by trying:
   attach NAME` attaches a terminal to it; detaching leaves it running. No
   port is opened: the way in is the cluster's own exec.
 - **Work happens in `~/work`**, which the harness trusts once.
+- **Sessions can be named and are opened again.** `agent-open NAME [DIR]`
+  starts the harness as a named session in a window of its own and
+  remembers it in the home. A restart of the pod ends every process in it;
+  at the next start each remembered session is opened again on the latest
+  conversation of its directory. What was running at the moment of the
+  restart is lost; the conversation is not. One session to a directory.
 - **A deploy does not restart it.** It is replaced only on purpose, because
   a person's running sessions are in it; until then it runs the image it
   started with.

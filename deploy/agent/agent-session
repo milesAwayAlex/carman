@@ -3,7 +3,8 @@
 # for a person to attach to (agent-attach). The session goes on when they
 # detach; if its last window is closed, a new one is there within seconds.
 # The home directory outlives the pod, and with it the harness's
-# transcripts: `claude --continue` picks a conversation up after a restart.
+# transcripts: a session opened with agent-open is opened again on its
+# conversation after a restart, and `claude --continue` does it by hand.
 set -u
 . /usr/local/lib/agent-env
 agent_setup || echo "agent-session: set-up did not finish; see above" >&2
@@ -34,6 +35,11 @@ mkdir -p "$HOME/work" && cd "$HOME/work"
 # From here on a session may be attached to: everything above is in place.
 touch /tmp/agent-session-ready
 echo "agent-session: ready; attach with agent-attach"
+# The sessions that were open before this start are opened again, each on
+# its conversation (agent-open).
+export AGENT_TMUX="$(command -v tmux)"
+tmux -u new-session -d -s main -c "$HOME/work" 2>/dev/null || true
+agent-open --all || echo "agent-session: the remembered sessions were not all opened" >&2
 while true; do
     # The shell in a window is a login shell; /etc/profile.d gives it the
     # same environment as this script has.
