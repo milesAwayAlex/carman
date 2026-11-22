@@ -38,6 +38,13 @@ agent:
   image: ""
   # The secret holding the harness's model credential, under the key `token`.
   modelSecret: model-credential
+  # What every agent is given, beside what its own entry says: environment
+  # variables (placeholders, never credentials), directories of the node
+  # mounted at the same path, and groups of the node (see an agent's
+  # hostPaths and groups below).
+  env: {}
+  hostPaths: []
+  groups: []
   # How long a finished run's pod is kept, for its log. Its image stays on
   # the node as long; the conversation is kept elsewhere (sessionStorage).
   keepFinishedSeconds: 259200

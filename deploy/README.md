@@ -364,6 +364,9 @@ What an agent can be given, each by a line in its entry:
   their own, `agent-NAME`, and that is the subject the service account has
   to trust: the cloud can then grant something to this agent and to no other.
 
+What every agent should have goes under `agent.env`, `agent.hostPaths` and
+`agent.groups` once, in place of a line in each entry.
+
 A schedule is kept by the cluster, so it is only as punctual as the cluster
 is awake. On a laptop that sleeps, a run whose time passed is started when
 the cluster is back, if that is within the agent's `catchUpSeconds` (a day

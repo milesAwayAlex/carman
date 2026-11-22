@@ -30,6 +30,13 @@ agent_setup() {
         gcloud auth login --quiet --cred-file="$GOOGLE_APPLICATION_CREDENTIALS" >/dev/null 2>&1 ||
             echo "agent: the cloud identity could not be set up; cloud commands will fail" >&2
     fi
+    # What the installation's own base image wants done at each start, such
+    # as putting its shell's configuration and its tools in the home. Jobs
+    # and standing pods alike: an agent has the same tools either way.
+    for step in /usr/local/lib/agent-start.d/*; do
+        [ -x "$step" ] || continue
+        "$step" >/dev/null || echo "agent: $step did not finish" >&2
+    done
     # Where the installation gives agents a namespace to run things in, the
     # pod's own account is somebody there: a kubectl context named sandbox,
     # beside whatever contexts the agent makes for clusters elsewhere.

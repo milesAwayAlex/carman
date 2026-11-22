@@ -22,13 +22,6 @@ for name, spec in servers.items():
     print(f"agent-session: MCP server {name}" if done.returncode == 0 else f"agent-session: MCP server {name} could not be added: {done.stderr.strip()[:200]}")
 PY
 
-# What the installation's own base image wants done at each start, such as
-# putting its shell's configuration in the home.
-for step in /usr/local/lib/agent-start.d/*; do
-    [ -x "$step" ] || continue
-    "$step" || echo "agent-session: $step did not finish" >&2
-done
-
 # Work happens in a directory of its own: the harness remembers that a
 # directory is trusted, except for the home directory itself.
 mkdir -p "$HOME/work" && cd "$HOME/work"

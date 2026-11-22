@@ -13,6 +13,11 @@ shared account; google: {serviceAccount: EMAIL} takes one of the agent's own,
 as an account of the agent's own, so that the cloud can tell the two apart. */ -}}
 {{- $own := and (kindIs "map" .agent.google) .agent.google.serviceAccount $root.Values.cloud.google.audience }}
 {{- $google := or $own (and .agent.google $root.Values.cloud.google.audience $root.Values.cloud.google.serviceAccount) }}
+{{- /* What every agent is given (agent.env, agent.hostPaths, agent.groups),
+with the agent's own beside it; an agent's own variable wins. */ -}}
+{{- $env := merge (dict) (.agent.env | default dict) ($root.Values.agent.env | default dict) }}
+{{- $hostPaths := concat ($root.Values.agent.hostPaths | default list) (.agent.hostPaths | default list) | uniq }}
+{{- $groups := concat ($root.Values.agent.groups | default list) (.agent.groups | default list) | uniq }}
 {{- with .agent }}
 {{- if not .interactive }}
 restartPolicy: Never
@@ -27,7 +32,7 @@ securityContext:
   runAsUser: 10001
   runAsGroup: 10001
   fsGroup: 10001
-  {{- with .groups }}
+  {{- with $groups }}
   # Groups of the node the agent is put in, for what a directory of the
   # node admits by group (hostPaths).
   supplementalGroups: {{ toJson . }}
@@ -107,7 +112,7 @@ containers:
       - name: AGENT_PLUGINS
         value: {{ join " " .plugins | quote }}
       {{- end }}
-      {{- range $name, $value := .env }}
+      {{- range $name, $value := $env }}
       - name: {{ $name }}
         value: {{ $value | quote }}
       {{- end }}
@@ -136,7 +141,7 @@ containers:
       - name: work
         mountPath: /work
       {{- end }}
-      {{- range .hostPaths }}
+      {{- range $hostPaths }}
       # A directory of the node, at the same path here: files that are to be
       # seen from outside the cluster as well.
       - name: host-{{ . | sha256sum | trunc 8 }}
@@ -196,7 +201,7 @@ volumes:
     configMap:
       name: routines
       optional: true
-  {{- range .hostPaths }}
+  {{- range $hostPaths }}
   - name: host-{{ . | sha256sum | trunc 8 }}
     hostPath:
       path: {{ . }}
