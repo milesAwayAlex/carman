@@ -93,14 +93,20 @@ Then run `scripts/deploy.sh devvm check`. What it can report, and what to do:
 
 ## Backing up
 
-There is no automatic backup yet. Until there is:
+On a cluster with `backup.enabled` in the values, a nightly job copies the
+library to a bucket (ADR 0033). On a cluster on your own machine nothing in
+this repository does it for you: schedule it on the machine, or do it by
+hand.
 
     scripts/deploy.sh devvm backup cmem-library-$(date +%Y%m%d).tar
 
 writes the whole library, history included, to a file on the laptop. Keep it
-somewhere that is itself backed up, and outside the VM's own disks. Do it
-before anything risky (rebuilding the VM, changing the storage), and as often
-as you would mind losing what was learned since.
+somewhere that is itself backed up, outside the VM's own disks, and outside
+any directory an agent's pod mounts: an agent that can write there can
+change or delete the copy. Do it before anything risky (rebuilding the VM,
+changing the storage), and as often as you would mind losing what was
+learned since. A scheduled copy should prove itself the same way the
+nightly job does, by restoring what it made (`cmem restore FILE DIR`).
 
 ## Restoring a backup
 
