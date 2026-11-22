@@ -57,6 +57,10 @@ Built so far:
   so that the owner can pick it up from an interactive agent with
   `agent-resume ID`.
 
+- Services on the cluster (ADR 0037): agents reach the namespaces the
+  installation names (`agent.namespaces`), and have a namespace of their
+  own to run what a task needs (`agent.sandbox`, kubectl context `sandbox`).
+
 Not built yet: the way in from a laptop to a service on a shared cluster,
 the task-stream benchmark (M7), a second harness (M8), and for agents that
 do work outside memory: triggers other than a schedule, and a way for the

@@ -1,0 +1,121 @@
+{{- /*
+A namespace where agents may run what a task needs: a database for a test, a
+service some code talks to. Agents own what is in it and nothing outside it.
+Everything there is disposable.
+*/ -}}
+{{- with .Values.agent.sandbox }}
+{{- if and .namespace $.Values.agents }}
+{{- if .create }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .namespace }}
+  labels:
+    # No host mounts, host network or privileged pods: what runs here stays
+    # in its containers.
+    pod-security.kubernetes.io/enforce: baseline
+---
+{{- end }}
+# What agents may do here: run workloads and reach into them. Not the
+# namespace's own rules (quota, network policy, roles), which stay the
+# installation's.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agents-run-what-they-need
+  namespace: {{ .namespace }}
+rules:
+  - apiGroups: [""]
+    resources: [pods, pods/log, pods/exec, pods/attach, pods/portforward, services, configmaps, secrets, persistentvolumeclaims]
+    verbs: ["*"]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, replicasets]
+    verbs: ["*"]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: ["*"]
+  - apiGroups: ["", discovery.k8s.io, networking.k8s.io]
+    resources: [events, endpoints, endpointslices, resourcequotas, limitranges, networkpolicies, serviceaccounts]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: agents-run-what-they-need
+  namespace: {{ .namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: agents-run-what-they-need
+subjects:
+  - kind: ServiceAccount
+    name: agent
+    namespace: {{ $.Release.Namespace }}
+  {{- range $.Values.agents }}
+  {{- if and (kindIs "map" .google) .google.serviceAccount }}
+  - kind: ServiceAccount
+    name: agent-{{ .name }}
+    namespace: {{ $.Release.Namespace }}
+  {{- end }}
+  {{- end }}
+---
+# How much may run here at once, so that a task's helpers cannot starve the
+# node. No service here takes a port of the node or an address outside.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: agents
+  namespace: {{ .namespace }}
+spec:
+  hard:
+    {{- toYaml .quota | nindent 4 }}
+    services.loadbalancers: "0"
+    services.nodeports: "0"
+---
+# What a container gets when its manifest does not say.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: agents
+  namespace: {{ .namespace }}
+spec:
+  limits:
+    - type: Container
+      defaultRequest: {cpu: 50m, memory: 128Mi}
+      default: {memory: 512Mi}
+---
+# What runs here talks to its neighbours, to the installation's services,
+# and to nothing else: not the internet, not the cluster's other workloads.
+# Agents reach it; nothing else does.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: among-themselves
+  namespace: {{ .namespace }}
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $.Release.Namespace | quote }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: agent
+  egress:
+    - to:
+        - podSelector: {}
+        {{- range $.Values.agent.namespaces }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+        {{- end }}
+    - to:
+        {{- include "dns.peers" $ | nindent 8 }}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+{{- end }}
+{{- end }}

@@ -250,6 +250,21 @@ reached directly: name their namespaces under `agent.namespaces`, and every
 agent pod may reach the pods there. Everything else still goes through the
 proxy or does not go.
 
+For what a task needs and you do not run, give agents a namespace of their
+own (ADR 0037):
+
+    agent:
+      sandbox:
+        namespace: sandbox
+        api: {addresses: ["NODE-ADDRESS/32"], port: 6443}
+
+`api.addresses` are the addresses behind the cluster's `kubernetes` service
+(`kubectl get endpointslices -n default`). An agent then has a kubectl
+context named `sandbox` and may run workloads and services there, within
+`agent.sandbox.quota`; they are reached as `NAME.sandbox`. Pods there cannot
+touch the node or reach the internet, and agents cannot change the
+namespace's own rules. Nothing cleans it up for you.
+
 `egress.enabled: false` in the values takes the proxy and the policy out.
 
 ## Agents beyond the dreamer

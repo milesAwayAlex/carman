@@ -46,6 +46,26 @@ agent:
   # services the installation runs there for its agents (a database, a
   # cache). Everything else goes through the proxy or does not go.
   namespaces: []
+  # A namespace where agents may run what a task needs (a database for a
+  # test, a service some code talks to), with kubectl's context `sandbox`.
+  # Agents may create workloads there and nothing else anywhere; pods there
+  # cannot touch the node, reach the internet or take a port of the node,
+  # and the quota bounds them. Empty: agents are nobody to the cluster.
+  sandbox:
+    namespace: ""
+    # Make the namespace too; false where one is made for you.
+    create: true
+    # The cluster's API as an agent's pod reaches it: the addresses behind
+    # the `kubernetes` service (a network policy sees those, not the
+    # service's own), each as a CIDR, and their port.
+    api:
+      addresses: []
+      port: 6443
+    quota:
+      pods: "20"
+      requests.cpu: "4"
+      requests.memory: 8Gi
+      limits.memory: 8Gi
   # Keep agents' conversations after their pods are gone, in a volume of this
   # size that every agent pod mounts: a job's transcripts go there, and from
   # an interactive agent a person picks one up with `agent-resume ID`. Empty

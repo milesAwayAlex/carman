@@ -341,6 +341,10 @@ which are the weakest parts. Three things are meant to keep that manageable:
   pod with a persistent home and a tmux session a person attaches to (ADR
   0034). Named sessions in it are opened again on their conversations when
   the pod starts. Every agent that does ordinary work has the memory hook.
+- Beside the proxy and the memory, agents reach the namespaces the
+  installation names for its own services, and have one namespace where
+  they may run what a task needs, bounded by a quota and closed to the
+  node and the internet (ADR 0037).
 - Nothing the chart puts on a cluster carries the project's name, and
   `scripts/chart-export.sh` writes the chart out under another (ADR 0032).
 - One token per role, generated at the first deploy and kept in a Secret.

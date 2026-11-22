@@ -18,7 +18,9 @@ as an account of the agent's own, so that the cloud can tell the two apart. */ -
 restartPolicy: Never
 {{- end }}
 serviceAccountName: {{ if $own }}agent-{{ .name }}{{ else }}agent{{ end }}
-automountServiceAccountToken: false
+{{- /* With a namespace of their own to run things in, agents present their
+account to the cluster's API, where it is somebody only in that namespace. */}}
+automountServiceAccountToken: {{ if $root.Values.agent.sandbox.namespace }}true{{ else }}false{{ end }}
 {{- with (include "pod.placement" $root) }}{{ . | trim | nindent 0 }}{{- end }}
 securityContext:
   runAsNonRoot: true
@@ -56,6 +58,10 @@ containers:
             name: {{ $root.Values.agent.modelSecret }}
             key: token
       # Who this is, for whatever it says about itself.
+      {{- with $root.Values.agent.sandbox.namespace }}
+      - name: AGENT_SANDBOX
+        value: {{ . | quote }}
+      {{- end }}
       - name: AGENT_NAME
         value: {{ .name | quote }}
       {{- if .interactive }}
@@ -103,8 +109,10 @@ containers:
       {{- if $root.Values.egress.enabled }}
       - name: HTTPS_PROXY
         value: http://egress:3128
+      # What is inside the cluster is reached directly, where it may be
+      # reached at all.
       - name: NO_PROXY
-        value: cmem,localhost,127.0.0.1
+        value: cmem,localhost,127.0.0.1,.svc,.svc.cluster.local{{ range $root.Values.agent.namespaces }},.{{ . }}{{ end }}{{ with $root.Values.agent.sandbox.namespace }},.{{ . }}{{ end }}
       - name: EGRESS_CA
         value: /etc/agent/egress/ca.crt
       # Tools that refuse to start without a credential get a

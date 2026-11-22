@@ -30,6 +30,17 @@ agent_setup() {
         gcloud auth login --quiet --cred-file="$GOOGLE_APPLICATION_CREDENTIALS" >/dev/null 2>&1 ||
             echo "agent: the cloud identity could not be set up; cloud commands will fail" >&2
     fi
+    # Where the installation gives agents a namespace to run things in, the
+    # pod's own account is somebody there: a kubectl context named sandbox,
+    # beside whatever contexts the agent makes for clusters elsewhere.
+    sa=/var/run/secrets/kubernetes.io/serviceaccount
+    if [ -n "${AGENT_SANDBOX:-}" ] && [ -r "$sa/token" ] && command -v kubectl >/dev/null; then
+        kubectl config set-cluster sandbox --server=https://kubernetes.default.svc --certificate-authority="$sa/ca.crt" >/dev/null &&
+            kubectl config set users.sandbox.tokenFile "$sa/token" >/dev/null &&
+            kubectl config set-context sandbox --cluster=sandbox --user=sandbox --namespace="$AGENT_SANDBOX" >/dev/null ||
+            echo "agent: the sandbox context could not be set up" >&2
+        [ -n "$(kubectl config current-context 2>/dev/null)" ] || kubectl config use-context sandbox >/dev/null
+    fi
     # The harness is installed here by its vendor's own installer, from the
     # channel named (stable unless HARNESS_CHANNEL says otherwise), so an
     # agent has what a person who installed it today would have. A job's home

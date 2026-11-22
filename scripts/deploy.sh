@@ -222,7 +222,7 @@ EOF
     # `helm install`) uses the same chart its own way.
     helm template carman charts/carman --namespace "$namespace" "${chart_values[@]}" \
         --set "memory.image=$CARMAN_IMAGE" --set "agent.image=$CARMAN_AGENT_IMAGE" --set "dreamer.suspend=${dreaming:-true}" |
-        "${kube[@]}" apply -f -
+        kubectl --context "$context" apply -f -   # every object names its namespace; one is not this one
     "${kube[@]}" rollout status statefulset/cmem --timeout=120s
     if "${kube[@]}" get deployment egress >/dev/null 2>&1; then
         # A new certificate is read when the proxy starts.

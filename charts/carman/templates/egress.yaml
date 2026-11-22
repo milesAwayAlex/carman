@@ -219,16 +219,28 @@ spec:
       ports:
         - {protocol: UDP, port: 53}
         - {protocol: TCP, port: 53}
-    {{- with .Values.agent.namespaces }}
+    {{- $sandbox := .Values.agent.sandbox.namespace }}
+    {{- $reached := .Values.agent.namespaces }}
+    {{- if $sandbox }}{{- $reached = append $reached $sandbox }}{{- end }}
+    {{- with $reached }}
     # The pods of other namespaces the installation names: services it runs
-    # on the cluster for its agents. Any port; what is there decides what
-    # it answers.
+    # on the cluster for its agents, and the namespace where agents run
+    # their own. Any port; what is there decides what it answers.
     - to:
         {{- range . }}
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ . | quote }}
         {{- end }}
+    {{- end }}
+    {{- if and $sandbox .Values.agent.sandbox.api.addresses }}
+    # The cluster's API, where an agent is somebody only in that namespace.
+    - to:
+        {{- range .Values.agent.sandbox.api.addresses }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: {{ .Values.agent.sandbox.api.port }}}
     {{- end }}
 {{- if .Values.egress.closedTo }}
 ---
