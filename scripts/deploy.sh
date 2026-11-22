@@ -249,7 +249,8 @@ EOF
     # Every deploy that changes a binary makes a new image tag. Where images
     # are built straight into the cluster's runtime, the old ones only fill
     # its disk: remove those this deploy did not use and no pod names (an
-    # interactive agent keeps its image until it is restarted).
+    # interactive agent keeps its image until it is restarted). One that a
+    # finished Job still names is left by the runtime, and that is fine.
     in_use=" $("${kube[@]}" get pods -o 'jsonpath={.items[*].spec.containers[*].image} {.items[*].spec.initContainers[*].image}' 2>/dev/null) "
     for old in $(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E '^carman-(cmem|agent):' || true); do
         [ "$old" = "$CARMAN_IMAGE" ] || [ "$old" = "$CARMAN_AGENT_IMAGE" ] || [ "${in_use#* $old }" != "$in_use" ] || docker rmi "$old" >/dev/null 2>&1 || true
