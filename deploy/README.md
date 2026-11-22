@@ -253,8 +253,10 @@ pod keeps a tmux session, and you work in it as on your own machine.
 attaches your terminal; detach with tmux's prefix and `d`, and whatever runs
 goes on. Start the harness with `claude` in `~/work`, and after a restart of
 the pod or the machine pick the conversation up with `claude --continue`.
-It has the memory hook, the laptop's role in memory, and whatever the entry
-gives it of the list below. `storage` sets the size of its home and
+A deploy does not restart it, so what you have running goes on; it takes a
+new image when you restart it (`scripts/deploy.sh CONTEXT agent restart
+NAME`). It has the memory hook, the laptop's role in memory, and whatever
+the entry gives it of the list below. `storage` sets the size of its home and
 `permissionMode` how the harness treats what it is about to do (`auto`
 unless said).
 

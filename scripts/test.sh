@@ -19,5 +19,7 @@ if [ -n "$named" ]; then
     echo "$named" >&2
     exit 1
 fi
+# Nothing here needs a C compiler, and not every place that runs this has one.
+export CGO_ENABLED="${CGO_ENABLED:-0}"
 go vet ./...
 go test ./... "$@"

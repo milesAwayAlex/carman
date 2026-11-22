@@ -24,6 +24,8 @@
 #   scripts/deploy.sh CONTEXT agent run NAME    run an agent once now and show what it reported
 #   scripts/deploy.sh CONTEXT agent log NAME    the report of its latest run
 #   scripts/deploy.sh CONTEXT agent attach NAME attach this terminal to an interactive agent's session
+#   scripts/deploy.sh CONTEXT agent restart NAME restart an interactive agent, onto the image last deployed;
+#                                       whatever runs in it ends, and conversations resume from disk
 #
 # What is applied is the chart in charts/carman, rendered with the values in
 # deploy/values/NAME.yaml; NAME is `local` unless CARMAN_VALUES names another.
@@ -327,6 +329,14 @@ tool)
 agent)
     name="${4:-}"
     [ -n "$name" ] || die "say: agent run NAME, agent log NAME or agent attach NAME"
+    if [ "${3:-}" = restart ]; then
+        "${kube[@]}" get statefulset "agent-$name" >/dev/null 2>&1 || die "no interactive agent named $name"
+        "${kube[@]}" delete pod "agent-$name-0" --wait=true >/dev/null
+        "${kube[@]}" rollout status "statefulset/agent-$name" --timeout=300s >/dev/null 2>&1 || true
+        "${kube[@]}" wait --for=condition=ready "pod/agent-$name-0" --timeout=300s >/dev/null
+        echo "restarted agent $name, on $("${kube[@]}" get pod "agent-$name-0" -o 'jsonpath={.spec.containers[0].image}')"
+        exit 0
+    fi
     if [ "${3:-}" = attach ]; then
         "${kube[@]}" get statefulset "agent-$name" >/dev/null 2>&1 || die "no interactive agent named $name; one is an entry under 'agents' in the values with interactive: true"
         [ -t 0 ] || die "attach needs a terminal"

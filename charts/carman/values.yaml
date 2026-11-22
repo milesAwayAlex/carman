@@ -174,6 +174,8 @@ egress:
 #       storage: 20Gi                 # its home, which outlives the pod
 #       permissionMode: auto          # how the harness treats what it is about to do
 #       memoryRole: laptop            # the default when interactive: a person is at the keyboard
+#       hostPaths: [/srv/shared]      # directories of the node, mounted at the same path: for a
+#                                     # cluster on your own machine, never a shared one
 #                                     # (plugins, mcp, env, google and resources as above)
 agents: []
 

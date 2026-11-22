@@ -42,6 +42,9 @@ What was found by trying:
   attach NAME` attaches a terminal to it; detaching leaves it running. No
   port is opened: the way in is the cluster's own exec.
 - **Work happens in `~/work`**, which the harness trusts once.
+- **A deploy does not restart it.** It is replaced only on purpose, because
+  a person's running sessions are in it; until then it runs the image it
+  started with.
 - **Memory role `laptop` unless the entry says otherwise**, permission mode
   `auto` likewise.
 - **The memory hook is on for every agent that does ordinary work, jobs

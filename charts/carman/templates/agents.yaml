@@ -119,6 +119,12 @@ containers:
       - name: work
         mountPath: /work
       {{- end }}
+      {{- range .hostPaths }}
+      # A directory of the node, at the same path here: files that are to be
+      # seen from outside the cluster as well.
+      - name: host-{{ . | sha256sum | trunc 8 }}
+        mountPath: {{ . }}
+      {{- end }}
       {{- if $root.Values.agent.sessionStorage }}
       # Where conversations are kept after the pod is gone: a job writes its
       # transcripts here, and an interactive agent can read them all, which
@@ -173,6 +179,12 @@ volumes:
     configMap:
       name: routines
       optional: true
+  {{- range .hostPaths }}
+  - name: host-{{ . | sha256sum | trunc 8 }}
+    hostPath:
+      path: {{ . }}
+      type: Directory
+  {{- end }}
   {{- if $root.Values.agent.sessionStorage }}
   - name: sessions
     persistentVolumeClaim:
@@ -287,6 +299,10 @@ metadata:
 spec:
   serviceName: agent-{{ .name }}
   replicas: 1
+  # A deploy never restarts it: whatever a person has running in it goes on,
+  # and it takes a new image when it is restarted on purpose
+  # (scripts/deploy.sh CONTEXT agent restart NAME).
+  updateStrategy: {type: OnDelete, rollingUpdate: null}
   selector:
     matchLabels:
       app: agent-{{ .name }}
