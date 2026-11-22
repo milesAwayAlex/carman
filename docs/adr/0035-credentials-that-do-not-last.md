@@ -33,6 +33,14 @@ change every hour, and be renewed by something that keeps a sign-in.
   good for one holder would be spent twice.
 - **The first sign-in is a person's**, made in that container by hand. So
   is the next one when the service ends the sign-in.
+- **A sign-in by OAuth is kept by a command the image has**
+  (`oauth-credential`), for services that have no key and no tool of their
+  own, such as remote MCP servers. It learns from the service how to sign
+  in, registers itself as a client, and renews with the token the service
+  gives for that, which is used once and replaced each time. The person
+  signs in from their own browser with `scripts/deploy.sh CONTEXT signin
+  KEY URL`; the browser's way back is a port forwarded to the renewal, so
+  what the sign-in yields is only ever in that container's volume.
 - Fixed credentials are untouched: they are still read once, from the
   secret, as before.
 

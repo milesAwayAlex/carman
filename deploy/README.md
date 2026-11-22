@@ -225,6 +225,26 @@ by hand, in that container:
 
 and watch it with `kubectl ... logs deploy/egress -c renew-KEY`.
 
+A service that signs people in by OAuth in a browser, as remote MCP servers
+do, needs no tool of its own. Give the renewal the command the image has for
+it, and the host its key:
+
+    egress:
+      credentials:
+        - {host: mcp.example.com, key: example}
+      renewals:
+        - {key: example, command: [oauth-credential, token, example]}
+
+then sign in once, from a machine with a browser:
+
+    scripts/deploy.sh CONTEXT signin example https://mcp.example.com/mcp
+
+It prints an address to open; the browser comes back to a port of your
+machine that is forwarded to the renewal, and what the sign-in yields stays
+there. The renewal says in its log when the service ends the sign-in; do
+the same again then. An agent reaches the service as any other, for example
+as an MCP server by its address.
+
 `egress.enabled: false` in the values takes the proxy and the policy out.
 
 ## Agents beyond the dreamer

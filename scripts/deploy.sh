@@ -21,6 +21,7 @@
 #   scripts/deploy.sh CONTEXT agent-image       build the agent image and print its name
 #   scripts/deploy.sh CONTEXT routine FILE      put a routine of this installation's own in the cluster
 #   scripts/deploy.sh CONTEXT tool FILE         put a command of this installation's own on agents' PATH
+#   scripts/deploy.sh CONTEXT signin KEY URL    sign in, in a browser, to a service a renewal keeps a sign-in for
 #   scripts/deploy.sh CONTEXT agent run NAME    run an agent once now and show what it reported
 #   scripts/deploy.sh CONTEXT agent log NAME    the report of its latest run
 #   scripts/deploy.sh CONTEXT agent attach NAME attach this terminal to an interactive agent's session
@@ -142,7 +143,7 @@ build_agent() {
     local root="$build_root/agent"
     rm -rf "$root" && mkdir -p "$root"
     linux_cmem "$root"
-    cp deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/backup-library deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/agent-open deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json "$root/"
+    cp deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/backup-library deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/agent-open deploy/agent/oauth-credential deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json "$root/"
     cp -R routines "$root/routines"
     # A new tag whenever anything in it changes.
     # CARMAN_AGENT_BASE names an image to build on in place of the plain one:
@@ -324,6 +325,19 @@ routine)
     "${kube[@]}" create configmap routines "--from-file=$(basename "$file")=$file" --dry-run=client -o 'jsonpath={.data}' | only_data |
         "${kube[@]}" patch configmap routines --type merge --patch-file /dev/stdin >/dev/null
     echo "the cluster holds routine $(basename "$file" .md)"
+    ;;
+signin)
+    # A person's sign-in to a service that has no key to hand out, kept by a
+    # renewal beside the proxy (deploy/agent/oauth-credential). The browser
+    # comes back to a port of this machine, forwarded to the renewal.
+    key="${3:-}" url="${4:-}" port="${5:-8765}"
+    [ -n "$key" ] && [ -n "$url" ] || die "say: signin KEY URL, with the key of a renewal in the values and the service's address"
+    "${kube[@]}" get deployment egress -o 'jsonpath={.spec.template.spec.containers[*].name}' | tr ' ' '\n' | grep -qx "renew-$key" ||
+        die "no renewal with the key $key; one is an entry under egress.renewals in the values"
+    "${kube[@]}" port-forward deployment/egress "$port:$port" >/dev/null 2>&1 &
+    forward=$!
+    trap 'kill "$forward" 2>/dev/null' EXIT
+    "${kube[@]}" exec deployment/egress -c "renew-$key" -- oauth-credential signin "$key" "$url" --port "$port"
     ;;
 tool)
     file="${3:-}"

@@ -36,7 +36,7 @@ jobs:
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -o build/service/cmem-$arch ./cmd/cmem
           done
           cp deploy/Dockerfile build/service/
-          cp build/service/cmem-* deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/backup-library deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/agent-open deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json build/agent/
+          cp build/service/cmem-* deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/backup-library deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/agent-open deploy/agent/oauth-credential deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json build/agent/
           cp -R routines build/agent/routines
           echo "registry=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
       - uses: docker/setup-qemu-action@v3
