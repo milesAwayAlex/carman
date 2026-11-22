@@ -327,6 +327,9 @@ What an agent can be given, each by a line in its entry:
   same.
 - `env`. Extra environment variables, for a tool that insists on finding
   one; the value is a placeholder, never a credential.
+- `namespaces`. Other namespaces of the cluster whose pods the agent may
+  reach directly, for services you run there for your agents (a database,
+  a cache). Everything else still goes through the proxy or does not go.
 - `google: true`. A cloud identity with no stored key: the pod's own token,
   signed by this cluster, is exchanged for a short-lived token of the service
   account named under `cloud.google`. The cloud side has to trust this

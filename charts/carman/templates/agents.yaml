@@ -359,4 +359,27 @@ spec:
         spec:
           {{- include "agent.podspec" (dict "root" $ "agent" .) | nindent 10 }}
 {{- end }}
+{{- if and .namespaces $.Values.egress.enabled }}
+---
+# Beside the proxy and the memory, this agent may reach the pods of the
+# namespaces its entry names: services the installation runs on the cluster
+# for its agents. Any port; what is there decides what it answers.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-{{ .name }}-reaches-namespaces
+  namespace: {{ $.Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: agent-{{ .name }}
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        {{- range .namespaces }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+        {{- end }}
+{{- end }}
 {{- end }}
