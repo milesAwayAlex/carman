@@ -140,7 +140,7 @@ build_agent() {
     local root="$build_root/agent"
     rm -rf "$root" && mkdir -p "$root"
     linux_cmem "$root"
-    cp deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/backup-library deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json "$root/"
+    cp deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/backup-library deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/agent-open deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json "$root/"
     cp -R routines "$root/routines"
     # A new tag whenever anything in it changes.
     # CARMAN_AGENT_BASE names an image to build on in place of the plain one:
@@ -148,7 +148,11 @@ build_agent() {
     local base=()
     [ -z "${CARMAN_AGENT_BASE:-}" ] || base=(--build-arg "BASE=$CARMAN_AGENT_BASE")
     CARMAN_AGENT_IMAGE="carman-agent:$( (cd "$root" && find . -type f | sort | xargs shasum -a 256; echo "${CARMAN_AGENT_BASE:-}") | shasum -a 256 | cut -c1-12)"
-    docker image inspect "$CARMAN_AGENT_IMAGE" >/dev/null 2>&1 || docker build -q "${base[@]}" -t "$CARMAN_AGENT_IMAGE" "$root" >/dev/null
+    docker image inspect "$CARMAN_AGENT_IMAGE" >/dev/null 2>&1 || docker build -q "${base[@]}" -t "$CARMAN_AGENT_IMAGE" "$root" >/dev/null || {
+        echo "deploy: the agent image did not build; the build again, with its output:" >&2
+        docker build "${base[@]}" -t "$CARMAN_AGENT_IMAGE" "$root" >&2 || true
+        exit 1
+    }
     echo "built $CARMAN_AGENT_IMAGE" >&2
 }
 
