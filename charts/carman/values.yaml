@@ -55,6 +55,12 @@ agent:
     namespace: ""
     # Make the namespace too; false where one is made for you.
     create: true
+    # Whether what runs there may reach the internet: directly, not through
+    # the proxy, so with nobody's credentials, and never the addresses in
+    # egress.closedTo. Off, a service works only if its image has all it
+    # needs. On, a service can download what it needs, and an image you did
+    # not write can also send out whatever it can read there.
+    internet: false
     # The cluster's API as an agent's pod reaches it: the addresses behind
     # the `kubernetes` service (a network policy sees those, not the
     # service's own), each as a CIDR, and their port.

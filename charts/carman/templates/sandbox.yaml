@@ -84,9 +84,10 @@ spec:
       defaultRequest: {cpu: 50m, memory: 128Mi}
       default: {memory: 512Mi}
 ---
-# What runs here talks to its neighbours, to the installation's services,
-# and to nothing else: not the internet, not the cluster's other workloads.
-# Agents reach it; nothing else does.
+# What runs here talks to its neighbours and to the installation's services,
+# and to the internet only if the installation says so; never to the
+# cluster's other workloads or to the node's own network. Agents reach it;
+# nothing else does.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -117,5 +118,16 @@ spec:
       ports:
         - {protocol: UDP, port: 53}
         - {protocol: TCP, port: 53}
+    {{- if .internet }}
+    # Out to the world directly, with no credential of anyone's, and to
+    # nothing private: the same addresses are closed here as to the proxy.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            {{- with $.Values.egress.closedTo }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+    {{- end }}
 {{- end }}
 {{- end }}

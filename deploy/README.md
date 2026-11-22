@@ -262,8 +262,9 @@ own (ADR 0037):
 (`kubectl get endpointslices -n default`). An agent then has a kubectl
 context named `sandbox` and may run workloads and services there, within
 `agent.sandbox.quota`; they are reached as `NAME.sandbox`. Pods there cannot
-touch the node or reach the internet, and agents cannot change the
-namespace's own rules. Nothing cleans it up for you.
+touch the node, and agents cannot change the namespace's own rules. They
+reach the internet only with `agent.sandbox.internet: true`, and then
+directly, without the proxy's credentials. Nothing cleans it up for you.
 
 `egress.enabled: false` in the values takes the proxy and the policy out.
 

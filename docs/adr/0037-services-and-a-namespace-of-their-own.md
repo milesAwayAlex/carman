@@ -35,7 +35,13 @@ is run from compose files, needs a privileged pod, which is the node.
   host network or privileged pods), the quota bounds what may run at once
   and forbids services that take a port of the node or an outside address,
   and its pods talk only to each other and to the installation's services:
-  not to the internet, not to the proxy, not to the rest of the cluster.
+  not to the proxy, not to the rest of the cluster, not to the node's own
+  network.
+- **Whether they reach the internet is the installation's choice**
+  (`agent.sandbox.internet`, off unless said). When on, it is direct and
+  not through the proxy, so that code nobody here wrote is never handed
+  the agents' credentials, and the addresses closed to the proxy are closed
+  here too.
 - **Agents' pods now carry their account's token**, which they did not,
   and may reach the cluster's API. The API's addresses are named in the
   values, because a network policy sees those and not the service's.
@@ -46,9 +52,14 @@ is run from compose files, needs a privileged pod, which is the node.
 - An agent that is misled can fill the sandbox up to its quota, or delete
   what another agent runs there. It cannot reach the node, the proxy's
   credentials or the memory's volume from it.
-- A pod in the sandbox cannot fetch anything from the internet at run
-  time. Images are pulled by the node, so a service that only needs its
-  image works; one that downloads at start does not.
+- With the internet off, a pod in the sandbox cannot fetch anything at
+  run time. Images are pulled by the node, so a service that only needs
+  its image works; one that downloads at start does not.
+- With it on, where sandbox pods go is in no log, and an image from
+  elsewhere that runs there can send out what it can read: the sandbox's
+  own contents and whatever the installation's services give to anyone who
+  asks. An agent can already send anything anywhere through the proxy; what
+  this adds is that an image can, without the agent meaning it to.
 - The installation's services trust whoever reaches them, if they are set
   up that way: every agent, and every pod an agent starts, is such a one.
 - Code that is run from compose files has to be translated into manifests
