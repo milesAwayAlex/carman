@@ -20,7 +20,7 @@ spec:
     spec:
       backoffLimit: 1
       activeDeadlineSeconds: {{ .Values.backup.deadlineSeconds }}
-      ttlSecondsAfterFinished: 1209600
+      ttlSecondsAfterFinished: {{ .Values.agent.keepFinishedSeconds }}
       template:
         metadata:
           labels:

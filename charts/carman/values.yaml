@@ -38,6 +38,9 @@ agent:
   image: ""
   # The secret holding the harness's model credential, under the key `token`.
   modelSecret: model-credential
+  # How long a finished run's pod is kept, for its log. Its image stays on
+  # the node as long; the conversation is kept elsewhere (sessionStorage).
+  keepFinishedSeconds: 259200
   # Where plugins for the harness come from, as its `plugin marketplace add`
   # takes them (OWNER/REPO, OWNER/REPO#REF, a URL). An agent names the
   # plugins it wants from them.

@@ -385,7 +385,7 @@ spec:
     spec:
       backoffLimit: 0
       activeDeadlineSeconds: {{ .deadlineSeconds | default 3600 }}
-      ttlSecondsAfterFinished: 1209600
+      ttlSecondsAfterFinished: {{ $.Values.agent.keepFinishedSeconds }}
       template:
         metadata:
           labels:

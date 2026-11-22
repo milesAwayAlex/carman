@@ -151,9 +151,9 @@ build_agent() {
     local base=()
     [ -z "${CARMAN_AGENT_BASE:-}" ] || base=(--build-arg "BASE=$CARMAN_AGENT_BASE")
     CARMAN_AGENT_IMAGE="carman-agent:$( (cd "$root" && find . -type f | sort | xargs shasum -a 256; echo "${CARMAN_AGENT_BASE:-}") | shasum -a 256 | cut -c1-12)"
-    docker image inspect "$CARMAN_AGENT_IMAGE" >/dev/null 2>&1 || docker build -q "${base[@]}" -t "$CARMAN_AGENT_IMAGE" "$root" >/dev/null || {
+    docker image inspect "$CARMAN_AGENT_IMAGE" >/dev/null 2>&1 || docker build -q --label built-by=deploy "${base[@]}" -t "$CARMAN_AGENT_IMAGE" "$root" >/dev/null || {
         echo "deploy: the agent image did not build; the build again, with its output:" >&2
-        docker build "${base[@]}" -t "$CARMAN_AGENT_IMAGE" "$root" >&2 || true
+        docker build --label built-by=deploy "${base[@]}" -t "$CARMAN_AGENT_IMAGE" "$root" >&2 || true
         exit 1
     }
     echo "built $CARMAN_AGENT_IMAGE" >&2
@@ -173,7 +173,7 @@ deploy)
         cp deploy/Dockerfile "$root/Dockerfile"
         # A new tag whenever the binary changes, so the cluster rolls it out.
         CARMAN_IMAGE="carman-cmem:$(cat "$root"/cmem-* "$root/Dockerfile" | shasum -a 256 | cut -c1-12)"
-        docker build -q -t "$CARMAN_IMAGE" "$root" >/dev/null
+        docker build -q --label built-by=deploy -t "$CARMAN_IMAGE" "$root" >/dev/null
         echo "built $CARMAN_IMAGE"
     fi
 
@@ -254,6 +254,14 @@ EOF
     in_use=" $("${kube[@]}" get pods -o 'jsonpath={.items[*].spec.containers[*].image} {.items[*].spec.initContainers[*].image}' 2>/dev/null) "
     for old in $(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E '^carman-(cmem|agent):' || true); do
         [ "$old" = "$CARMAN_IMAGE" ] || [ "$old" = "$CARMAN_AGENT_IMAGE" ] || [ "${in_use#* $old }" != "$in_use" ] || docker rmi "$old" >/dev/null 2>&1 || true
+    done
+    # The cluster's runtime keeps a record of its own for an image it has
+    # run, which outlives the tag: remove those of this script's builds too.
+    # Only what carries this script's label, and never by force: what a
+    # container still uses is refused, and other images are not looked at.
+    for old in $(docker images --filter dangling=true -q 2>/dev/null | sort -u); do
+        [ "$(docker image inspect "$old" --format '{{index .Config.Labels "built-by"}}' 2>/dev/null | tail -1)" = deploy ] || continue
+        docker rmi "$old" >/dev/null 2>&1 || true
     done
     ;;
 status)

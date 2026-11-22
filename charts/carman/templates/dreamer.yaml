@@ -24,7 +24,7 @@ spec:
     spec:
       backoffLimit: 0
       activeDeadlineSeconds: {{ .Values.dreamer.deadlineSeconds }}
-      ttlSecondsAfterFinished: 1209600
+      ttlSecondsAfterFinished: {{ .Values.agent.keepFinishedSeconds }}
       template:
         metadata:
           labels:
