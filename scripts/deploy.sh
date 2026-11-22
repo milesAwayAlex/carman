@@ -156,6 +156,10 @@ build_agent() {
     echo "built $CARMAN_AGENT_IMAGE" >&2
 }
 
+# Wraps an object's data, as kubectl prints it, into a patch that changes
+# only the data.
+only_data() { printf '{"data":'; cat; printf '}'; }
+
 case "$action" in
 deploy)
     if [ -z "${CARMAN_IMAGE:-}" ]; then
@@ -298,8 +302,7 @@ secret)
     # From standard input to the cluster's API, and nowhere else. The key is
     # merged into the secret, so that a secret can hold several.
     "${kube[@]}" get secret "$name" >/dev/null 2>&1 || "${kube[@]}" create secret generic "$name" >/dev/null
-    "${kube[@]}" create secret generic "$name" "--from-file=$key=/dev/stdin" --dry-run=client -o json |
-        python3 -c 'import json, sys; print(json.dumps({"data": json.load(sys.stdin)["data"]}))' |
+    "${kube[@]}" create secret generic "$name" "--from-file=$key=/dev/stdin" --dry-run=client -o 'jsonpath={.data}' | only_data |
         "${kube[@]}" patch secret "$name" --type merge --patch-file /dev/stdin >/dev/null
     [ "$("${kube[@]}" get secret "$name" -o "jsonpath={.data.$key}" | wc -c)" -gt 8 ] || die "the secret $name came out empty"
     echo "the cluster holds secret $name (key $key)"
@@ -316,8 +319,7 @@ routine)
     file="${3:-}"
     [ -f "$file" ] || die "name the routine's file, for example .local/routines/review.md"
     "${kube[@]}" get configmap routines >/dev/null 2>&1 || "${kube[@]}" create configmap routines >/dev/null
-    "${kube[@]}" create configmap routines "--from-file=$(basename "$file")=$file" --dry-run=client -o json |
-        python3 -c 'import json, sys; print(json.dumps({"data": json.load(sys.stdin)["data"]}))' |
+    "${kube[@]}" create configmap routines "--from-file=$(basename "$file")=$file" --dry-run=client -o 'jsonpath={.data}' | only_data |
         "${kube[@]}" patch configmap routines --type merge --patch-file /dev/stdin >/dev/null
     echo "the cluster holds routine $(basename "$file" .md)"
     ;;
@@ -325,8 +327,7 @@ tool)
     file="${3:-}"
     [ -f "$file" ] || die "name the command's file, for example .local/tools/NAME"
     "${kube[@]}" get configmap tools >/dev/null 2>&1 || "${kube[@]}" create configmap tools >/dev/null
-    "${kube[@]}" create configmap tools "--from-file=$(basename "$file")=$file" --dry-run=client -o json |
-        python3 -c 'import json, sys; print(json.dumps({"data": json.load(sys.stdin)["data"]}))' |
+    "${kube[@]}" create configmap tools "--from-file=$(basename "$file")=$file" --dry-run=client -o 'jsonpath={.data}' | only_data |
         "${kube[@]}" patch configmap tools --type merge --patch-file /dev/stdin >/dev/null
     echo "agents have the command $(basename "$file")"
     ;;
