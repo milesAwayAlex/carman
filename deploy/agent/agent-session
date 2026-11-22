@@ -38,6 +38,7 @@ echo "agent-session: ready; attach with agent-attach"
 # The sessions that were open before this start are opened again, each on
 # its conversation (agent-open).
 export AGENT_TMUX="$(command -v tmux)"
+echo "$AGENT_TMUX" > /tmp/agent-tmux
 tmux -u new-session -d -s main -c "$HOME/work" 2>/dev/null || true
 agent-open --all || echo "agent-session: the remembered sessions were not all opened" >&2
 while true; do

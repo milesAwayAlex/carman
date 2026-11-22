@@ -19,10 +19,13 @@ mkdir -p "$(dirname "$list")" && touch "$list"
 # The session's tmux, by its own program and socket: a login shell may find
 # another tmux first, or look for the socket elsewhere.
 sock="/tmp/tmux-$(id -u)/default"
-bin="${AGENT_TMUX:-}"
+bin="${AGENT_TMUX:-$(cat /tmp/agent-tmux 2>/dev/null || true)}"
 if [ -z "$bin" ]; then
-    server="$(pgrep -o -u "$(id -u)" -f 'new-session -d -s main' || true)"
-    [ -z "$server" ] || bin="$(readlink "/proc/$server/exe" || true)"
+    # Not told which: the program of a tmux that is running here.
+    for running in $(pgrep -u "$(id -u)" tmux 2>/dev/null); do
+        bin="$(readlink "/proc/$running/exe" 2>/dev/null || true)"
+        [ -z "$bin" ] || break
+    done
 fi
 t() { "${bin:-tmux}" -S "$sock" "$@"; }
 self="$(command -v "$0")"
