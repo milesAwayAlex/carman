@@ -14,6 +14,7 @@
       components = pkgs: rec {
         cmem = pkgs.callPackage ./nix/packages/cmem.nix { };
         cmem-claude-code-settings = pkgs.callPackage ./nix/packages/cmem-claude-code-settings.nix { inherit cmem; };
+        dev-tools = pkgs.callPackage ./nix/packages/dev-tools.nix { };
       };
     in
     {
@@ -27,7 +28,8 @@
 
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
-          packages = [ pkgs.go pkgs.git ];
+          # The same tools as packages.<system>.dev-tools, and git.
+          packages = [ (components pkgs).dev-tools pkgs.git ];
         };
       });
     };
