@@ -93,10 +93,14 @@ Then run `scripts/deploy.sh devvm check`. What it can report, and what to do:
 
 ## Backing up
 
-On a cluster with `backup.enabled` in the values, a nightly job copies the
-library to a bucket (ADR 0033). On a cluster on your own machine nothing in
-this repository does it for you: schedule it on the machine, or do it by
-hand.
+With `backup.enabled` in the values, a nightly job copies the library to
+a store outside the cluster and reads the store back (ADR 0038;
+`deploy/README.md` has the settings). A night that fails tells the owner,
+where the installation has a command for that. What it has kept:
+
+    scripts/deploy.sh devvm copies
+
+Without a store, nothing does it for you. By hand:
 
     scripts/deploy.sh devvm backup cmem-library-$(date +%Y%m%d).tar
 
@@ -110,7 +114,16 @@ nightly job does, by restoring what it made (`cmem restore FILE DIR`).
 
 ## Restoring a backup
 
+    scripts/deploy.sh devvm restore --from-store          # the latest copy the nightly job kept
+    scripts/deploy.sh devvm restore --from-store COPY     # the one with that id, from `copies`
     scripts/deploy.sh devvm restore cmem-library-20261119.tar
+    scripts/deploy.sh devvm restore library.bundle        # a file made by `cmem backup`
+
+From the store, the copy passes through this machine in a file only you can
+read, which is removed afterwards. If the store's own history had to be
+used to bring a deleted repository back, run `restic unlock --remove-all`
+and `restic repair index` against it first: what comes back includes the
+locks and the removed copies of the time before.
 
 The library in place is not deleted: it is moved aside in the same volume as
 `/data/library.replaced-TIME`, and can be removed once you are satisfied. The
@@ -125,15 +138,20 @@ or the VM's state disk does lose it, and so does a VM rebuilt from nothing.
 
 1. Bring the cluster up, then `nix develop -c scripts/deploy.sh devvm`. This
    creates an empty library, and new tokens if the Secret went too.
-2. `scripts/deploy.sh devvm restore FILE` with the last backup.
-3. If the tokens are new, the copies you keep elsewhere are now wrong. Store
+2. If the nightly job's secret went too, put the repository's password and
+   the store's keys back (`deploy/README.md`, Backup) and deploy again, so
+   that the job exists to read the store through.
+3. `scripts/deploy.sh devvm restore --from-store`, or `restore FILE` with
+   the last backup made by hand.
+4. If the tokens are new, the copies you keep elsewhere are now wrong. Store
    the new ones (`scripts/deploy.sh devvm token laptop | ...`, and the same
    for `dreamer`), or sessions will be told memory cannot be reached.
 
 ## Not covered yet
 
-- A backup that happens without anyone running it. The intended one is a git
-  remote the library pushes to.
+- Anything that tells you a night's backup never ran. A night that ran and
+  failed does tell you.
+- A copy of an interactive agent's home, or of the conversations jobs leave.
 - Starting the VM with the laptop.
 - Anything that tells you the service is down, other than the line a session
   shows when it starts.

@@ -48,3 +48,4 @@ To change a decision, add a new record and mark the old one superseded.
 | [0035](0035-credentials-that-do-not-last.md) | A credential that does not last is renewed beside the proxy | Accepted |
 | [0036](0036-the-owners-attention.md) | An agent asks for the owner's attention with one command, and the owner can pick its conversation up | Accepted |
 | [0037](0037-services-and-a-namespace-of-their-own.md) | Agents reach the installation's services on the cluster, and have a namespace to run their own | Accepted |
+| [0038](0038-state-is-copied-to-a-store-the-platform-gives.md) | The installation's state is copied to a store the platform gives, by a job of the chart | Proposed |

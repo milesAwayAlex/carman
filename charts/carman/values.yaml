@@ -118,9 +118,32 @@ backup:
   enabled: false
   # After the dreamer, so that a night's copy has that night's tidying (UTC).
   schedule: "47 10 * * *"
-  # Where each night's copy is put, for example gs://BUCKET/library. The file
-  # is named for the moment it was made.
-  destination: ""
+  # Where the copies are kept: a restic repository, in a store the platform
+  # gives. A bucket that speaks S3 (s3:https://HOST/BUCKET/PATH), a cloud's
+  # own (gs:BUCKET:/PATH) or, for a trial, a directory.
+  repository: ""
+  # The secret that holds the repository's password under `password`, and
+  # for a store that wants keys, `access-key-id` and `secret-access-key`.
+  # Keep the password outside the cluster as well: no copy can be read
+  # without it, and the cluster is what a backup is for losing.
+  secret: backup
+  # Which copies are kept, as restic's forget takes it; empty keeps them all.
+  keep: "--keep-daily 30 --keep-weekly 12 --keep-monthly 12"
+  # More to copy beside the library, each a name and a command whose output
+  # is the copy (a database's dump, say). A command that fails leaves no copy.
+  #   - name: database
+  #     command: [pg_dumpall, --host, db.services]
+  also: []
+  # More of the job's environment, such as a store's region.
+  env: {}
+  # A store on the installation's own network is reached directly and not
+  # through the proxy: its host as the repository names it, and the
+  # addresses and port it answers at. One in a namespace under
+  # agent.namespaces needs nothing here.
+  store:
+    host: ""
+    addresses: []
+    port: 443
   # Annotations of the job's own account. On a managed cluster this is how
   # the account is given a cloud identity that may write to the destination.
   serviceAccountAnnotations: {}

@@ -9,6 +9,8 @@
 #   scripts/deploy.sh CONTEXT check     ask the service's library whether every note is as written
 #   scripts/deploy.sh CONTEXT backup FILE    copy the whole library, history included, to a tar file
 #   scripts/deploy.sh CONTEXT restore FILE   put a backup in place of the library and restart
+#   scripts/deploy.sh CONTEXT restore --from-store [COPY]   the same, with the latest copy the nightly job kept (or the one with that id)
+#   scripts/deploy.sh CONTEXT copies         the copies the nightly job has kept
 #   scripts/deploy.sh CONTEXT token ROLE | ...
 #                                       write one role's token to a pipe, for handing to a
 #                                       password manager; refuses to write it to a terminal
@@ -71,6 +73,21 @@ chart_values=(-f "$values")
 url="${CMEM_URL:-http://127.0.0.1:8377}"
 
 answers() { curl -fsS -m 3 -o /dev/null "$url/healthz" 2>/dev/null; }
+
+# Runs backup-state with the given arguments where the nightly job runs: in
+# a pod made from that job, which is what can reach the store and read it.
+from_store() {
+    "${kube[@]}" get cronjob backup >/dev/null 2>&1 || die "this installation keeps no nightly copies (backup.enabled)"
+    local pod="backup-read-$(date +%H%M%S)" status=0
+    "${kube[@]}" create job "$pod" --from=cronjob/backup --dry-run=client -o json |
+        "${kube[@]}" patch --local -f - --type json -o json \
+            -p '[{"op":"replace","path":"/spec/template/spec/containers/0/command","value":["sleep","900"]}]' |
+        "${kube[@]}" create -f - >/dev/null || die "could not start a pod to read the store"
+    "${kube[@]}" wait --for=condition=ready pod -l "job-name=$pod" --timeout=120s >/dev/null || status=1
+    [ "$status" -ne 0 ] || "${kube[@]}" exec "job/$pod" -- backup-state "$@" || status=1
+    "${kube[@]}" delete job "$pod" --wait=false >/dev/null
+    return "$status"
+}
 
 secret() { "${kube[@]}" get secret cmem-tokens -o "jsonpath={.data.$1}" | base64 -d; }
 
@@ -143,7 +160,7 @@ build_agent() {
     local root="$build_root/agent"
     rm -rf "$root" && mkdir -p "$root"
     linux_cmem "$root"
-    cp deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/backup-library deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/agent-open deploy/agent/oauth-credential deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json "$root/"
+    cp deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/backup-state deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/agent-open deploy/agent/oauth-credential deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json "$root/"
     cp -R routines "$root/routines"
     # A new tag whenever anything in it changes.
     # CARMAN_AGENT_BASE names an image to build on in place of the plain one:
@@ -290,26 +307,46 @@ backup)
     tar -tf "$file" library/.git/HEAD >/dev/null 2>&1 || { rm -f "$file"; die "what came back is not a library"; }
     echo "wrote $file: $(tar -tf "$file" | grep -c '^library/entries/.*\.md$' || true) entries, with their history"
     ;;
+copies)
+    from_store list
+    ;;
 restore)
     file="${3:-}"
-    [ -f "$file" ] || die "name the backup file to restore"
-    tar -tf "$file" library/.git/HEAD >/dev/null 2>&1 || die "$file is not a backup made by this script"
+    fetched=""
+    if [ "$file" = --from-store ]; then
+        # The copy passes through this machine, in a file nobody else can read, and is removed after.
+        fetched="$(mktemp)"
+        from_store dump library ${4:+"$4"} > "$fetched" || { rm -f "$fetched"; die "no copy came from the store"; }
+        file="$fetched"
+    fi
+    [ -f "$file" ] || die "name the backup file to restore, or --from-store"
+    if head -c 16 "$file" | grep -q '^# v[0-9] git bundle'; then
+        # One file made by `cmem backup`, which is what the nightly job keeps:
+        # the memory service makes a library of it, beside the one in place.
+        how='cat > /data/restoring.bundle && cmem restore /data/restoring.bundle /data/restoring/library >/dev/null && rm -f /data/restoring.bundle'
+    elif tar -tf "$file" library/.git/HEAD >/dev/null 2>&1; then
+        how='tar -C /data/restoring -xf -'
+    else
+        [ -z "$fetched" ] || rm -f "$fetched"
+        die "$file is not a backup: neither a file made by cmem backup nor one made by this script"
+    fi
     # The library in place is moved aside, never deleted.
     "${kube[@]}" exec -i cmem-0 -- sh -c '
         set -e
-        rm -rf /data/restoring && mkdir /data/restoring
-        tar -C /data/restoring -xf -
+        rm -rf /data/restoring /data/restoring.bundle && mkdir /data/restoring
+        '"$how"'
         test -f /data/restoring/library/.git/HEAD
         aside=/data/library.replaced-$(date +%Y%m%dT%H%M%S)
         mv /data/library "$aside"
         mv /data/restoring/library /data/library
         rmdir /data/restoring
         echo "the library that was in place is kept as $aside in the volume"' < "$file"
+    [ -z "$fetched" ] || rm -f "$fetched"
     # The service holds the old library in memory; restarting makes it read the restored one.
     "${kube[@]}" delete pod cmem-0 --wait=true >/dev/null
     "${kube[@]}" rollout status statefulset/cmem --timeout=120s >/dev/null
     sleep 3
-    echo "restored $file: $("${kube[@]}" exec cmem-0 -- sh -c 'find /data/library/entries -name "*.md" | wc -l') entries"
+    echo "restored: $("${kube[@]}" exec cmem-0 -- sh -c 'find /data/library/entries -name "*.md" | wc -l') entries"
     if answers; then echo "the service answers at $url"; else echo "the service does not answer at $url from this machine"; fi
     ;;
 token)

@@ -1,0 +1,110 @@
+#!/bin/sh
+# Copies the installation's state out of the cluster, into a store the
+# platform gives it, and gets a copy back.
+#
+#   backup-state                    copy everything: the library, then whatever else is named
+#   backup-state list               the copies that are kept
+#   backup-state dump NAME [COPY]   one copy of NAME on standard output (the latest, or the copy with that id)
+#
+# The store is a restic repository: a bucket that speaks S3, a cloud's own
+# bucket, or a directory. restic keeps each night's copy as a snapshot,
+# encrypted before it leaves, and stores only what changed.
+#
+# From the environment:
+#   BACKUP_REPOSITORY   the repository's address, as restic takes it:
+#                       s3:https://HOST/BUCKET/PATH, gs:BUCKET:/PATH, /a/directory
+#   RESTIC_PASSWORD     the repository's password; without it no copy can be read
+#   the store's own credential, if it wants one (AWS_ACCESS_KEY_ID and
+#   AWS_SECRET_ACCESS_KEY for S3; the pod account's identity for a cloud's bucket)
+#   CMEM_URL, CMEM_TOKEN   the memory service, for the library
+#   BACKUP_ALSO         more to copy, as JSON: [{"name": "NAME", "command": ["PROGRAM", "ARG", ...]}].
+#                       What the command prints is the copy; if it fails, no copy is kept.
+#   BACKUP_KEEP         which copies to keep, as restic's forget takes it
+#                       (for example: --keep-daily 30 --keep-weekly 12); all, if not set
+# The proxy and its certificate, and the installation's commands.
+[ ! -r /usr/local/lib/agent-env ] || . /usr/local/lib/agent-env
+set -u
+[ -n "${BACKUP_REPOSITORY:-}" ] || { echo "backup-state: BACKUP_REPOSITORY must be set" >&2; exit 2; }
+[ -n "${RESTIC_PASSWORD:-}${RESTIC_PASSWORD_FILE:-}" ] || { echo "backup-state: RESTIC_PASSWORD must be set" >&2; exit 2; }
+export RESTIC_REPOSITORY="$BACKUP_REPOSITORY" RESTIC_CACHE_DIR="${RESTIC_CACHE_DIR:-/tmp/restic-cache}" CMEM_HOOK=off
+# Every copy is made under one name, whichever pod made it, so that the
+# copies of one thing are told apart only by when they were made.
+from="${BACKUP_FROM:-cluster}"
+
+case "${1:-}" in
+list)
+    exec restic snapshots --host "$from" --compact
+    ;;
+dump)
+    [ -n "${2:-}" ] || { echo "usage: backup-state dump NAME [COPY]" >&2; exit 2; }
+    exec restic dump --quiet --host "$from" --tag "$2" "${3:-latest}" "/$2"
+    ;;
+"") ;;
+*)
+    echo "usage: backup-state [list | dump NAME [COPY]]" >&2; exit 2
+    ;;
+esac
+
+# A repository is made the first time. If it is there and cannot be read
+# (a wrong password, a store out of reach), making it fails too, and says why.
+restic cat config >/dev/null 2>&1 || restic init || exit 1
+
+failed=""
+keep() {  # NAME: what the command after it prints becomes a copy of NAME
+    name="$1"; shift
+    if restic backup --quiet --host "$from" --tag "$name" --stdin-filename "$name" --stdin-from-command -- "$@"; then
+        echo "backup-state: kept a copy of $name"
+        if [ -n "${BACKUP_KEEP:-}" ]; then
+            # shellcheck disable=SC2086
+            restic forget --quiet --host "$from" --tag "$name" --group-by host,tags $BACKUP_KEEP || failed="$failed $name(old copies not removed)"
+        fi
+    else
+        echo "backup-state: no copy of $name was kept" >&2
+        failed="$failed $name"
+    fi
+}
+
+# The library: the whole of it as one file from the memory service. A copy
+# that cannot be restored is not a backup; find out before it is kept.
+if [ -n "${CMEM_URL:-}" ]; then
+    work="$(mktemp -d)"
+    if said="$(cmem backup "$work/library.bundle")" && echo "$said" | head -1 &&
+        said="$(cmem restore "$work/library.bundle" "$work/restored")" && echo "$said" | head -1; then
+        keep library cat "$work/library.bundle"
+    else
+        failed="$failed library(could not be taken or restored)"
+    fi
+    rm -rf "$work"
+fi
+
+count="$(printf '%s' "${BACKUP_ALSO:-[]}" | jq 'length' 2>/dev/null)" || { failed="$failed BACKUP_ALSO(not JSON)"; count=0; }
+i=0
+while [ "$i" -lt "${count:-0}" ]; do
+    name="$(printf '%s' "$BACKUP_ALSO" | jq -r ".[$i].name")"
+    # One argument a line: an argument may hold spaces, not a line break.
+    old="$IFS"; IFS='
+'
+    set -f
+    # shellcheck disable=SC2046
+    set -- $(printf '%s' "$BACKUP_ALSO" | jq -r ".[$i].command[]")
+    set +f
+    IFS="$old"
+    if [ -n "$name" ] && [ "$name" != null ] && [ $# -gt 0 ]; then keep "$name" "$@"; else failed="$failed entry-$i(needs a name and a command)"; fi
+    i=$((i + 1))
+done
+
+# What forget let go of is removed from the store, and the store is read
+# back: a copy nobody can read is found tonight and not on the day it is needed.
+if [ -n "${BACKUP_KEEP:-}" ]; then restic prune --quiet || failed="$failed prune"; fi
+restic check --quiet || failed="$failed check"
+
+if [ -n "$failed" ]; then
+    echo "backup-state: failed:$failed" >&2
+    # The owner hears of it, where the installation has a way to tell them.
+    if command -v notify-owner >/dev/null 2>&1; then
+        notify-owner --urgency today --importance high "The nightly backup failed" \
+            "Not copied or not checked:$failed. The job's log says why; the copies made before tonight are untouched." || true
+    fi
+    exit 1
+fi
+echo "backup-state: all copied to the store, and the store reads back whole"

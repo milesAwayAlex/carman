@@ -348,10 +348,13 @@ which are the weakest parts. Three things are meant to keep that manageable:
 - Nothing the chart puts on a cluster carries the project's name, and
   `scripts/chart-export.sh` writes the chart out under another (ADR 0032).
 - One token per role, generated at the first deploy and kept in a Secret.
-- Backup: a nightly job copies the whole library to a bucket as one file,
-  after proving a library can be made of it (ADR 0033). `cmem backup FILE`
-  and `cmem restore FILE DIR` do the same by hand, on any machine, and
-  `deploy/RECOVERY.md` has the steps for starting, checking and restoring.
+- Backup: a nightly job copies the installation's state to a store the
+  platform gives: a restic repository in a bucket, with each night kept as
+  a snapshot (ADR 0038, proposed). The library is copied as one file, after
+  proving a library can be made of it; an installation names what else.
+  `cmem backup FILE` and `cmem restore FILE DIR` do the library by hand, on
+  any machine, and `deploy/RECOVERY.md` has the steps for starting,
+  checking and restoring.
 - The service recovers by itself from a stop in the middle of a write: it
   clears git's stale locks and commits whole notes left uncommitted, and
   writes are flushed to disk before they count.
@@ -419,7 +422,7 @@ M8 is checked by running the carman arm on a second harness with only the CLI.
 | Q3 | Which tasks get a daydreamer pass, and on which model? |
 | Q4 | Human approval gates (R9) |
 | Q5 | Answered: built-in Claude Code memory is off on the laptop since the hook was installed |
-| Q6 | Answered by ADR 0033: no git remote; a nightly job copies the whole library to a bucket |
+| Q6 | Answered by ADRs 0033 and 0038: no git remote; a nightly job copies the whole library to a store outside the cluster |
 | Q7 | Should the laptop record episodes automatically, or only write notes? |
 | Q8 | Answered by ADR 0023: a new note says `--here` or `--global`. Still open within it: a level for one organisation's repositories, between a single repository and everywhere |
 | Q9 | Self-improvement: carman should notice how it is working and use good opportunities to improve itself, starting with memory consolidation. What it watches, and what it may change on its own, are not designed |
@@ -458,7 +461,7 @@ Decisions are recorded one per file in `docs/adr/`. The index,
    Code's built-in memory.
 2. Done: the service on the local cluster. Next: install the hook for the
    owner's own sessions, import the built-in memories, and start using it.
-   Then a backup of the library to a git remote.
+   The backup of the library is a nightly job's (ADR 0038).
 3. A memory larger than the index: the scale test, and the cheap-model brief
    if it shows the tail is not being found (ADR 0017).
 4. Deploy the service to the cluster and reach it over Tailscale (R4).

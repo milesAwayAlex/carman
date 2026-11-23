@@ -127,12 +127,27 @@ setting in the values:
   `kubectl --context CONTEXT -n NAMESPACE get secret cmem-tokens -o 'jsonpath={.data.laptop}' | base64 -d | your-password-manager ...`.
   The model credential comes from the store (`modelCredential`) or by a pipe:
   `PROGRAM-THAT-PRINTS-THE-TOKEN | CARMAN_NAMESPACE=NAMESPACE scripts/deploy.sh CONTEXT secret model-credential`.
-- **Backup.** `backup.enabled` with `backup.destination: gs://BUCKET/PREFIX`
-  copies the whole library there every night, after proving the copy can be
-  restored. The job's account needs a cloud identity that may write to the
-  bucket; on a managed cluster that is an annotation
-  (`backup.serviceAccountAnnotations`). To use a copy:
-  `cmem restore FILE DIR`, then `cmem serve --library DIR`.
+- **Backup.** `backup.enabled` with `backup.repository` copies the
+  installation's state every night to a store outside the cluster (ADR
+  0038): the whole library, after proving the copy can be restored, and
+  whatever `backup.also` names. The repository is restic's, so the store
+  can be a bucket that speaks S3 (`s3:https://HOST/BUCKET/PATH`), a cloud's
+  own (`gs:BUCKET:/PATH`) or a directory. Before turning it on, put the
+  repository's password in the cluster, and the store's keys if it wants
+  keys:
+
+      PROGRAM-THAT-PRINTS-IT | scripts/deploy.sh CONTEXT secret backup password
+      PROGRAM-THAT-PRINTS-IT | scripts/deploy.sh CONTEXT secret backup access-key-id
+      PROGRAM-THAT-PRINTS-IT | scripts/deploy.sh CONTEXT secret backup secret-access-key
+
+  Keep the password outside the cluster as well; no copy can be read
+  without it. A cloud's bucket takes the identity of the job's account
+  instead of keys; on a managed cluster that is an annotation
+  (`backup.serviceAccountAnnotations`). A store on the installation's own
+  network, which the proxy does not go to, is named under `backup.store`.
+  `scripts/deploy.sh CONTEXT copies` lists what is kept and
+  `scripts/deploy.sh CONTEXT restore --from-store` puts the latest library
+  back (`deploy/RECOVERY.md`).
 
 Every pod meets the restricted pod security standard and has its own
 service account.

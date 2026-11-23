@@ -29,10 +29,11 @@ Built so far:
 - `charts/carman` and `deploy/`: the Helm chart for the memory service and
   the agents beside it, deployed with `scripts/deploy.sh CONTEXT`. It runs on
   the local cluster. For a shared, managed cluster it has placement, labels,
-  isolation, secrets made by External Secrets Operator and a nightly backup
-  to a bucket (ADR 0033, not yet run on one). Nothing it puts on a cluster
-  carries the project's name, and `scripts/chart-export.sh NAME DIR` writes
-  it out under another (ADR 0032). `.github/workflows/images.yml` publishes
+  isolation and secrets made by External Secrets Operator (ADR 0033, not
+  yet run on one). A nightly job copies the installation's state to a store
+  the platform gives, as a restic repository (ADR 0038, proposed). Nothing
+  it puts on a cluster carries the project's name, and
+  `scripts/chart-export.sh NAME DIR` writes it out under another (ADR 0032). `.github/workflows/images.yml` publishes
   the two images.
 - The dreamer: the first agent. `routines/consolidate.md` and
   `routines/distill.md` run nightly as a CronJob in the agent image

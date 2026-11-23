@@ -1,7 +1,9 @@
 {{- if .Values.backup.enabled }}
-# A copy of the whole library, history included, put outside the cluster
-# every night. Each copy stands by itself: `cmem restore FILE DIR` makes a
-# library of any one of them, on any machine.
+# A copy of the installation's state, put outside the cluster every night:
+# the whole library, history included, and whatever else the values name.
+# The copies go to a repository the platform gives (ADR 0038), and each
+# stands by itself: `backup-state dump library` gives a file that
+# `cmem restore FILE DIR` makes a library of, on any machine.
 {{ include "pod.account" (dict "name" "backup" "root" . "annotations" .Values.backup.serviceAccountAnnotations) }}
 ---
 apiVersion: batch/v1
@@ -18,7 +20,8 @@ spec:
   failedJobsHistoryLimit: 7
   jobTemplate:
     spec:
-      backoffLimit: 1
+      # One try a night: a failure tells the owner, once.
+      backoffLimit: 0
       activeDeadlineSeconds: {{ .Values.backup.deadlineSeconds }}
       ttlSecondsAfterFinished: {{ .Values.agent.keepFinishedSeconds }}
       template:
@@ -41,7 +44,7 @@ spec:
             - name: backup
               image: {{ required "agent.image is required" .Values.agent.image }}
               imagePullPolicy: IfNotPresent
-              command: ["backup-library"]
+              command: ["backup-state"]
               env:
                 - name: CMEM_URL
                   value: http://cmem:{{ .Values.memory.service.port }}
@@ -52,17 +55,58 @@ spec:
                     secretKeyRef:
                       name: {{ .Values.memory.tokensSecret }}
                       key: worker
-                - name: BACKUP_DESTINATION
-                  value: {{ required "backup.destination is required" .Values.backup.destination | quote }}
+                - name: BACKUP_REPOSITORY
+                  value: {{ required "backup.repository is required" .Values.backup.repository | quote }}
+                # Without the password no copy can be read: it is kept
+                # outside the cluster too, by whoever would restore.
+                - name: RESTIC_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.backup.secret }}
+                      key: password
+                # A store that wants keys; a cloud's bucket takes the
+                # identity of the job's account instead.
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.backup.secret }}
+                      key: access-key-id
+                      optional: true
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.backup.secret }}
+                      key: secret-access-key
+                      optional: true
+                - name: BACKUP_KEEP
+                  value: {{ .Values.backup.keep | quote }}
+                - name: BACKUP_ALSO
+                  value: {{ .Values.backup.also | toJson | quote }}
+                {{- range $name, $value := .Values.backup.env }}
+                - name: {{ $name }}
+                  value: {{ $value | quote }}
+                {{- end }}
                 {{- if .Values.egress.enabled }}
                 - name: HTTPS_PROXY
                   value: http://egress:3128
                 - name: NO_PROXY
-                  value: cmem,localhost,127.0.0.1,metadata.google.internal,169.254.169.254
+                  value: cmem,localhost,127.0.0.1,metadata.google.internal,169.254.169.254{{ range .Values.agent.namespaces }},.{{ . }}{{ end }}{{ with .Values.backup.store.host }},{{ . }}{{ end }}
+                - name: EGRESS_CA
+                  value: /etc/agent/egress/ca.crt
                 {{- end }}
               volumeMounts:
                 - name: home
                   mountPath: /home/agent
+                # The installation's commands: the one that tells the owner
+                # a night's copy failed is among them, where there is one.
+                - name: tools
+                  mountPath: /etc/agent/bin
+                  readOnly: true
+                {{- if .Values.egress.enabled }}
+                - name: egress-ca
+                  mountPath: /etc/agent/egress
+                  readOnly: true
+                {{- end }}
               resources:
                 {{- toYaml .Values.backup.resources | nindent 16 }}
               securityContext:
@@ -72,6 +116,17 @@ spec:
           volumes:
             - name: home
               emptyDir: {}
+            - name: tools
+              configMap:
+                name: tools
+                optional: true
+                defaultMode: 0555
+            {{- if .Values.egress.enabled }}
+            - name: egress-ca
+              configMap:
+                name: egress-ca
+                optional: true
+            {{- end }}
 {{- if .Values.egress.enabled }}
 ---
 # Beside what every agent pod may reach, the backup may ask the node for the
@@ -96,5 +151,14 @@ spec:
         - ipBlock: {cidr: 169.254.169.252/32}
       ports:
         - {protocol: TCP, port: 988}
+    {{- with .Values.backup.store.addresses }}
+    # A store on the installation's own network, reached directly.
+    - to:
+        {{- range . }}
+        - ipBlock: {cidr: {{ . }}}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: {{ $.Values.backup.store.port }}}
+    {{- end }}
 {{- end }}
 {{- end }}
