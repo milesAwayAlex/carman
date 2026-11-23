@@ -158,7 +158,9 @@ End with a short report:
 - the run's ID;
 - each change in one line, with why;
 - questions only a person can answer, each in a line (see "Two entries that
-  disagree");
+  disagree"), under a heading that reads exactly `Questions for the owner`.
+  The owner is told of a report that has that heading, so leave the heading
+  out when you have no question;
 - what else you left alone, and why, including scoped entries that look as
   if they might apply everywhere;
 - how to undo the run: `cmem consolidate revert RUN 'REASON'`.

@@ -1,9 +1,10 @@
 # 0038: The installation's state is copied to a store the platform gives, by a job of the chart
 
-Status: Proposed (2026-11-22). Built; running on the local cluster against
+Status: Accepted (2026-11-22). Built; running on the local cluster against
 a bucket that speaks S3, and a library restored from the bucket was the
-same as the one in service. When accepted, it replaces the backup job of
-ADR 0033.
+same as the one in service. It replaces the backup job of ADR 0033. The
+owner, on accepting: a whole new copy of the library each night is a
+growth to sort out later, not now.
 
 ## Context
 

@@ -31,7 +31,21 @@ for routine in "$@"; do
     # `cmem routine` runs the harness, and runs it again up the ladder of
     # models for whatever memory refused and was not then done (ADR 0029).
     # One routine that does not finish does not stop the next.
-    cmem routine "$file" || failed=1
+    said="$(mktemp)" && pipe="$(mktemp -u)" && mkfifo "$pipe"
+    tee "$said" < "$pipe" &
+    cmem routine "$file" > "$pipe" 2>&1 || failed=1
+    wait
+    rm -f "$pipe"
+    # A routine that may run only the memory command cannot tell the owner
+    # anything itself. When its report has questions for them, they are told
+    # here, once, with the conversation to pick up (agent-resume).
+    if [ "${CMEM_ROUTINE_TOOLS:-}" != all ] && command -v notify-owner >/dev/null 2>&1 && grep -qi 'questions for the owner' "$said"; then
+        id="$(ls -t "$HOME"/.claude/projects/*/*.jsonl 2>/dev/null | head -1)"
+        id="$(basename "${id:-}" .jsonl)"
+        notify-owner --urgency whenever --importance normal "The $routine routine has questions for you" \
+            "Its report ends with questions only you can answer.${id:+ To read them and answer, pick its conversation up from an interactive agent: agent-resume $id}" || true
+    fi
+    rm -f "$said"
     echo
 done
 exit $failed

@@ -43,9 +43,9 @@ To change a decision, add a new record and mark the old one superseded.
 | [0030](0030-carman-is-packaged-as-a-chart.md) | carman is packaged as a Helm chart | Accepted |
 | [0031](0031-agents-reach-the-outside-through-a-proxy.md) | Agents reach the outside through a proxy that holds their credentials | Accepted |
 | [0032](0032-what-runs-on-a-cluster-does-not-carry-the-project-name.md) | What runs on a cluster does not carry the project's name | Accepted |
-| [0033](0033-on-a-shared-cluster.md) | On a shared, managed cluster: published images, secrets made in the cluster, a nightly copy to a bucket | Accepted |
+| [0033](0033-on-a-shared-cluster.md) | On a shared, managed cluster: published images, secrets made in the cluster, a nightly copy to a bucket | Accepted; the nightly copy superseded by 0038 |
 | [0034](0034-an-interactive-agent.md) | An agent can be interactive: a standing pod a person attaches to | Accepted |
 | [0035](0035-credentials-that-do-not-last.md) | A credential that does not last is renewed beside the proxy | Accepted |
 | [0036](0036-the-owners-attention.md) | An agent asks for the owner's attention with one command, and the owner can pick its conversation up | Accepted |
 | [0037](0037-services-and-a-namespace-of-their-own.md) | Agents reach the installation's services on the cluster, and have a namespace to run their own | Accepted |
-| [0038](0038-state-is-copied-to-a-store-the-platform-gives.md) | The installation's state is copied to a store the platform gives, by a job of the chart | Proposed |
+| [0038](0038-state-is-copied-to-a-store-the-platform-gives.md) | The installation's state is copied to a store the platform gives, by a job of the chart | Accepted |

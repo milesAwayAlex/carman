@@ -31,7 +31,7 @@ Built so far:
   the local cluster. For a shared, managed cluster it has placement, labels,
   isolation and secrets made by External Secrets Operator (ADR 0033, not
   yet run on one). A nightly job copies the installation's state to a store
-  the platform gives, as a restic repository (ADR 0038, proposed). Nothing
+  the platform gives, as a restic repository (ADR 0038). Nothing
   it puts on a cluster carries the project's name, and
   `scripts/chart-export.sh NAME DIR` writes it out under another (ADR 0032). `.github/workflows/images.yml` publishes
   the two images.
@@ -56,7 +56,8 @@ Built so far:
 - The owner's attention (ADR 0036): an agent tells the owner with the
   installation's `notify-owner` command, and a job's conversation is kept
   so that the owner can pick it up from an interactive agent with
-  `agent-resume ID`.
+  `agent-resume ID`. The dreamer's too: a report of its with questions
+  for the owner sends one notice.
 
 - Services on the cluster (ADR 0037): agents reach the namespaces the
   installation names (`agent.namespaces`), and have a namespace of their

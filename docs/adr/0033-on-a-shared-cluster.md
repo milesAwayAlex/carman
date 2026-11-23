@@ -1,8 +1,9 @@
 # 0033: On a shared, managed cluster: published images, secrets made in the cluster, a nightly copy to a bucket
 
-Status: Accepted (2026-11-22). Built in the chart; proved on the local
-cluster as far as that can be (see Consequences). Not yet run on a managed
-cluster: the memory in the cloud is postponed, and the local one is in use.
+Status: Accepted (2026-11-22); its nightly backup job superseded by 0038.
+Built in the chart; proved on the local cluster as far as that can be (see
+Consequences). Not yet run on a managed cluster: the memory in the cloud is
+postponed, and the local one is in use.
 
 ## Context
 

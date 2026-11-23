@@ -83,6 +83,19 @@ spec:
               volumeMounts:
                 - name: home
                   mountPath: /home/agent
+                # The installation's commands. The routines may run only the
+                # memory command; what runs them tells the owner when a
+                # report has questions for them (run-routine).
+                - name: tools
+                  mountPath: /etc/agent/bin
+                  readOnly: true
+                {{- if .Values.agent.sessionStorage }}
+                # Its conversations are kept as every job's are, for the
+                # owner to read or pick up from an interactive agent.
+                - name: sessions
+                  mountPath: /var/lib/agent/conversations
+                  subPath: dreamer
+                {{- end }}
                 {{- if .Values.egress.enabled }}
                 - name: egress-ca
                   mountPath: /etc/agent/egress
@@ -95,9 +108,18 @@ spec:
                 capabilities:
                   drop: ["ALL"]
           volumes:
-            # The harness keeps its session files here; nothing outlives the run.
             - name: home
               emptyDir: {}
+            - name: tools
+              configMap:
+                name: tools
+                optional: true
+                defaultMode: 0555
+            {{- if .Values.agent.sessionStorage }}
+            - name: sessions
+              persistentVolumeClaim:
+                claimName: agent-sessions
+            {{- end }}
             {{- if .Values.egress.enabled }}
             - name: egress-ca
               configMap:

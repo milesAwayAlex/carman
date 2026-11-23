@@ -350,7 +350,7 @@ which are the weakest parts. Three things are meant to keep that manageable:
 - One token per role, generated at the first deploy and kept in a Secret.
 - Backup: a nightly job copies the installation's state to a store the
   platform gives: a restic repository in a bucket, with each night kept as
-  a snapshot (ADR 0038, proposed). The library is copied as one file, after
+  a snapshot (ADR 0038). The library is copied as one file, after
   proving a library can be made of it; an installation names what else.
   `cmem backup FILE` and `cmem restore FILE DIR` do the library by hand, on
   any machine, and `deploy/RECOVERY.md` has the steps for starting,

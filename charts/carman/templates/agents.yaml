@@ -298,9 +298,9 @@ data:
     }
 {{- end }}
 {{- end }}
-{{- if and .Values.agents .Values.agent.sessionStorage }}
+{{- if .Values.agent.sessionStorage }}
 ---
-# Agents' conversations, kept after their pods are gone.
+# Agents' conversations, the dreamer's included, kept after their pods are gone.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

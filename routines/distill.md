@@ -85,4 +85,7 @@ End with a short report:
   line what kind of thing was left out;
 - each long entry you did not distil, with its kind (in progress, a
   reference, finished with no lesson, or more than this run could take);
+- a question only a person can answer, if you have one, under a heading
+  that reads exactly `Questions for the owner`. The owner is told of a
+  report that has that heading, so leave it out when you have no question;
 - how to undo the run: `cmem consolidate revert RUN 'REASON'`.

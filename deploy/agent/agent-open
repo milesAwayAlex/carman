@@ -7,6 +7,7 @@
 #   agent-open NAME [DIR] [ID]   open one in DIR (here, if not given) and remember it;
 #                                with ID, on that conversation (one brought from elsewhere)
 #   agent-open --forget NAME     stop opening it at start; its window and conversation stay
+#                                (leaving a session's window with `exit` does the same)
 #   agent-open --all             open every remembered session (what the pod does at start)
 #
 # A session is opened as `claude --name NAME`, so sessions in the pod can
@@ -78,7 +79,13 @@ case "${1:-}" in
         claude --name "$name" || true
     fi
     # The window outlives the harness: a shell is left in the directory.
-    exec "${SHELL:-/bin/bash}" -l
+    # Leaving that shell as well says the session is done with, and it is
+    # not opened again at the next start; its conversation stays. A window
+    # that is taken away (the pod stopping, the window killed) says nothing.
+    trap 'exit 0' HUP TERM
+    left=0
+    "${SHELL:-/bin/bash}" -l || left=$?
+    case "$left" in 129 | 137 | 143) ;; *) "$self" --forget "$name" ;; esac
     ;;
 -*)
     echo "agent-open: unknown option $1" >&2; exit 1

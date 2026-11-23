@@ -195,6 +195,15 @@ Every run is in memory's own log and can be undone whole:
 `cmem consolidate log`, then `cmem consolidate revert RUN REASON` with the
 consolidation role's token (`.local/cmem-dreamer.env`).
 
+A report may end with questions only you can answer. The routines can run
+the memory command and nothing else, so what runs them tells you: where
+there is a `notify-owner` command (below), a report with questions sends
+one notice, and with `agent.sessionStorage` set it names the conversation,
+which you read or carry on from an interactive agent with `agent-resume ID`.
+The session you pick up there has that agent's role in memory, not the
+consolidation role: what you decide is applied by the next run, or by hand
+with the consolidation role's token.
+
 To try the image without the cluster, against a development service:
 
     docker run --rm -e CLAUDE_CODE_OAUTH_TOKEN -e CMEM_URL=http://HOST:8378 \
@@ -318,7 +327,8 @@ the pod or the machine pick the conversation up with `claude --continue`.
 Or let the pod do it: `agent-open NAME [DIR]` starts the harness as a named
 session in a tmux window of its own and remembers it, and when the pod
 starts again every remembered session is opened again on its conversation
-(`agent-open` lists them, `agent-open --forget NAME` drops one). Named
+(`agent-open` lists them, `agent-open --forget NAME` drops one, and so does
+leaving a session's window with `exit` once the harness has ended). Named
 sessions in one pod can find and message each other. A conversation brought
 from another machine is opened once with its id, `agent-open NAME DIR ID`,
 after its transcript has been copied into the home.
