@@ -191,8 +191,8 @@ func testOverrun(t *testing.T, f Factory) {
 	s.AttemptTimeout = time.Second
 	e.submit(d, s)
 	start := e.waitEvent(d, tid(dispatch.TypeStarted, "slow", attempt("slow", 1)), react)
-	e.waitEvent(d, tid(dispatch.TypeOverran, "slow", attempt("slow", 1)), react)
-	if since := time.Since(start.Time); since < time.Second {
+	over := e.waitEvent(d, tid(dispatch.TypeOverran, "slow", attempt("slow", 1)), react)
+	if since := over.Time.Sub(start.Time); since < time.Second {
 		t.Errorf("overran %s after starting, before its limit of 1s", since)
 	}
 	e.waitState(d, "slow", dispatch.Failed)
@@ -265,8 +265,8 @@ func testWakeByDeadline(t *testing.T, f Factory) {
 	w := dispatch.Wait{Type: "ci.done", Subject: "pr-1", Deadline: time.Now().Add(2 * time.Second)}
 	e.startAndWait(d, "t1", w)
 	c := e.waitCall(attempt("t1", 2))
-	if time.Now().Before(w.Deadline) {
-		t.Errorf("woken before the deadline")
+	if early := w.Deadline.Sub(time.Now()); early > clockSkew {
+		t.Errorf("woken %s before the deadline", early)
 	}
 	if c.attempt.Wake == nil || c.attempt.Wake.Event != nil || !c.attempt.Wake.Wait.Deadline.Equal(w.Deadline) {
 		t.Errorf("the attempt woken by the deadline was told %+v", c.attempt.Wake)

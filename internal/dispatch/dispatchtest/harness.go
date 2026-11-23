@@ -69,6 +69,10 @@ const react = 5 * time.Second
 
 const longTimeout = time.Minute
 
+// clockSkew is how far the implementation's clock (a database server's,
+// say) may be from the test's before a deadline looks missed.
+const clockSkew = 250 * time.Millisecond
+
 // call is one call the fake starter received.
 type call struct {
 	attempt  dispatch.Attempt
