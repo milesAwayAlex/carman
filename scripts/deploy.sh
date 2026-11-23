@@ -11,6 +11,7 @@
 #   scripts/deploy.sh CONTEXT restore FILE   put a backup in place of the library and restart
 #   scripts/deploy.sh CONTEXT restore --from-store [COPY]   the same, with the latest copy the nightly job kept (or the one with that id)
 #   scripts/deploy.sh CONTEXT copies         the copies the nightly job has kept
+#   scripts/deploy.sh CONTEXT copy NAME [COPY] > FILE   one of them: the latest of NAME (library, or a name under backup.also), or the one with that id
 #   scripts/deploy.sh CONTEXT token ROLE | ...
 #                                       write one role's token to a pipe, for handing to a
 #                                       password manager; refuses to write it to a terminal
@@ -319,6 +320,11 @@ backup)
     ;;
 copies)
     from_store list
+    ;;
+copy)
+    [ -n "${3:-}" ] || die "name what to get a copy of, for example: scripts/deploy.sh $context copy library > library.bundle"
+    [ ! -t 1 ] || die "this writes the copy to standard output; send it to a file"
+    from_store dump "$3" ${4:+"$4"}
     ;;
 restore)
     file="${3:-}"

@@ -119,6 +119,9 @@ nightly job does, by restoring what it made (`cmem restore FILE DIR`).
     scripts/deploy.sh devvm restore cmem-library-20261119.tar
     scripts/deploy.sh devvm restore library.bundle        # a file made by `cmem backup`
 
+`scripts/deploy.sh devvm copy NAME > FILE` gets any copy out as a file, the
+library's or one of what else the installation has the job copy.
+
 From the store, the copy passes through this machine in a file only you can
 read, which is removed afterwards. If the store's own history had to be
 used to bring a deleted repository back, run `restic unlock --remove-all`
