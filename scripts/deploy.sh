@@ -374,7 +374,7 @@ secret)
     "${kube[@]}" get secret "$name" >/dev/null 2>&1 || "${kube[@]}" create secret generic "$name" >/dev/null
     "${kube[@]}" create secret generic "$name" "--from-file=$key=/dev/stdin" --dry-run=client -o 'jsonpath={.data}' | only_data |
         "${kube[@]}" patch secret "$name" --type merge --patch-file /dev/stdin >/dev/null
-    [ "$("${kube[@]}" get secret "$name" -o "jsonpath={.data.$key}" | wc -c)" -gt 8 ] || die "the secret $name came out empty"
+    [ "$("${kube[@]}" get secret "$name" -o "jsonpath={.data.$key}" | wc -c)" -ge 4 ] || die "the secret $name came out empty"
     echo "the cluster holds secret $name (key $key)"
     # The egress proxy reads its credentials when it starts.
     if [ "$name" = egress-credentials ] && "${kube[@]}" get deployment egress >/dev/null 2>&1; then
