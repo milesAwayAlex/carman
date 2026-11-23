@@ -144,6 +144,11 @@ func (d *Dispatcher) poke() {
 func (d *Dispatcher) heartbeat(ctx context.Context) error {
 	_, err := d.pool.Exec(ctx, `UPDATE instances SET alive_until = clock_timestamp() + $2 * interval '1 millisecond'
 		WHERE id = $1`, d.id, lease.Milliseconds())
+	if err != nil {
+		return err
+	}
+	// A claim whose instance is gone reads as not live, as an expired one does.
+	_, err = d.pool.Exec(ctx, `DELETE FROM instances WHERE alive_until < clock_timestamp() - interval '1 hour'`)
 	return err
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/url"
 	"sync"
 	"testing"
@@ -57,3 +58,62 @@ func factory(t *testing.T) dispatchtest.Database {
 
 // TestAcceptance runs the dispatcher's acceptance suite (R2, R6, R7).
 func TestAcceptance(t *testing.T) { dispatchtest.Run(t, factory) }
+
+// TestR2LogReadOrder: with many concurrent appenders, a reader that tails
+// the log never skips a record it later finds below its position.
+func TestR2LogReadOrder(t *testing.T) {
+	d := factory(t).(db)
+	ctx := context.Background()
+	inst, err := Open(ctx, d.url, dispatch.Config{Starter: nopStarter{}, MaxRunning: 1}, "b1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inst.Kill()
+	const writers, each = 8, 100
+	var wg sync.WaitGroup
+	for w := range writers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range each {
+				e := dispatch.Event{ID: fmt.Sprintf("w%d-%d", w, i), Type: "x", Source: "test"}
+				if err := inst.Emit(ctx, e); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+		}()
+	}
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	seen := map[string]bool{}
+	var after int64
+	tail := func() {
+		rs, err := inst.Events(ctx, after, 37)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range rs {
+			seen[r.ID] = true
+			after = r.Seq
+		}
+	}
+	for {
+		select {
+		case <-done:
+			for range writers * each {
+				tail()
+			}
+			if len(seen) != writers*each {
+				t.Fatalf("the tailing reader saw %d of %d events", len(seen), writers*each)
+			}
+			return
+		default:
+			tail()
+		}
+	}
+}
+
+type nopStarter struct{}
+
+func (nopStarter) Start(context.Context, dispatch.Attempt) error { return nil }
