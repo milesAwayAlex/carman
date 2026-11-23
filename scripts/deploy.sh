@@ -177,6 +177,13 @@ build_agent() {
     local base=()
     [ -z "${CARMAN_AGENT_BASE:-}" ] || base=(--build-arg "BASE=$CARMAN_AGENT_BASE")
     CARMAN_AGENT_IMAGE="${registry}carman-agent:$( (cd "$root" && find . -type f | sort | xargs shasum -a 256; echo "${CARMAN_AGENT_BASE:-}") | shasum -a 256 | cut -c1-12)"
+    # A node removes images that nothing runs, and the base is one of those:
+    # CARMAN_AGENT_BASE_BUILD is the installation's command that makes it again.
+    if [ -n "${CARMAN_AGENT_BASE:-}" ] && [ -n "${CARMAN_AGENT_BASE_BUILD:-}" ] &&
+        ! docker image inspect "$CARMAN_AGENT_IMAGE" >/dev/null 2>&1 && ! docker image inspect "$CARMAN_AGENT_BASE" >/dev/null 2>&1; then
+        echo "the base image $CARMAN_AGENT_BASE is gone; making it again" >&2
+        $CARMAN_AGENT_BASE_BUILD >/dev/null || die "$CARMAN_AGENT_BASE_BUILD did not make the base image"
+    fi
     docker image inspect "$CARMAN_AGENT_IMAGE" >/dev/null 2>&1 || docker build -q --label built-by=deploy "${base[@]}" -t "$CARMAN_AGENT_IMAGE" "$root" >/dev/null || {
         echo "deploy: the agent image did not build; the build again, with its output:" >&2
         docker build --label built-by=deploy "${base[@]}" -t "$CARMAN_AGENT_IMAGE" "$root" >&2 || true

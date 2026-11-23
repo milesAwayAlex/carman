@@ -335,6 +335,9 @@ The shell in it is plain unless you bring your own: build an image on
 volume hides what an image puts there, so have the base leave an executable
 in `/usr/local/lib/agent-start.d` that links your configuration into the
 home; it runs at every start.
+A node removes images nothing runs when its disk fills, and the
+base is one: name the command that builds it in `CARMAN_AGENT_BASE_BUILD`,
+and a deploy that finds it gone makes it again.
 
 ### Telling the owner, and picking a job up
 
