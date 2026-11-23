@@ -1,7 +1,7 @@
 # 0035: A credential that does not last is renewed beside the proxy
 
-Status: Proposed (2026-11-20). Built; running on the local cluster, waiting
-for its first sign-in.
+Status: Accepted (2026-11-22), to be judged by how it holds up in use.
+Built; running on the local cluster with two sign-ins.
 
 ## Context
 

@@ -1,6 +1,7 @@
 # 0036: An agent asks for the owner's attention with one command, and the owner can pick its conversation up
 
-Status: Proposed (2026-11-21). Built; running on the local cluster.
+Status: Accepted (2026-11-22), to be judged by how it holds up in use.
+Built; running on the local cluster.
 
 ## Context
 

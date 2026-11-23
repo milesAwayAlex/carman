@@ -1,6 +1,7 @@
 # 0032: What runs on a cluster does not carry the project's name
 
-Status: Proposed (2026-11-20). Built.
+Status: Accepted (2026-11-22). Built. The owner's condition on accepting:
+the rule is not to cost features; if it does, it is reconsidered.
 
 ## Context
 

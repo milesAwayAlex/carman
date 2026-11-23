@@ -1,6 +1,6 @@
 # 0037: Agents reach the installation's services on the cluster, and have a namespace to run their own
 
-Status: Proposed (2026-11-22). Built; running on the local cluster.
+Status: Accepted (2026-11-22). Built; running on the local cluster.
 
 ## Context
 

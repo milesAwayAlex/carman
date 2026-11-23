@@ -1,6 +1,6 @@
 # 0034: An agent can be interactive: a standing pod a person attaches to
 
-Status: Proposed (2026-11-20). Built and running on the local cluster.
+Status: Accepted (2026-11-22). Built and running on the local cluster.
 
 ## Context
 

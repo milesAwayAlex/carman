@@ -42,9 +42,9 @@ To change a decision, add a new record and mark the old one superseded.
 | [0029](0029-consolidation-is-checked-as-it-writes.md) | Consolidation is checked as it writes; what fails is retried with the reason, then escalated | Accepted |
 | [0030](0030-carman-is-packaged-as-a-chart.md) | carman is packaged as a Helm chart | Accepted |
 | [0031](0031-agents-reach-the-outside-through-a-proxy.md) | Agents reach the outside through a proxy that holds their credentials | Accepted |
-| [0032](0032-what-runs-on-a-cluster-does-not-carry-the-project-name.md) | What runs on a cluster does not carry the project's name | Proposed |
-| [0033](0033-on-a-shared-cluster.md) | On a shared, managed cluster: published images, secrets made in the cluster, a nightly copy to a bucket | Proposed |
-| [0034](0034-an-interactive-agent.md) | An agent can be interactive: a standing pod a person attaches to | Proposed |
-| [0035](0035-credentials-that-do-not-last.md) | A credential that does not last is renewed beside the proxy | Proposed |
-| [0036](0036-the-owners-attention.md) | An agent asks for the owner's attention with one command, and the owner can pick its conversation up | Proposed |
-| [0037](0037-services-and-a-namespace-of-their-own.md) | Agents reach the installation's services on the cluster, and have a namespace to run their own | Proposed |
+| [0032](0032-what-runs-on-a-cluster-does-not-carry-the-project-name.md) | What runs on a cluster does not carry the project's name | Accepted |
+| [0033](0033-on-a-shared-cluster.md) | On a shared, managed cluster: published images, secrets made in the cluster, a nightly copy to a bucket | Accepted |
+| [0034](0034-an-interactive-agent.md) | An agent can be interactive: a standing pod a person attaches to | Accepted |
+| [0035](0035-credentials-that-do-not-last.md) | A credential that does not last is renewed beside the proxy | Accepted |
+| [0036](0036-the-owners-attention.md) | An agent asks for the owner's attention with one command, and the owner can pick its conversation up | Accepted |
+| [0037](0037-services-and-a-namespace-of-their-own.md) | Agents reach the installation's services on the cluster, and have a namespace to run their own | Accepted |
