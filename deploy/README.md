@@ -95,6 +95,12 @@ instead, pipe each to the program that stores it:
 token when `claude` starts and pass it as `CMEM_TOKEN`, with the hook settings
 from the flake's `cmem-claude-code-settings` package given to `claude
 --settings`.
+- **A registry the cluster on your machine pulls from.** Set
+  `CARMAN_REGISTRY` to its `HOST:PORT` (in `.local/bench.env`, which the
+  script reads): what the script builds is pushed there and pods name it
+  there. Without one the images exist only in the runtime they were built
+  into, and a node that removes an image to make room cannot get it back
+  for the next scheduled run.
 - **Deploy to a cluster with a registry.** Set `CARMAN_IMAGE` and
   `CARMAN_AGENT_IMAGE` to pushed images, and add a values file that says how
   the service is reached. See "A shared, managed cluster" below.

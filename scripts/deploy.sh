@@ -105,6 +105,14 @@ finished() {
 
 # The build context has to be somewhere the container runtime can see.
 build_root="${CARMAN_BENCH_ROOT:-$HOME/carman-bench}/build"
+# CARMAN_REGISTRY names a registry the cluster pulls from (HOST:PORT). With
+# it, what is built here is pushed there and pods name it there, so that a
+# node that removes an image to make room can get it back. Without it the
+# images exist only in the runtime they were built into.
+registry="${CARMAN_REGISTRY:+${CARMAN_REGISTRY%/}/}"
+publish() {
+    [ -z "$registry" ] || docker push -q "$1" >/dev/null 2>&1 || die "could not push $1 to the registry"
+}
 # Builds the binary into the directory given, named for the architecture
 # the cluster's runtime builds for, which is how the Dockerfiles take it.
 linux_cmem() {
@@ -167,12 +175,13 @@ build_agent() {
     # an installation's own shell and tools (deploy/agent/Dockerfile).
     local base=()
     [ -z "${CARMAN_AGENT_BASE:-}" ] || base=(--build-arg "BASE=$CARMAN_AGENT_BASE")
-    CARMAN_AGENT_IMAGE="carman-agent:$( (cd "$root" && find . -type f | sort | xargs shasum -a 256; echo "${CARMAN_AGENT_BASE:-}") | shasum -a 256 | cut -c1-12)"
+    CARMAN_AGENT_IMAGE="${registry}carman-agent:$( (cd "$root" && find . -type f | sort | xargs shasum -a 256; echo "${CARMAN_AGENT_BASE:-}") | shasum -a 256 | cut -c1-12)"
     docker image inspect "$CARMAN_AGENT_IMAGE" >/dev/null 2>&1 || docker build -q --label built-by=deploy "${base[@]}" -t "$CARMAN_AGENT_IMAGE" "$root" >/dev/null || {
         echo "deploy: the agent image did not build; the build again, with its output:" >&2
         docker build --label built-by=deploy "${base[@]}" -t "$CARMAN_AGENT_IMAGE" "$root" >&2 || true
         exit 1
     }
+    publish "$CARMAN_AGENT_IMAGE"
     echo "built $CARMAN_AGENT_IMAGE" >&2
 }
 
@@ -189,8 +198,9 @@ deploy)
         linux_cmem "$root"
         cp deploy/Dockerfile "$root/Dockerfile"
         # A new tag whenever the binary changes, so the cluster rolls it out.
-        CARMAN_IMAGE="carman-cmem:$(cat "$root"/cmem-* "$root/Dockerfile" | shasum -a 256 | cut -c1-12)"
+        CARMAN_IMAGE="${registry}carman-cmem:$(cat "$root"/cmem-* "$root/Dockerfile" | shasum -a 256 | cut -c1-12)"
         docker build -q --label built-by=deploy -t "$CARMAN_IMAGE" "$root" >/dev/null
+        publish "$CARMAN_IMAGE"
         echo "built $CARMAN_IMAGE"
     fi
 
@@ -240,7 +250,7 @@ EOF
     # The renewals beside the proxy run in the agent image, and the proxy's
     # pod restarts when their image changes, which every agent then feels.
     # They keep the image they have unless what they run has changed.
-    renewal_source="$(cat deploy/agent/renew-credential deploy/agent/oauth-credential | shasum -a 256 | cut -c1-12)-${CARMAN_AGENT_BASE:-plain}"
+    renewal_source="$(cat deploy/agent/renew-credential deploy/agent/oauth-credential | shasum -a 256 | cut -c1-12)-${CARMAN_AGENT_BASE:-plain}${registry:+-$registry}"
     renewal_image="$CARMAN_AGENT_IMAGE"
     if [ "$("${kube[@]}" get deployment egress -o 'jsonpath={.metadata.annotations.renewal-source}' 2>/dev/null || true)" = "$renewal_source" ]; then
         running="$("${kube[@]}" get deployment egress -o 'jsonpath={.spec.template.spec.containers[?(@.name!="envoy")].image}' 2>/dev/null | cut -d' ' -f1)"
@@ -269,7 +279,7 @@ EOF
     # interactive agent keeps its image until it is restarted). One that a
     # finished Job still names is left by the runtime, and that is fine.
     in_use=" $("${kube[@]}" get pods -o 'jsonpath={.items[*].spec.containers[*].image} {.items[*].spec.initContainers[*].image}' 2>/dev/null) "
-    for old in $(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E '^carman-(cmem|agent):' || true); do
+    for old in $(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E '^([^/]+/)?carman-(cmem|agent):' || true); do
         [ "$old" = "$CARMAN_IMAGE" ] || [ "$old" = "$CARMAN_AGENT_IMAGE" ] || [ "${in_use#* $old }" != "$in_use" ] || docker rmi "$old" >/dev/null 2>&1 || true
     done
     # The cluster's runtime keeps a record of its own for an image it has
