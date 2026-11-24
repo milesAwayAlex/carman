@@ -27,7 +27,7 @@ buildGoModule {
 
   # The hash of the Go modules named in go.sum. When go.sum changes, set this
   # to lib.fakeHash, build, and copy the hash the failure reports.
-  vendorHash = "sha256-7sFT193u1+f2FySjmjpXPyW9/REgRCim5Q7xYKjvCCU=";
+  vendorHash = "sha256-g4hTXJSV6jWq/3bVTCcTfyKwn0K33zlXltH/ADdflCI=";
 
   # The tests start git and local HTTP servers and take a minute; they are
   # run by scripts/test.sh rather than on every build.
