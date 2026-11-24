@@ -73,6 +73,12 @@ type Options struct {
 	// RetentionByType replaces Retention for events of a type that belong
 	// to no task; zero keeps them for ever.
 	RetentionByType map[string]time.Duration
+	// CallTimeout limits each call to the Starter and to Admission; 30
+	// seconds when zero. A call that passes it counts as failed for this
+	// round (the start failed, or admission refused) and is made again
+	// later; the loop goes on with other tasks. A call that ignores its
+	// context goes on in the background, and its answer is dropped.
+	CallTimeout time.Duration
 	// schemaVersion, for tests only, stops the migrations at a version.
 	schemaVersion int
 	// beat, for tests only, replaces how often the lease is renewed.
@@ -107,6 +113,9 @@ func OpenWith(ctx context.Context, url string, cfg dispatch.Config, build string
 	if err != nil {
 		pool.Close()
 		return nil, err
+	}
+	if opts.CallTimeout <= 0 {
+		opts.CallTimeout = 30 * time.Second
 	}
 	d := &Dispatcher{pool: pool, cfg: cfg, opts: opts, kick: make(chan struct{}, 1), schema: version}
 	err = pool.QueryRow(ctx, `INSERT INTO instances (build, alive_until)
@@ -511,4 +520,25 @@ func decodeSpec(spec, payload []byte) (dispatch.TaskSpec, error) {
 		s.Payload = payload
 	}
 	return s, err
+}
+
+// errTimedOut is a call out that did not return within CallTimeout.
+var errTimedOut = errors.New("did not return in time")
+
+// call runs f with a deadline. When the deadline passes first, it returns
+// errTimedOut and leaves f running; f's answer is then dropped.
+func (d *Dispatcher) call(ctx context.Context, f func(ctx context.Context) error) error {
+	ctx, cancel := context.WithTimeout(ctx, d.opts.CallTimeout)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- f(ctx) }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		if d.ctx.Err() != nil {
+			return d.ctx.Err()
+		}
+		return fmt.Errorf("%w (%s)", errTimedOut, d.opts.CallTimeout)
+	}
 }

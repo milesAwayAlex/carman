@@ -116,3 +116,15 @@ Measured on one idle instance for 20 seconds (`TestIdleCost`, run with
 `DISPATCH_MEASURE_IDLE=1`): before, polling every 100 ms, 725 commits, 52
 rows updated, 127 kB of WAL; after, 30 commits (all but the heartbeat's
 read-only), 5 rows updated, 1.2 kB of WAL. No rows inserted in either.
+
+## Calls out
+
+`Options.CallTimeout` (30 seconds when zero) limits each call to the
+`Starter` and to `Admission`. The call gets a context with that deadline; if
+it has not returned by then, it counts as failed for the round (a start
+failed, `Explain` says `start-failed`; or admission refused, `admission`,
+with "did not return in time" as the detail), the loop goes on with the next
+task, and the call is made again a second later. A call that ignores its
+context is left running in the background and its answer dropped, so a
+starter must still be idempotent by attempt name: the hung call may yet
+start the work, and so may the next.

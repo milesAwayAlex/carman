@@ -37,6 +37,12 @@ func (f *fake) Start(ctx context.Context, a dispatch.Attempt) error {
 
 func (f *fake) admit(_ context.Context, t dispatch.TaskSpec, _ []dispatch.TaskSpec) (bool, string) {
 	f.mu.Lock()
+	ch := f.hang["admit:"+t.ID]
+	f.mu.Unlock()
+	if ch != nil {
+		<-ch
+	}
+	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.held[t.ID] {
 		return false, "held"

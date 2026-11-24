@@ -319,6 +319,11 @@ func (w *wtx) fireSchedules() error {
 	return nil
 }
 
+// refused is admission's no, carried as an error through call.
+type refused string
+
+func (r refused) Error() string { return string(r) }
+
 type candidate struct {
 	spec    dispatch.TaskSpec
 	attempt int
@@ -387,7 +392,20 @@ func (d *Dispatcher) startWhatCan(ctx context.Context) (time.Duration, error) {
 			})
 		}
 		if d.cfg.Admission != nil {
-			if ok, why := d.cfg.Admission(ctx, c.spec, running); !ok {
+			err := d.call(ctx, func(ctx context.Context) error {
+				if ok, why := d.cfg.Admission(ctx, c.spec, running); !ok {
+					return refused(why)
+				}
+				return nil
+			})
+			if ctx.Err() != nil {
+				return again, ctx.Err()
+			}
+			if err != nil {
+				why := "admission " + err.Error()
+				if r, ok := err.(refused); ok {
+					why = string(r)
+				}
 				again = min(again, retry)
 				if err := d.setReason(ctx, c, dispatch.ReasonAdmission, why); err != nil {
 					return again, err
@@ -403,7 +421,7 @@ func (d *Dispatcher) startWhatCan(ctx context.Context) (time.Duration, error) {
 			again = min(again, recheck)
 			continue
 		}
-		serr := d.cfg.Starter.Start(ctx, a)
+		serr := d.call(ctx, func(ctx context.Context) error { return d.cfg.Starter.Start(ctx, a) })
 		if ctx.Err() != nil {
 			return again, ctx.Err() // killed: the claim ends with the instance
 		}
