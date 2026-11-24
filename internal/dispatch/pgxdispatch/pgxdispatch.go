@@ -7,7 +7,6 @@ package pgxdispatch
 
 import (
 	"context"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,9 +18,6 @@ import (
 
 	"carman/internal/dispatch"
 )
-
-//go:embed schema.sql
-var schema string
 
 const (
 	poll  = 100 * time.Millisecond // how often the loops look at the tables
@@ -44,6 +40,19 @@ type Dispatcher struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 	kick   chan struct{} // a hint that there is something to do
+	schema int           // the schema version it works on
+
+	mu      sync.Mutex
+	stopped error // why it stopped taking work, if it did
+}
+
+// Options are the settings beyond the contract's Config. The zero value is
+// the default.
+type Options struct {
+	// schemaVersion, for tests only, stops the migrations at a version.
+	schemaVersion int
+	// beat, for tests only, replaces how often the lease is renewed.
+	beat time.Duration
 }
 
 var _ dispatch.Dispatcher = (*Dispatcher)(nil)
@@ -52,6 +61,13 @@ var _ dispatch.Dispatcher = (*Dispatcher)(nil)
 // missing, and starts an instance. build is recorded and otherwise unused:
 // any build carries on any other's work.
 func Open(ctx context.Context, url string, cfg dispatch.Config, build string) (*Dispatcher, error) {
+	return OpenWith(ctx, url, cfg, build, Options{})
+}
+
+// OpenWith is Open with options. It first brings the schema up to the
+// newest version this build knows, and fails with ErrSchemaNewer when the
+// database's is newer.
+func OpenWith(ctx context.Context, url string, cfg dispatch.Config, build string, opts Options) (*Dispatcher, error) {
 	if cfg.Starter == nil || cfg.MaxRunning <= 0 {
 		return nil, fmt.Errorf("%w: config needs a starter and a positive MaxRunning", dispatch.ErrInvalid)
 	}
@@ -59,7 +75,16 @@ func Open(ctx context.Context, url string, cfg dispatch.Config, build string) (*
 	if err != nil {
 		return nil, err
 	}
-	d := &Dispatcher{pool: pool, cfg: cfg, kick: make(chan struct{}, 1)}
+	upTo := latest
+	if opts.schemaVersion > 0 {
+		upTo = opts.schemaVersion
+	}
+	version, err := migrate(ctx, pool, upTo)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	d := &Dispatcher{pool: pool, cfg: cfg, kick: make(chan struct{}, 1), schema: version}
 	err = pool.QueryRow(ctx, `INSERT INTO instances (build, alive_until)
 		VALUES ($1, clock_timestamp() + $2 * interval '1 millisecond') RETURNING id`,
 		build, lease.Milliseconds()).Scan(&d.id)
@@ -69,7 +94,11 @@ func Open(ctx context.Context, url string, cfg dispatch.Config, build string) (*
 	}
 	d.ctx, d.cancel = context.WithCancel(context.Background())
 	d.wg.Add(3)
-	go d.every(beat, d.heartbeat)
+	b := beat
+	if opts.beat > 0 {
+		b = opts.beat
+	}
+	go d.every(b, d.heartbeat)
 	go d.every(poll, d.react)
 	go d.every(poll, d.startWhatCan)
 	return d, nil
@@ -89,23 +118,25 @@ func Emit(ctx context.Context, url string, e dispatch.Event) error {
 }
 
 func connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, url)
-	if err != nil {
-		return nil, err
+	return pgxpool.New(ctx, url)
+}
+
+// Err says why the instance stopped taking work: nil while it works,
+// ErrSchemaNewer when a newer build migrated the schema under it. It still
+// has to be killed.
+func (d *Dispatcher) Err() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.stopped
+}
+
+func (d *Dispatcher) stop(err error) {
+	d.mu.Lock()
+	if d.stopped == nil {
+		d.stopped = err
 	}
-	err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-		// Two instances creating the tables at once would collide.
-		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('pgxdispatch schema'))`); err != nil {
-			return err
-		}
-		_, err := tx.Exec(ctx, schema)
-		return err
-	})
-	if err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("pgxdispatch: create tables: %w", err)
-	}
-	return pool, nil
+	d.mu.Unlock()
+	d.cancel()
 }
 
 // Kill stops the instance as a dying process would: in-flight queries are
@@ -142,10 +173,16 @@ func (d *Dispatcher) poke() {
 }
 
 func (d *Dispatcher) heartbeat(ctx context.Context) error {
-	_, err := d.pool.Exec(ctx, `UPDATE instances SET alive_until = clock_timestamp() + $2 * interval '1 millisecond'
-		WHERE id = $1`, d.id, lease.Milliseconds())
+	var at int
+	err := d.pool.QueryRow(ctx, `UPDATE instances SET alive_until = clock_timestamp() + $2 * interval '1 millisecond'
+		WHERE id = $1 RETURNING (SELECT max(version) FROM schema_versions)`, d.id, lease.Milliseconds()).Scan(&at)
 	if err != nil {
 		return err
+	}
+	if at > d.schema {
+		d.stop(fmt.Errorf("%w: it is at version %d, this instance works on %d; it stopped taking work",
+			ErrSchemaNewer, at, d.schema))
+		return nil
 	}
 	// A claim whose instance is gone reads as not live, as an expired one does.
 	_, err = d.pool.Exec(ctx, `DELETE FROM instances WHERE alive_until < clock_timestamp() - interval '1 hour'`)
