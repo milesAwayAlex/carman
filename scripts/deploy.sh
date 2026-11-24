@@ -232,7 +232,7 @@ conversations() {
             {"op":"add","path":"/spec/activeDeadlineSeconds","value":300},
             {"op":"add","path":"/spec/ttlSecondsAfterFinished","value":0},
             {"op":"add","path":"/spec/template/metadata/labels/app","value":"conversations"},
-            {"op":"add","path":"/spec/template/spec/containers/0/command","value":["sleep","300"]},
+            {"op":"add","path":"/spec/template/spec/containers/0/command","value":["sh","-c","trap \"exit 0\" TERM; sleep 300 & wait"]},
             {"op":"add","path":"/spec/template/spec/containers/0/args","value":null},
             {"op":"add","path":"/spec/template/spec/containers/0/env","value":[]},
             {"op":"add","path":"/spec/template/spec/containers/0/volumeMounts","value":[{"name":"sessions","mountPath":"/sessions","readOnly":true}]},

@@ -50,3 +50,4 @@ To change a decision, add a new record and mark the old one superseded.
 | [0037](0037-services-and-a-namespace-of-their-own.md) | Agents reach the installation's services on the cluster, and have a namespace to run their own | Accepted |
 | [0038](0038-state-is-copied-to-a-store-the-platform-gives.md) | The installation's state is copied to a store the platform gives, by a job of the chart | Accepted |
 | [0039](0039-the-dispatcher-keeps-its-state-in-tables-of-its-own.md) | The dispatcher keeps its state in tables of its own, in a Postgres database it owns | Proposed |
+| [0040](0040-a-conversation-is-resumed-as-its-agent.md) | A kept conversation is resumed as the agent that had it, in a pod of its own | Proposed |

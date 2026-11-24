@@ -345,6 +345,15 @@ which are the weakest parts. Three things are meant to keep that manageable:
   pod with a persistent home and a tmux session a person attaches to (ADR
   0034). Named sessions in it are opened again on their conversations when
   the pod starts. Every agent that does ordinary work has the memory hook.
+- A job's conversation is kept, and is resumed as the agent that had it
+  (ADR 0040, proposed): `scripts/deploy.sh CONTEXT agent resume ID` makes a
+  pod from that agent's own definition, opens the harness on the
+  conversation in tmux, with the job's model, tools and memory role, and
+  attaches. The pod ends when the harness and its shell are left. A
+  conversation is open in one place at a time, by a lock beside it. Where
+  this leads: a session (a conversation, a working directory and a
+  profile) is what lasts, and a pod is where it runs for a while; a
+  dispatcher will start one where a message arrives and end it when idle.
 - Beside the proxy and the memory, agents reach the namespaces the
   installation names for its own services, and have one namespace where
   they may run what a task needs, bounded by a quota and closed to the

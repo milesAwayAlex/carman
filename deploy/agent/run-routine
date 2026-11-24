@@ -38,12 +38,13 @@ for routine in "$@"; do
     rm -f "$pipe"
     # A routine that may run only the memory command cannot tell the owner
     # anything itself. When its report has questions for them, they are told
-    # here, once, with the conversation to pick up (agent-resume).
+    # here, once, with the conversation to resume as this agent, so that the
+    # answer is acted on with this agent's role (ADR 0040).
     if [ "${CMEM_ROUTINE_TOOLS:-}" != all ] && command -v notify-owner >/dev/null 2>&1 && grep -qi 'questions for the owner' "$said"; then
         id="$(ls -t "$HOME"/.claude/projects/*/*.jsonl 2>/dev/null | head -1)"
-        id="$(basename "${id:-}" .jsonl)"
+        id="$(basename "${id:-}" .jsonl | cut -c1-8)"
         notify-owner --urgency whenever --importance normal "The $routine routine has questions for you" \
-            "Its report ends with questions only you can answer.${id:+ To read them and answer, pick its conversation up from an interactive agent: agent-resume $id}" || true
+            "Its report ends with questions only you can answer.${id:+ To read them and answer, resume its conversation as the agent that had it, from a machine that reaches the cluster: scripts/deploy.sh CONTEXT agent resume $id. Answered from an interactive agent with agent-resume, it could not act on the answer.}" || true
     fi
     rm -f "$said"
     echo

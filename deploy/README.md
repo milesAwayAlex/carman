@@ -198,11 +198,16 @@ consolidation role's token (`.local/cmem-dreamer.env`).
 A report may end with questions only you can answer. The routines can run
 the memory command and nothing else, so what runs them tells you: where
 there is a `notify-owner` command (below), a report with questions sends
-one notice, and with `agent.sessionStorage` set it names the conversation,
-which you read or carry on from an interactive agent with `agent-resume ID`.
-The session you pick up there has that agent's role in memory, not the
-consolidation role: what you decide is applied by the next run, or by hand
-with the consolidation role's token.
+one notice, and with `agent.sessionStorage` set it names the conversation.
+Answer it as the dreamer, so that the dreamer can act on the answer:
+
+    scripts/deploy.sh CONTEXT agent resume ID
+
+(see "Resuming an agent's conversation" below). The resumed dreamer has the
+consolidation role and the memory command, as in its nightly run, and
+nothing more. Opened instead from an interactive agent with `agent-resume
+ID`, the conversation goes on with that agent's role, which may not do the
+dreamer's work.
 
 To try the image without the cluster, against a development service:
 
@@ -359,9 +364,40 @@ with the recipient fixed inside it (ADR 0036). It is called as
 
 and every routine that runs with all tools is told to use it when something
 needs you. With `agent.sessionStorage` set, a job's conversation is kept
-after its pod is gone: in an interactive agent, `agent-resume` lists the
-latest and `agent-resume ID` opens one in the harness, so a notice can give
-you the id of the conversation to carry on.
+after its pod is gone, and a notice can give you its id to carry on.
+
+### Resuming an agent's conversation
+
+    scripts/deploy.sh CONTEXT agent resume        # the kept conversations, and where each is open
+    scripts/deploy.sh CONTEXT agent resume ID     # go on with one as its agent (the start of the id is enough)
+
+With an id, the command finds whose conversation it is, makes a pod from
+that agent's own definition (its image, environment, credentials, mounts
+and account), opens the harness on the conversation there inside tmux, in
+the directory the conversation was held in, and attaches your terminal
+(ADR 0040). The agent goes on with its job's rights: an agent with every
+tool runs without asking, as its job did; the dreamer may run the memory
+command and nothing else, and what else it tries is refused rather than put
+to you. The model is the one that last answered in the conversation.
+
+Detach with tmux's prefix and `d`; the pod stays, and the same command
+attaches to it again. Leave the harness (`/exit`) and then the shell, and
+the pod ends and is removed. A conversation is open in one place at a
+time: if it is open somewhere else, in another pod or in an interactive
+agent, the command says where and makes nothing.
+
+Nothing ends a pod nobody is attached to yet. To list them and remove one:
+
+    kubectl --context CONTEXT -n NAMESPACE get pods -l conversation -L agent,conversation
+    kubectl --context CONTEXT -n NAMESPACE delete job -l conversation=FULL-ID
+
+The pod's label `conversation` has the whole id, and its annotation
+`started` the time it was made. The conversation stays on the volume.
+
+In an interactive agent, `agent-resume` lists the same conversations and
+`agent-resume ID` opens one there, with that pod's rights, not the agent's:
+fine for reading it, or for carrying it on as yourself. It says so and asks
+before it opens another agent's conversation.
 
 What an agent can be given, each by a line in its entry:
 
