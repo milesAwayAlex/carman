@@ -13,7 +13,11 @@ import (
 // react acts on the log from meta.cursor on, then on the clock. Any
 // instance may run it; the lock on meta makes them take turns.
 func (d *Dispatcher) react(ctx context.Context) error {
-	for {
+	var seq, cursor int64
+	if err := d.pool.QueryRow(ctx, `SELECT seq, cursor FROM meta`).Scan(&seq, &cursor); err != nil {
+		return err
+	}
+	for seq > cursor {
 		more := false
 		err := d.write(ctx, func(w *wtx) error {
 			rows, err := w.tx.Query(ctx, `SELECT seq, id, type, source, subject, time, data
@@ -41,7 +45,49 @@ func (d *Dispatcher) react(ctx context.Context) error {
 			break
 		}
 	}
-	return d.write(ctx, func(w *wtx) error { return w.actOnTime() })
+	return nil
+}
+
+// round does what there is to do and says how long the loop may sleep.
+// due is when the clock next has something to do, from the previous round.
+func (d *Dispatcher) round(due *time.Time) time.Duration {
+	ctx := d.ctx
+	if err := d.react(ctx); err != nil {
+		return retry
+	}
+	if !time.Now().Before(*due) {
+		if err := d.write(ctx, func(w *wtx) error { return w.actOnTime() }); err != nil {
+			return retry
+		}
+	}
+	sleep, err := d.startWhatCan(ctx)
+	if err != nil {
+		return retry
+	}
+	in, err := d.nextDue(ctx)
+	if err != nil {
+		return retry
+	}
+	*due = time.Now().Add(in)
+	return max(min(sleep, in), 20*time.Millisecond)
+}
+
+// nextDue is how long until a deadline passes (an attempt's limit, a wait's
+// deadline, a start-by time) or a schedule ticks, by the database's clock.
+func (d *Dispatcher) nextDue(ctx context.Context) (time.Duration, error) {
+	var secs *float64
+	err := d.pool.QueryRow(ctx, `SELECT extract(epoch FROM least(
+			(SELECT min(started_at + timeout_us * interval '1 microsecond') FROM tasks WHERE state = 'running'),
+			(SELECT min(wait_deadline) FROM tasks WHERE state = 'waiting'),
+			(SELECT min(start_by) FROM tasks t
+				WHERE state = 'pending' AND attempt <= 1 AND NOT not_started AND NOT `+live(d.schema)+`),
+			(SELECT min(last_tick + interval_s * interval '1 second') FROM schedules)
+		) - clock_timestamp())::float8`).Scan(&secs)
+	if err != nil || secs == nil {
+		return idlePoll, err
+	}
+	// The checks are strict (after the limit, not at it): a little past it.
+	return time.Duration(*secs*float64(time.Second)) + 2*time.Millisecond, nil
 }
 
 func (w *wtx) actOn(r dispatch.Record) error {
@@ -197,7 +243,7 @@ func (w *wtx) actOnTime() error {
 
 	// A pending task at attempt 0 or 1 has never started.
 	rows, err = w.tx.Query(w.ctx, `SELECT id, start_by FROM tasks t
-		WHERE state = 'pending' AND attempt <= 1 AND NOT not_started AND start_by < $1 AND NOT `+live, w.now)
+		WHERE state = 'pending' AND attempt <= 1 AND NOT not_started AND start_by < $1 AND NOT `+live(w.schema), w.now)
 	if err != nil {
 		return err
 	}
@@ -281,39 +327,45 @@ type candidate struct {
 
 // startWhatCan offers pending tasks, in order, to the limit, admission and
 // the starter. Admission and the starter are called outside any
-// transaction; a start is guarded by a claim on the task's row.
-func (d *Dispatcher) startWhatCan(ctx context.Context) error {
+// transaction; a start is guarded by a claim on the task's row. It returns
+// how soon it wants to look again: idlePoll when only an event or a
+// deadline can change what it would do.
+func (d *Dispatcher) startWhatCan(ctx context.Context) (time.Duration, error) {
+	again := idlePoll
 	// This instance starts one task at a time, so a claim of its own found
 	// now is left from a start whose outcome was not recorded: not live.
-	rows, err := d.pool.Query(ctx, `SELECT spec, payload, attempt, reason,
-			state = 'running' OR (t.starting_by <> $1 AND `+live+`)
+	rows, err := d.pool.Query(ctx, `SELECT spec, payload, attempt, reason, state = 'running',
+			state = 'running' OR (t.starting_by <> $1 AND `+live(d.schema)+`)
 		FROM tasks t WHERE state IN ('pending', 'running')
 		ORDER BY priority DESC, ord`, d.id)
 	if err != nil {
-		return err
+		return again, err
 	}
 	var cands []candidate
 	var running []dispatch.TaskSpec
 	for rows.Next() {
 		var spec, payload []byte
 		var c candidate
-		var busy bool
-		if err := rows.Scan(&spec, &payload, &c.attempt, &c.reason, &busy); err != nil {
+		var isRunning, busy bool
+		if err := rows.Scan(&spec, &payload, &c.attempt, &c.reason, &isRunning, &busy); err != nil {
 			rows.Close()
-			return err
+			return again, err
 		}
 		if c.spec, err = decodeSpec(spec, payload); err != nil {
 			rows.Close()
-			return err
+			return again, err
 		}
 		if busy {
 			running = append(running, c.spec)
+			if !isRunning {
+				again = recheck // another instance's start, which may have died
+			}
 		} else {
 			cands = append(cands, c)
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return err
+		return again, err
 	}
 
 	for i, c := range cands {
@@ -326,9 +378,9 @@ func (d *Dispatcher) startWhatCan(ctx context.Context) error {
 				}
 			}
 			if len(ids) == 0 {
-				return nil
+				return again, nil
 			}
-			return d.write(ctx, func(w *wtx) error {
+			return again, d.write(ctx, func(w *wtx) error {
 				_, err := w.exec(`UPDATE tasks SET reason = 'limit', reason_detail = ''
 					WHERE id = ANY($1) AND state = 'pending'`, ids)
 				return err
@@ -336,37 +388,42 @@ func (d *Dispatcher) startWhatCan(ctx context.Context) error {
 		}
 		if d.cfg.Admission != nil {
 			if ok, why := d.cfg.Admission(ctx, c.spec, running); !ok {
+				again = min(again, retry)
 				if err := d.setReason(ctx, c, dispatch.ReasonAdmission, why); err != nil {
-					return err
+					return again, err
 				}
 				continue
 			}
 		}
 		a, ok, err := d.claim(ctx, c)
 		if err != nil {
-			return err
+			return again, err
 		}
 		if !ok {
+			again = min(again, recheck)
 			continue
 		}
 		serr := d.cfg.Starter.Start(ctx, a)
 		if ctx.Err() != nil {
-			return ctx.Err() // killed: the claim runs out with the lease
+			return again, ctx.Err() // killed: the claim ends with the instance
 		}
 		if err := d.recordStart(ctx, a, serr); err != nil {
-			return err
+			return again, err
 		}
 		if serr == nil {
 			running = append(running, c.spec)
+		} else {
+			again = min(again, retry)
 		}
 	}
-	return nil
+	return again, nil
 }
 
 func (d *Dispatcher) setReason(ctx context.Context, c candidate, kind dispatch.ReasonKind, detail string) error {
 	return d.write(ctx, func(w *wtx) error {
 		_, err := w.exec(`UPDATE tasks SET reason = $3, reason_detail = $4
-			WHERE id = $1 AND state = 'pending' AND attempt = $2`, c.spec.ID, c.attempt, string(kind), detail)
+			WHERE id = $1 AND state = 'pending' AND attempt = $2
+			  AND (reason, reason_detail) IS DISTINCT FROM ($3, $4)`, c.spec.ID, c.attempt, string(kind), detail)
 		return err
 	})
 }
@@ -382,9 +439,9 @@ func (d *Dispatcher) claim(ctx context.Context, c candidate) (dispatch.Attempt, 
 	err := d.write(ctx, func(w *wtx) error {
 		err := w.tx.QueryRow(ctx, `UPDATE tasks t SET starting_by = $3, attempt = $4
 			WHERE id = $1 AND state = 'pending' AND attempt = $2
-			  AND (t.starting_by IS NULL OR t.starting_by = $3 OR NOT `+live+`)
+			  AND (t.starting_by IS NULL OR t.starting_by = $3 OR NOT `+live(d.schema)+`)
 			  AND (SELECT count(*) FROM tasks t WHERE state = 'running'
-			         OR (state = 'pending' AND t.starting_by <> $3 AND `+live+`)) < $5
+			         OR (state = 'pending' AND t.starting_by <> $3 AND `+live(d.schema)+`)) < $5
 			  AND NOT EXISTS (SELECT 1 FROM events e WHERE e.type = 'task.finished' AND e.subject = $1
 			         AND CASE WHEN json_typeof(e.data) = 'object' THEN e.data->>'attempt' = $6 END)
 			RETURNING spec, payload, wake`,

@@ -43,7 +43,7 @@ func (d *Dispatcher) prune(ctx context.Context) error {
 	}
 	var leads bool
 	err := d.pool.QueryRow(ctx, `SELECT coalesce(min(id) = $1, false) FROM instances
-		WHERE alive_until > clock_timestamp()`, d.id).Scan(&leads)
+		i WHERE `+liveInstance(d.schema), d.id).Scan(&leads)
 	if err != nil || !leads {
 		return err
 	}

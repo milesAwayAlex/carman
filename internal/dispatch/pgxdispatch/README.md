@@ -85,3 +85,34 @@ counts from appending (`events.added`), not from `Event.Time`, which the
 emitter sets. When the scheduler is built, it will want an index on
 `(type, time)` and a read by type and time range in the contract; neither
 exists yet.
+
+## Being idle
+
+An instance runs one loop. A round reads `meta` and takes the write lock
+only when the log has events not yet acted on, acts on the clock only when
+something is due, offers pending tasks, and then reads when the next thing
+is due: an attempt's limit, a wait's deadline, a start-by time, a schedule's
+tick. It sleeps until then, or until a notification, or for at most five
+seconds (the fallback for a lost notification). A write that appends to the
+log, or declares a schedule, sends `NOTIFY` on a channel named after the
+schema, from whatever instance or connection made it (the watchers' `Emit`
+included); every instance `LISTEN`s on a session of its own.
+
+While a task is held by admission or its start failed, it is asked again
+every second; while another instance's start claim exists, it is looked at
+every half second. Neither writes unless the reason changes.
+
+The heartbeat, every five seconds, is the only write of an idle instance.
+An instance counts as alive while its lease (fifteen seconds) runs **and**
+its listening session exists in `pg_stat_activity`: a process that dies
+closes its connection, so its start claims end at once, and the lease only
+covers a connection left half-open (a node lost). This needs every instance
+to connect as the same role, or a role with `pg_read_all_stats`, to see the
+others' sessions. A session lost and reconnected gets a new identity, and
+for that moment the instance's own claim looks dead: a start may then be
+called twice, which the contract already allows.
+
+Measured on one idle instance for 20 seconds (`TestIdleCost`, run with
+`DISPATCH_MEASURE_IDLE=1`): before, polling every 100 ms, 725 commits, 52
+rows updated, 127 kB of WAL; after, 30 commits (all but the heartbeat's
+read-only), 5 rows updated, 1.2 kB of WAL. No rows inserted in either.

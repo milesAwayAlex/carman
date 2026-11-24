@@ -20,16 +20,29 @@ import (
 )
 
 const (
-	poll  = 100 * time.Millisecond // how often the loops look at the tables
-	lease = 2 * time.Second        // how long a start claim outlives its instance
-	beat  = 400 * time.Millisecond // how often an instance renews its lease
-	batch = 200                    // events acted on per transaction
+	idlePoll = 5 * time.Second        // the fallback for a lost notification
+	retry    = time.Second            // admission and failed starts are asked again
+	recheck  = 500 * time.Millisecond // another instance's claim, which may have died
+	lease    = 15 * time.Second       // how long an instance counts as alive without a heartbeat
+	beat     = 5 * time.Second        // how often an instance renews its lease
+	batch    = 200                    // events acted on per transaction
 )
 
-// live is true when task t's start claim belongs to an instance whose
-// lease has not run out.
-const live = `(t.starting_by IS NOT NULL AND EXISTS (SELECT 1 FROM instances i
-	WHERE i.id = t.starting_by AND i.alive_until > clock_timestamp()))`
+// liveInstance is true for instance i while its lease runs and, from schema
+// 3, its listening session exists: a process that dies drops it at once.
+func liveInstance(schema int) string {
+	if schema < 3 {
+		return `i.alive_until > clock_timestamp()`
+	}
+	return `i.alive_until > clock_timestamp() AND (i.pid IS NULL OR EXISTS (SELECT 1 FROM pg_stat_activity a
+		WHERE a.pid = i.pid AND a.backend_start = i.backend_start))`
+}
+
+// live is true when task t's start claim belongs to a live instance.
+func live(schema int) string {
+	return `(t.starting_by IS NOT NULL AND EXISTS (SELECT 1 FROM instances i
+	WHERE i.id = t.starting_by AND ` + liveInstance(schema) + `))`
+}
 
 // Dispatcher is one instance. It owns its connection pool.
 type Dispatcher struct {
@@ -103,6 +116,11 @@ func OpenWith(ctx context.Context, url string, cfg dispatch.Config, build string
 		pool.Close()
 		return nil, err
 	}
+	listener, err := d.listen(ctx)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	d.ctx, d.cancel = context.WithCancel(context.Background())
 	d.wg.Add(3)
 	b := beat
@@ -110,8 +128,8 @@ func OpenWith(ctx context.Context, url string, cfg dispatch.Config, build string
 		b = opts.beat
 	}
 	go d.every(b, d.heartbeat)
-	go d.every(poll, d.react)
-	go d.every(poll, d.startWhatCan)
+	go d.notifications(listener)
+	go d.run()
 	if opts.prunes() {
 		d.wg.Add(1)
 		go d.every(opts.pruneEvery(), d.prune)
@@ -163,8 +181,7 @@ func (d *Dispatcher) Kill() {
 	d.pool.Close()
 }
 
-// every runs f every interval, or sooner when kicked, until the instance
-// is killed.
+// every runs f every interval until the instance is killed.
 func (d *Dispatcher) every(interval time.Duration, f func(context.Context) error) {
 	defer d.wg.Done()
 	t := time.NewTicker(interval)
@@ -175,7 +192,76 @@ func (d *Dispatcher) every(interval time.Duration, f func(context.Context) error
 		case <-d.ctx.Done():
 			return
 		case <-t.C:
+		}
+	}
+}
+
+// channel is where a write that appends to the log notifies; one per schema.
+const channel = `'pgxdispatch.' || current_schema()`
+
+// listen opens the session that receives notifications and, from schema 3,
+// makes it the instance's sign of life.
+func (d *Dispatcher) listen(ctx context.Context) (*pgx.Conn, error) {
+	conn, err := pgx.ConnectConfig(ctx, d.pool.Config().ConnConfig.Copy())
+	if err != nil {
+		return nil, err
+	}
+	var ch string
+	err = conn.QueryRow(ctx, `SELECT `+channel).Scan(&ch)
+	if err == nil {
+		_, err = conn.Exec(ctx, `LISTEN `+pgx.Identifier{ch}.Sanitize())
+	}
+	if err == nil && d.schema >= 3 {
+		_, err = conn.Exec(ctx, `UPDATE instances SET pid = pg_backend_pid(),
+			backend_start = (SELECT backend_start FROM pg_stat_activity WHERE pid = pg_backend_pid())
+			WHERE id = $1`, d.id)
+	}
+	if err != nil {
+		conn.Close(context.Background())
+		return nil, err
+	}
+	return conn, nil
+}
+
+// notifications wakes the loop on every notification, and reconnects when
+// the session is lost; the slow poll covers the gap.
+func (d *Dispatcher) notifications(conn *pgx.Conn) {
+	defer d.wg.Done()
+	for {
+		_, err := conn.WaitForNotification(d.ctx)
+		if d.ctx.Err() != nil {
+			conn.Close(context.Background())
+			return
+		}
+		d.poke()
+		for err != nil {
+			conn.Close(context.Background())
+			select {
+			case <-d.ctx.Done():
+				return
+			case <-time.After(retry):
+			}
+			if conn, err = d.listen(d.ctx); err == nil {
+				d.poke()
+			}
+		}
+	}
+}
+
+// run is the instance's loop: a round of work, then sleep until the next
+// thing is due, a notification, or the slow poll, whichever is first.
+func (d *Dispatcher) run() {
+	defer d.wg.Done()
+	var due time.Time // when the clock next has something to do
+	for {
+		t := time.NewTimer(d.round(&due))
+		select {
+		case <-d.ctx.Done():
+			t.Stop()
+			return
+		case <-t.C:
 		case <-d.kick:
+			t.Stop()
 		}
 	}
 }
@@ -188,8 +274,12 @@ func (d *Dispatcher) poke() {
 }
 
 func (d *Dispatcher) heartbeat(ctx context.Context) error {
+	// One statement: renew the lease, forget instances long gone (a claim
+	// whose instance is gone reads as not live), and read the schema version.
 	var at int
-	err := d.pool.QueryRow(ctx, `UPDATE instances SET alive_until = clock_timestamp() + $2 * interval '1 millisecond'
+	err := d.pool.QueryRow(ctx, `WITH gone AS (DELETE FROM instances
+			WHERE alive_until < clock_timestamp() - interval '1 hour')
+		UPDATE instances SET alive_until = clock_timestamp() + $2 * interval '1 millisecond'
 		WHERE id = $1 RETURNING (SELECT max(version) FROM schema_versions)`, d.id, lease.Milliseconds()).Scan(&at)
 	if err != nil {
 		return err
@@ -199,9 +289,7 @@ func (d *Dispatcher) heartbeat(ctx context.Context) error {
 			ErrSchemaNewer, at, d.schema))
 		return nil
 	}
-	// A claim whose instance is gone reads as not live, as an expired one does.
-	_, err = d.pool.Exec(ctx, `DELETE FROM instances WHERE alive_until < clock_timestamp() - interval '1 hour'`)
-	return err
+	return nil
 }
 
 // wtx is a write transaction. It holds the lock on meta, so it is the only
@@ -212,7 +300,8 @@ type wtx struct {
 	now    time.Time // the database's clock when the lock was taken
 	seq    int64
 	cursor int64
-	schema int // the schema version, where the code depends on it
+	schema int  // the schema version, where the code depends on it
+	notify bool // wake the other instances at commit, though the log did not grow
 }
 
 // ended is the assignment that records a task's end, at schema 2 and later.
@@ -241,7 +330,12 @@ func write(ctx context.Context, pool *pgxpool.Pool, schema int, fn func(w *wtx) 
 			return err
 		}
 		if w.seq != seq || w.cursor != cursor {
-			_, err = tx.Exec(ctx, `UPDATE meta SET seq = $1, cursor = $2`, w.seq, w.cursor)
+			if _, err = tx.Exec(ctx, `UPDATE meta SET seq = $1, cursor = $2`, w.seq, w.cursor); err != nil {
+				return err
+			}
+		}
+		if w.seq != seq || w.notify {
+			_, err = tx.Exec(ctx, `SELECT pg_notify(`+channel+`, '')`)
 		}
 		return err
 	})
@@ -363,12 +457,15 @@ func (d *Dispatcher) Declare(ctx context.Context, s dispatch.Schedule) error {
 		return fmt.Errorf("%w: schedule template needs a class and a positive attempt timeout", dispatch.ErrInvalid)
 	}
 	iv := int64(s.Interval / time.Second)
-	return d.write(ctx, func(w *wtx) error {
+	err := d.write(ctx, func(w *wtx) error {
+		w.notify = true
 		_, err := w.exec(`INSERT INTO schedules (name, spec, interval_s, last_tick) VALUES ($1, $2, $3, $4)
 			ON CONFLICT (name) DO UPDATE SET spec = excluded.spec, interval_s = excluded.interval_s`,
 			s.Name, mustJSON(s), iv, tickAt(w.now, iv))
 		return err
 	})
+	d.poke()
+	return err
 }
 
 // tickAt is the latest multiple of iv seconds since the Unix epoch at or
@@ -383,7 +480,7 @@ func (d *Dispatcher) Explain(ctx context.Context, id string) (dispatch.TaskStatu
 	var spec, payload, wait []byte
 	var kind, detail string
 	var inFlight bool
-	err := d.pool.QueryRow(ctx, `SELECT spec, payload, state, attempt, wait, reason, reason_detail, `+live+`
+	err := d.pool.QueryRow(ctx, `SELECT spec, payload, state, attempt, wait, reason, reason_detail, `+live(d.schema)+`
 		FROM tasks t WHERE id = $1`, id).Scan(&spec, &payload, &st.State, &st.Attempt, &wait, &kind, &detail, &inFlight)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return st, dispatch.ErrNotFound
