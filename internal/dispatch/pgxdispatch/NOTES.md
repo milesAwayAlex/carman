@@ -1,5 +1,15 @@
 # pgxdispatch: notes
 
+These are the first builder's notes, kept as written. Since then (see
+`README.md`): the schema is numbered migrations, not one file run at every
+start; the log has retention; the three polling loops are one loop woken by
+`LISTEN`/`NOTIFY` and by the next deadline, with a five-second fallback; the
+heartbeat is every five seconds and the lease fifteen, an instance being
+alive also while its listening session exists; calls to the starter and to
+admission have a deadline; and the reason question under "Suite against
+contract" is settled in the contract (admission's refusal stands while the
+limit is reached).
+
 The dispatcher on hand-written Postgres tables, through pgx v5, with no
 workflow or queue library. It passes the whole acceptance suite unchanged,
 restart, different-build and two-instance tests included.

@@ -49,3 +49,4 @@ To change a decision, add a new record and mark the old one superseded.
 | [0036](0036-the-owners-attention.md) | An agent asks for the owner's attention with one command, and the owner can pick its conversation up | Accepted |
 | [0037](0037-services-and-a-namespace-of-their-own.md) | Agents reach the installation's services on the cluster, and have a namespace to run their own | Accepted |
 | [0038](0038-state-is-copied-to-a-store-the-platform-gives.md) | The installation's state is copied to a store the platform gives, by a job of the chart | Accepted |
+| [0039](0039-the-dispatcher-keeps-its-state-in-tables-of-its-own.md) | The dispatcher keeps its state in tables of its own, in a Postgres database it owns | Proposed |

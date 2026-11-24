@@ -56,10 +56,10 @@ Notes on billing:
 
 ```
 tickets, webhooks ─┐
-                   ├─> dispatcher ──> queue ──> worker pod (one per task)
+                   ├─> dispatcher ───────────> worker pod (one per task)
 clock ─────────────┘       │                        │
                            │                        ├─ Agent SDK session
-                    task ledger                     ├─ verifier
+              event log, tasks (Postgres)           ├─ verifier
                     pacing                          └─ end-of-task record
                            │                        │
                            └──────── memory service (HTTP, cmem CLI) ──── laptop
@@ -72,8 +72,8 @@ clock ─────────────┘       │                      
 | Component | Responsibility | State |
 |---|---|---|
 | **Memory service** | Section 6 | Built |
-| **Dispatcher** | Turns events into task records with a done-criterion and a budget; routes later events to the task waiting for them; decides what runs now | Proposed |
-| **Task ledger** | One row per task: trigger, state, what it is waiting for, session ID, branch, cost, verifier result, handoff note | Proposed |
+| **Dispatcher** | Keeps a durable log of events; turns events into tasks; starts work, routes later events to the task waiting for them, and records what did not happen (an overrun, a missed deadline or tick); decides what runs now. Its state is in tables of its own in a Postgres database it owns (ADR 0039) | Contract, acceptance suite and implementation built (`internal/dispatch`); not yet deployed or used |
+| **Task ledger** | One row per task: trigger, state, what it is waiting for, session ID, branch, cost, verifier result, handoff note. State, waits and attempts are the dispatcher's tasks table; the rest is to come | Partly built, in the dispatcher |
 | **Worker** | One pod per task. Runs the agent, then the verifier, then records the episode | Proposed |
 | **Verifier** | A check separate from the agent's own claim. On failure the task continues with the result | Proposed |
 | **Dreamer** | Scheduled agent run that consolidates memory | Built, switched off (ADR 0027) |
@@ -104,7 +104,11 @@ expired by then.
 - The service draws from the same usage windows as the owner's interactive
   Claude Code. The dispatcher reserves headroom for the owner.
 - Signal: the SDK's rate-limit events carry utilization, window type and reset
-  time. Confirmed for the Python SDK only.
+  time. Confirmed for the Python SDK only. Readings are to be events in the
+  dispatcher's log, kept for a period of their own (ADR 0039), and read back
+  by type and time.
+- Where the policy acts: the dispatcher's admission, asked before each start
+  with what is running; a task it holds says why.
 - Policy: urgent tasks always run. Backlog tasks run only while utilization is
   under a curve that reaches full at reset. The dreamer and benchmark runs are
   backlog jobs.
@@ -451,6 +455,8 @@ Decisions are recorded one per file in `docs/adr/`. The index,
 | Graphiti (Zep) | Closest temporal data model. Needs a graph database and a model call on every write |
 | Basic Memory, Agentcairn | Same shape as ours (markdown as the source of truth, a rebuildable index). Neither has our verification or role rules |
 | Mem0, claude-mem | Mem0's local server was withdrawn in July 2026; claude-mem is local to one machine |
+| DBOS Transact for the dispatcher | Built and compared. Recovery of a dead instance's work and of another build's is not in its open-source edition; a second state machine and 13 tables beside ours (ADR 0039) |
+| River for the dispatcher | Built and compared. Sat beside our tables: its scheduling and crash rescue are too coarse for deadlines, and it has no global limit or waiting for an event (ADR 0039) |
 
 ## 11. Build order
 
@@ -476,7 +482,11 @@ Decisions are recorded one per file in `docs/adr/`. The index,
    unattended runs.
 8. Walking skeleton of the task path: one trigger, one worker, one verifier,
    `cmem record` at the end. The dreamer's pieces are its start.
-9. Dispatcher pacing and the task ledger's wait-and-wake routing.
+9. Dispatcher pacing and the task ledger's wait-and-wake routing. Built: the
+   dispatcher's contract, its acceptance suite, and an implementation on
+   tables of its own with migrations, retention, a low idle cost and
+   deadlines on calls out (ADR 0039). Next: a binary and a chart for it,
+   its first callers, and pacing as its admission.
 
 ## 12. References
 
