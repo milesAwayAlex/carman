@@ -116,7 +116,14 @@ once; work submitted through one is visible and finished through the other.
   in order is asked. A budget rule holds backlog work and lets urgent work
   through; head-of-line blocking would stall both.
 - **The limit is checked before admission**; when the limit is reached,
-  admission is not asked and `Explain` says `limit`.
+  admission is not asked.
+- **A pending task's reason is what happened the last time it was
+  considered.** Pending tasks are considered in priority order whenever a
+  place is free. A task admission refused shows `admission`, with
+  admission's reason, until it is considered again; a reached limit does
+  not replace it, because "the limit is reached" would say that the task
+  starts when a place frees, which is false. A task never refused shows
+  `limit` while the limit is reached.
 - **Duplicate submissions: the first spec wins**, no error. Same for events.
 - **Schedule ticks are multiples of the interval since the Unix epoch**, so
   every instance computes the same ticks with no stored anchor; the first

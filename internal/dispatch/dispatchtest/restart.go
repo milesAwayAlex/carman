@@ -143,9 +143,8 @@ func testRestart(t *testing.T, f Factory) {
 		b := e.open("b1")
 		e.finish(b, attempt("block", 1), dispatch.OutcomeDone, nil)
 		e.waitEvent(b, tid(dispatch.TypeStarted, "high", attempt("high", 1)), react)
-		e.eventually(react, "held to show admission's reason", func() bool {
-			return e.explain(b, "held").Reason.Kind == dispatch.ReasonAdmission
-		})
+		// held was considered, and refused, before high started.
+		e.staysReason(b, "held", dispatch.ReasonAdmission, "over budget")
 		e.finish(b, attempt("high", 1), dispatch.OutcomeDone, nil)
 		e.waitEvent(b, tid(dispatch.TypeStarted, "low", attempt("low", 1)), react)
 		e.expectNoCall(attempt("held", 1), 0)

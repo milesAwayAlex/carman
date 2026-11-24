@@ -21,6 +21,7 @@ var tests = []test{
 	{"R2_Duplicates", false, testDuplicates},
 	{"R7_PriorityAndLimit", false, testPriorityAndLimit},
 	{"R7_AdmissionHoldsThenReleases", false, testAdmission},
+	{"R7_ReasonIsTheLastConsideration", false, testReasonAtLimit},
 	{"Overrun", false, testOverrun},
 	{"NotStartedInTime", false, testNotStarted},
 	{"R2_WaitWokenByEvent", false, testWakeByEvent},
@@ -380,4 +381,44 @@ func testSchedule(t *testing.T, f Factory) {
 		t.Errorf("the scheduled task is %+v", st.Spec)
 	}
 	e.check(d)
+}
+
+// testReasonAtLimit: a task admission refused goes on showing admission's
+// reason while the limit is reached; one never refused shows the limit.
+func testReasonAtLimit(t *testing.T, f Factory) {
+	e := newEnv(t, f, 1)
+	d := e.open("b1")
+	e.submit(d, spec("block", 0))
+	e.waitEvent(d, tid(dispatch.TypeStarted, "block", attempt("block", 1)), react)
+	e.setHold("held", "over budget")
+	e.submit(d, spec("held", 9))
+	e.submit(d, spec("low", 1))
+	// Neither has been considered: the limit holds both.
+	e.eventually(react, "held and low to be held by the limit", func() bool {
+		return e.explain(d, "held").Reason.Kind == dispatch.ReasonLimit &&
+			e.explain(d, "low").Reason.Kind == dispatch.ReasonLimit
+	})
+	e.finish(d, attempt("block", 1), dispatch.OutcomeDone, nil)
+	e.waitEvent(d, tid(dispatch.TypeStarted, "low", attempt("low", 1)), react)
+	e.staysReason(d, "held", dispatch.ReasonAdmission, "over budget")
+	e.submit(d, spec("later", 5))
+	e.eventually(react, "later to be held by the limit", func() bool {
+		return e.explain(d, "later").Reason.Kind == dispatch.ReasonLimit
+	})
+	e.staysReason(d, "held", dispatch.ReasonAdmission, "over budget")
+	e.expectNoCall(attempt("held", 1), 0)
+	e.check(d)
+}
+
+// staysReason checks, from now and for a second, that a pending task shows
+// kind and detail every time it is asked.
+func (e *env) staysReason(d dispatch.Dispatcher, id string, kind dispatch.ReasonKind, detail string) {
+	e.t.Helper()
+	for end := time.Now().Add(time.Second); time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
+		st := e.explain(d, id)
+		if st.State != dispatch.Pending || st.Reason.Kind != kind || st.Reason.Detail != detail {
+			e.t.Fatalf("%s: state %s, reason %q %q; want pending, %q %q",
+				id, st.State, st.Reason.Kind, st.Reason.Detail, kind, detail)
+		}
+	}
 }

@@ -386,7 +386,10 @@ func (d *Dispatcher) startWhatCan() {
 		}
 		if len(running) >= d.cfg.MaxRunning {
 			for _, t := range pending {
-				t.reason = dispatch.Reason{Kind: dispatch.ReasonLimit}
+				// What admission said the last time it was asked stands.
+				if t.reason.Kind != dispatch.ReasonAdmission {
+					t.reason = dispatch.Reason{Kind: dispatch.ReasonLimit}
+				}
 			}
 			d.mu.Unlock()
 			return

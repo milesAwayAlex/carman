@@ -173,15 +173,25 @@ func ScheduledTaskID(name string, tick time.Time) string {
 }
 
 // ReasonKind says why a task is not running.
+//
+// A pending task's reason is what happened the last time the dispatcher
+// considered it. The dispatcher considers pending tasks, in priority order,
+// whenever a place under MaxRunning is free. A task that admission refused
+// shows ReasonAdmission until it is considered again, even while the limit
+// is reached: the limit is not what holds it, and a place freeing would not
+// start it. A task that admission never refused shows ReasonLimit while the
+// limit is reached.
 type ReasonKind string
 
 const (
 	// ReasonNone: nothing holds the task back (it is about to start, or is
 	// running, or is final).
 	ReasonNone ReasonKind = ""
-	// ReasonLimit: MaxRunning tasks are running.
+	// ReasonLimit: MaxRunning tasks are running, and admission did not
+	// refuse the task the last time it was considered.
 	ReasonLimit ReasonKind = "limit"
-	// ReasonAdmission: admission said no; Detail is its reason.
+	// ReasonAdmission: admission said no the last time the task was
+	// considered; Detail is its reason.
 	ReasonAdmission ReasonKind = "admission"
 	// ReasonWaiting: Wait says for what and until when.
 	ReasonWaiting ReasonKind = "waiting"

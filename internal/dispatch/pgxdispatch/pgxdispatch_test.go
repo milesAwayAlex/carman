@@ -24,6 +24,11 @@ var (
 // db is one test's schema.
 type db struct{ url string }
 
+func (d db) schema() string {
+	u, _ := url.Parse(d.url)
+	return u.Query().Get("search_path")
+}
+
 func (d db) Open(cfg dispatch.Config, build string) (dispatchtest.Instance, error) {
 	return Open(context.Background(), d.url, cfg, build)
 }
