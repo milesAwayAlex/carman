@@ -53,3 +53,35 @@ that version's columns, not the previous release's code, so a migration's
 test shows that work written at the old version is carried on, not that the
 old release itself tolerates the new schema: that part is the rules above,
 and review.
+
+## Retention
+
+`Options.Retention` bounds the log; zero keeps everything. The instance that
+leads (the live one with the lowest id) removes, in statements of at most
+100 tasks or 1,000 events that do not take the write lock:
+
+- finished tasks (done or failed) whose end is older than the period, with
+  their events (those whose subject is the task's ID);
+- events that belong to no task (their subject is no task's ID: a usage
+  reading, a `schedule.missed`, an event nobody waited for) appended longer
+  ago than the period.
+
+It never removes anything that belongs to a task that is not finished,
+however old, nor an event the dispatcher has not yet acted on. An ID that
+retention removed is free again: submitting a task or emitting an event with
+it a second time has an effect. The contract's "one ID, one effect" holds
+within the period, so the period must be longer than any watcher may retry
+or repeat an event. Event `Seq` numbers keep increasing; removal leaves gaps.
+
+**One period, or one per event type.** One period is right for task history:
+it is read to explain what happened and nothing reads it later. It is wrong
+for the log's other planned use, readings of the account's usage over time
+that a scheduler reads back by type and time: those are worth keeping longer
+than task history (to see a week's pattern, or a month's), or shorter when
+they come often. So `Options.RetentionByType` sets a period for events of a
+type that belong to no task, zero keeping them for ever, and the rest use
+`Retention`. It cost a map and one statement per listed type. Retention
+counts from appending (`events.added`), not from `Event.Time`, which the
+emitter sets. When the scheduler is built, it will want an index on
+`(type, time)` and a read by type and time range in the contract; neither
+exists yet.

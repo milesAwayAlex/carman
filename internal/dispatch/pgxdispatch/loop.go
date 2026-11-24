@@ -15,7 +15,7 @@ import (
 func (d *Dispatcher) react(ctx context.Context) error {
 	for {
 		more := false
-		err := write(ctx, d.pool, func(w *wtx) error {
+		err := d.write(ctx, func(w *wtx) error {
 			rows, err := w.tx.Query(ctx, `SELECT seq, id, type, source, subject, time, data
 				FROM events WHERE seq > $1 ORDER BY seq LIMIT $2`, w.cursor, batch)
 			if err != nil {
@@ -41,7 +41,7 @@ func (d *Dispatcher) react(ctx context.Context) error {
 			break
 		}
 	}
-	return write(ctx, d.pool, func(w *wtx) error { return w.actOnTime() })
+	return d.write(ctx, func(w *wtx) error { return w.actOnTime() })
 }
 
 func (w *wtx) actOn(r dispatch.Record) error {
@@ -114,7 +114,7 @@ func (w *wtx) finished(r dispatch.Record) error {
 	switch {
 	case f.Outcome == dispatch.OutcomeDone:
 		_, err = w.exec(`UPDATE tasks SET state = 'done', attempt = $2, starting_by = NULL, wake = NULL,
-			reason = '', reason_detail = '' WHERE id = $1`, id, attempt)
+			reason = '', reason_detail = ''`+w.ended()+` WHERE id = $1`, id, attempt)
 		if err == nil {
 			err = w.transition(dispatch.TypeDone, id, name, tr)
 		}
@@ -129,7 +129,7 @@ func (w *wtx) finished(r dispatch.Record) error {
 		}
 	default: // failed, or a malformed outcome
 		_, err = w.exec(`UPDATE tasks SET state = 'failed', attempt = $2, starting_by = NULL, wake = NULL,
-			reason = '', reason_detail = '' WHERE id = $1`, id, attempt)
+			reason = '', reason_detail = ''`+w.ended()+` WHERE id = $1`, id, attempt)
 		if err == nil {
 			err = w.transition(dispatch.TypeFailed, id, name, tr)
 		}
@@ -169,7 +169,7 @@ func (w *wtx) actOnTime() error {
 	}
 	for _, o := range overs {
 		name := dispatch.AttemptName(o.id, o.attempt)
-		if _, err := w.exec(`UPDATE tasks SET state = 'failed' WHERE id = $1`, o.id); err != nil {
+		if _, err := w.exec(`UPDATE tasks SET state = 'failed'`+w.ended()+` WHERE id = $1`, o.id); err != nil {
 			return err
 		}
 		if err := w.transition(dispatch.TypeOverran, o.id, name, dispatch.Transition{Attempt: name}); err != nil {
@@ -328,7 +328,7 @@ func (d *Dispatcher) startWhatCan(ctx context.Context) error {
 			if len(ids) == 0 {
 				return nil
 			}
-			return write(ctx, d.pool, func(w *wtx) error {
+			return d.write(ctx, func(w *wtx) error {
 				_, err := w.exec(`UPDATE tasks SET reason = 'limit', reason_detail = ''
 					WHERE id = ANY($1) AND state = 'pending'`, ids)
 				return err
@@ -364,7 +364,7 @@ func (d *Dispatcher) startWhatCan(ctx context.Context) error {
 }
 
 func (d *Dispatcher) setReason(ctx context.Context, c candidate, kind dispatch.ReasonKind, detail string) error {
-	return write(ctx, d.pool, func(w *wtx) error {
+	return d.write(ctx, func(w *wtx) error {
 		_, err := w.exec(`UPDATE tasks SET reason = $3, reason_detail = $4
 			WHERE id = $1 AND state = 'pending' AND attempt = $2`, c.spec.ID, c.attempt, string(kind), detail)
 		return err
@@ -379,7 +379,7 @@ func (d *Dispatcher) claim(ctx context.Context, c candidate) (dispatch.Attempt, 
 	a := dispatch.Attempt{Number: n, Name: dispatch.AttemptName(c.spec.ID, n)}
 	var spec, payload, wake []byte
 	found := false
-	err := write(ctx, d.pool, func(w *wtx) error {
+	err := d.write(ctx, func(w *wtx) error {
 		err := w.tx.QueryRow(ctx, `UPDATE tasks t SET starting_by = $3, attempt = $4
 			WHERE id = $1 AND state = 'pending' AND attempt = $2
 			  AND (t.starting_by IS NULL OR t.starting_by = $3 OR NOT `+live+`)
@@ -414,7 +414,7 @@ func (d *Dispatcher) claim(ctx context.Context, c candidate) (dispatch.Attempt, 
 // still stands: the task may have finished meanwhile, or another instance
 // may have taken over a claim whose lease ran out.
 func (d *Dispatcher) recordStart(ctx context.Context, a dispatch.Attempt, serr error) error {
-	return write(ctx, d.pool, func(w *wtx) error {
+	return d.write(ctx, func(w *wtx) error {
 		if serr != nil {
 			_, err := w.exec(`UPDATE tasks SET starting_by = NULL, reason = 'start-failed', reason_detail = $4
 				WHERE id = $1 AND attempt = $2 AND state = 'pending' AND starting_by = $3`,

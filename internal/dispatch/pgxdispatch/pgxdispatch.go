@@ -38,6 +38,7 @@ type Dispatcher struct {
 	id     int64
 	ctx    context.Context
 	cancel context.CancelFunc
+	opts   Options
 	wg     sync.WaitGroup
 	kick   chan struct{} // a hint that there is something to do
 	schema int           // the schema version it works on
@@ -49,6 +50,16 @@ type Dispatcher struct {
 // Options are the settings beyond the contract's Config. The zero value is
 // the default.
 type Options struct {
+	// Retention is how long the log keeps a finished (done or failed) task,
+	// with its events, counted from its end, and an event that belongs to
+	// no task (its subject is no task's ID), counted from its appending.
+	// Zero keeps everything. What belongs to a task that is not finished
+	// is kept however old. A task or event submitted again with an ID that
+	// retention removed is new: "one ID, one effect" holds within the period.
+	Retention time.Duration
+	// RetentionByType replaces Retention for events of a type that belong
+	// to no task; zero keeps them for ever.
+	RetentionByType map[string]time.Duration
 	// schemaVersion, for tests only, stops the migrations at a version.
 	schemaVersion int
 	// beat, for tests only, replaces how often the lease is renewed.
@@ -84,7 +95,7 @@ func OpenWith(ctx context.Context, url string, cfg dispatch.Config, build string
 		pool.Close()
 		return nil, err
 	}
-	d := &Dispatcher{pool: pool, cfg: cfg, kick: make(chan struct{}, 1), schema: version}
+	d := &Dispatcher{pool: pool, cfg: cfg, opts: opts, kick: make(chan struct{}, 1), schema: version}
 	err = pool.QueryRow(ctx, `INSERT INTO instances (build, alive_until)
 		VALUES ($1, clock_timestamp() + $2 * interval '1 millisecond') RETURNING id`,
 		build, lease.Milliseconds()).Scan(&d.id)
@@ -101,6 +112,10 @@ func OpenWith(ctx context.Context, url string, cfg dispatch.Config, build string
 	go d.every(b, d.heartbeat)
 	go d.every(poll, d.react)
 	go d.every(poll, d.startWhatCan)
+	if opts.prunes() {
+		d.wg.Add(1)
+		go d.every(opts.pruneEvery(), d.prune)
+	}
 	return d, nil
 }
 
@@ -114,7 +129,7 @@ func Emit(ctx context.Context, url string, e dispatch.Event) error {
 		return err
 	}
 	defer pool.Close()
-	return write(ctx, pool, func(w *wtx) error { return w.append(e) })
+	return write(ctx, pool, 0, func(w *wtx) error { return w.append(e) })
 }
 
 func connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
@@ -197,12 +212,25 @@ type wtx struct {
 	now    time.Time // the database's clock when the lock was taken
 	seq    int64
 	cursor int64
+	schema int // the schema version, where the code depends on it
+}
+
+// ended is the assignment that records a task's end, at schema 2 and later.
+func (w *wtx) ended() string {
+	if w.schema >= 2 {
+		return ", ended_at = clock_timestamp()"
+	}
+	return ""
+}
+
+func (d *Dispatcher) write(ctx context.Context, fn func(w *wtx) error) error {
+	return write(ctx, d.pool, d.schema, fn)
 }
 
 // write runs fn in a write transaction.
-func write(ctx context.Context, pool *pgxpool.Pool, fn func(w *wtx) error) error {
+func write(ctx context.Context, pool *pgxpool.Pool, schema int, fn func(w *wtx) error) error {
 	return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-		w := &wtx{tx: tx, ctx: ctx}
+		w := &wtx{tx: tx, ctx: ctx, schema: schema}
 		err := tx.QueryRow(ctx, `SELECT seq, cursor, clock_timestamp() FROM meta FOR UPDATE`).
 			Scan(&w.seq, &w.cursor, &w.now)
 		if err != nil {
@@ -278,7 +306,7 @@ func (d *Dispatcher) Emit(ctx context.Context, e dispatch.Event) error {
 	if err := validEvent(e); err != nil {
 		return err
 	}
-	err := write(ctx, d.pool, func(w *wtx) error { return w.append(e) })
+	err := d.write(ctx, func(w *wtx) error { return w.append(e) })
 	d.poke()
 	return err
 }
@@ -306,7 +334,7 @@ func (d *Dispatcher) Submit(ctx context.Context, t dispatch.TaskSpec) error {
 	if t.ID == "" || t.Class == "" || t.AttemptTimeout <= 0 {
 		return fmt.Errorf("%w: task needs id, class and a positive attempt timeout", dispatch.ErrInvalid)
 	}
-	err := write(ctx, d.pool, func(w *wtx) error { return w.submit(t) })
+	err := d.write(ctx, func(w *wtx) error { return w.submit(t) })
 	d.poke()
 	return err
 }
@@ -335,7 +363,7 @@ func (d *Dispatcher) Declare(ctx context.Context, s dispatch.Schedule) error {
 		return fmt.Errorf("%w: schedule template needs a class and a positive attempt timeout", dispatch.ErrInvalid)
 	}
 	iv := int64(s.Interval / time.Second)
-	return write(ctx, d.pool, func(w *wtx) error {
+	return d.write(ctx, func(w *wtx) error {
 		_, err := w.exec(`INSERT INTO schedules (name, spec, interval_s, last_tick) VALUES ($1, $2, $3, $4)
 			ON CONFLICT (name) DO UPDATE SET spec = excluded.spec, interval_s = excluded.interval_s`,
 			s.Name, mustJSON(s), iv, tickAt(w.now, iv))

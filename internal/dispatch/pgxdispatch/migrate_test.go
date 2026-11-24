@@ -120,3 +120,77 @@ func TestR6SchemaFromBeforeMigrations(t *testing.T) {
 	waitEvent(t, b, dispatch.TransitionID(dispatch.TypeDone, "run", "run#1"))
 	noTransitionTwice(t, d)
 }
+
+// TestR6UpgradeWithWorkInFlight: work in every state at the previous schema
+// version goes on as it would have after an instance at the newest one
+// takes over, and no transition is recorded twice.
+func TestR6UpgradeWithWorkInFlight(t *testing.T) {
+	if latest < 2 {
+		t.Skip("needs two schema versions")
+	}
+	d := factory(t).(db)
+	ctx := context.Background()
+	tr := dispatch.TransitionID
+	s := newFake()
+	a, err := OpenWith(ctx, d.url, s.config(2), "old", Options{schemaVersion: latest - 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.hold("held")
+	submit(t, a, "held", 9)
+	eventually(t, "held to be refused", func() bool { return reason(t, a, "held") == dispatch.ReasonAdmission })
+	submit(t, a, "waiter", 8)
+	waitEvent(t, a, tr(dispatch.TypeStarted, "waiter", "waiter#1"))
+	finish(t, a, "waiter#1", dispatch.OutcomeWaiting,
+		&dispatch.Wait{Type: "x", Subject: "y", Deadline: time.Now().Add(time.Hour)})
+	waitEvent(t, a, tr(dispatch.TypeWaiting, "waiter", "waiter#1"))
+	submit(t, a, "run1", 7)
+	submit(t, a, "run2", 7)
+	waitEvent(t, a, tr(dispatch.TypeStarted, "run1", "run1#1"))
+	waitEvent(t, a, tr(dispatch.TypeStarted, "run2", "run2#1"))
+	submit(t, a, "pending", 6)
+	eventually(t, "pending to wait for a place", func() bool { return reason(t, a, "pending") == dispatch.ReasonLimit })
+	sched := dispatch.Schedule{Name: "s", Interval: time.Second,
+		Template: dispatch.TaskSpec{Class: "c", Priority: -1, AttemptTimeout: time.Hour}}
+	if err := a.Declare(ctx, sched); err != nil {
+		t.Fatal(err)
+	}
+	a.Kill()
+	killed := time.Now()
+
+	b, err := Open(ctx, d.url, s.config(2), "new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Kill()
+	wantAllVersions(t, d)
+	finish(t, b, "run1#1", dispatch.OutcomeDone, nil)
+	waitEvent(t, b, tr(dispatch.TypeStarted, "pending", "pending#1"))
+	emit(t, b, dispatch.Event{ID: "wake", Type: "x", Subject: "y", Source: "test"})
+	finish(t, b, "run2#1", dispatch.OutcomeDone, nil)
+	waitEvent(t, b, tr(dispatch.TypeStarted, "waiter", "waiter#2"))
+	for _, at := range []string{"pending#1", "waiter#2"} {
+		finish(t, b, at, dispatch.OutcomeDone, nil)
+	}
+	s.release("held")
+	waitEvent(t, b, tr(dispatch.TypeStarted, "held", "held#1"))
+	finish(t, b, "held#1", dispatch.OutcomeDone, nil)
+	for _, id := range []string{"run1", "run2", "pending", "waiter", "held"} {
+		eventually(t, id+" to be done", func() bool {
+			st, err := b.Explain(ctx, id)
+			return err == nil && st.State == dispatch.Done
+		})
+	}
+	// The schedule goes on firing under the new build.
+	tick := time.Unix(killed.Unix()+2, 0)
+	eventually(t, "the schedule to fire after the upgrade", func() bool {
+		var n int
+		b.pool.QueryRow(ctx, `SELECT count(*) FROM tasks WHERE id LIKE 's@%' AND id >= $1`,
+			dispatch.ScheduledTaskID("s", tick)).Scan(&n)
+		return n > 0
+	})
+	if n := s.startsOf("waiter#1") + s.startsOf("run1#1") + s.startsOf("run2#1"); n != 3 {
+		t.Errorf("attempts begun before the upgrade were started %d times in all, want 3", n)
+	}
+	noTransitionTwice(t, d)
+}
