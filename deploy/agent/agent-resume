@@ -1,21 +1,207 @@
 #!/bin/sh
-# Picks up a conversation an agent had, from an interactive agent's pod.
+# Picks up a conversation an agent's job had. Jobs write their transcripts to
+# a volume (agent.sessionStorage); a notice from an agent gives the id.
 #
-#   agent-resume            the latest conversations of every agent
-#   agent-resume ID         open that one in the harness (the start of its id is enough)
+#   agent-resume              the latest conversations of every agent, and where each is open
+#   agent-resume ID           open one here, in this pod, with this pod's rights (the start
+#                             of its id is enough). To have it go on as the agent that had
+#                             it, resume it from outside: scripts/deploy.sh CONTEXT agent resume ID
 #
-# Jobs write their transcripts to a volume this pod can read; a message from
-# an agent gives the id.
+# What scripts/deploy.sh runs, in pods it makes, to resume a conversation as
+# its agent (ADR 0040):
+#
+#   agent-resume --find ID          whose it is: AGENT, the whole id and where it is open, by tabs
+#   agent-resume --hold ID AGENT    the main process of the agent's pod: the harness on the
+#                                   conversation, in tmux, where the conversation was held;
+#                                   the pod ends when the harness and then its shell are left
+#
+# One writer: whatever opens a conversation holds a lock on a file beside it
+# (ID.lock) for as long as it has it open, and writes in the file where that
+# is. The lock is the kernel's, so it goes when its holder does, however that
+# ends. The volume is on one node, so every pod that mounts it sees the lock.
 set -eu
-[ -d /sessions ] || { echo "agent-resume: this installation keeps no conversations (agent.sessionStorage)" >&2; exit 1; }
-if [ $# -eq 0 ]; then
-    ls -t /sessions/*/*/*.jsonl 2>/dev/null | head -20 | while read -r f; do
-        agent="$(echo "$f" | cut -d/ -f3)"
-        printf '%s  %-22s  %s\n' "$(basename "$f" .jsonl | cut -c1-8)" "$agent" "$(date -u -r "$f" '+%Y-%m-%d %H:%M UTC')"
+
+# Kept conversations, by agent: /sessions/AGENT/DIR/ID.jsonl, where DIR is
+# the working directory the harness was in, as the harness names it.
+kept=/sessions
+
+usage() { echo "usage: agent-resume [ID] | --find ID | --hold ID AGENT" >&2; exit 2; }
+
+# Where a conversation is open, if it is: what its holder wrote.
+open_in() {  # FILE
+    lock="${1%.jsonl}.lock"
+    [ -r "$lock" ] || return 0
+    flock -n -s "$lock" true 2>/dev/null || cat "$lock"
+}
+
+# Takes the lock for this process, and for what it runs or becomes; refuses
+# if something else has the conversation open.
+take() {  # FILE WHERE
+    lock="${1%.jsonl}.lock"
+    exec 9>>"$lock"
+    if ! flock -n 9; then
+        echo "agent-resume: $(basename "$1" .jsonl) is open already, in $(cat "$lock"). Leave it there first." >&2
+        exit 3
+    fi
+    printf '%s\n' "$2" > "$lock"
+}
+
+# The one conversation whose id starts with PREFIX, among FILES.
+one() {  # PREFIX FILES...
+    prefix="$1"; shift
+    case "$prefix" in "" | *[!0-9a-f-]*) echo "agent-resume: an id is hex digits and dashes, for example 58a6d1a8" >&2; exit 2 ;; esac
+    [ -e "${1:-}" ] || { echo "agent-resume: no conversation whose id starts with $prefix" >&2; exit 1; }
+    [ $# -eq 1 ] || { echo "agent-resume: more than one conversation starts with $prefix:" >&2; printf '  %s\n' "$@" >&2; exit 1; }
+    echo "$1"
+}
+
+agent_of() { echo "$1" | cut -d/ -f3; }   # /sessions/AGENT/DIR/ID.jsonl
+
+case "${1:-}" in
+"")
+    [ -d "$kept" ] || { echo "agent-resume: this installation keeps no conversations (agent.sessionStorage)" >&2; exit 1; }
+    ls -t "$kept"/*/*/*.jsonl 2>/dev/null | head -20 | while read -r f; do
+        where="$(open_in "$f")"
+        printf '%s  %-22s  %s%s\n' "$(basename "$f" .jsonl | cut -c1-8)" "$(agent_of "$f")" \
+            "$(date -u -r "$f" '+%Y-%m-%d %H:%M UTC')" "${where:+  open in $where}"
     done
-    exit 0
-fi
-file="$(ls -t /sessions/*/*/"$1"*.jsonl 2>/dev/null | head -1)"
-[ -n "$file" ] || { echo "agent-resume: no conversation whose id starts with $1" >&2; exit 1; }
-echo "agent-resume: $(echo "$file" | cut -d/ -f3), $(basename "$file" .jsonl)"
-exec claude --resume "$file"
+    ;;
+--find)
+    [ $# -eq 2 ] || usage
+    # shellcheck disable=SC2086
+    file="$(one "$2" $(ls "$kept"/*/*/"$2"*.jsonl 2>/dev/null))"
+    printf '%s\t%s\t%s\n' "$(agent_of "$file")" "$(basename "$file" .jsonl)" "$(open_in "$file")"
+    ;;
+--hold)
+    [ $# -eq 3 ] || usage
+    id="$2" agent="$3"
+    trap 'exit 0' HUP INT TERM
+    # The agent's own conversations, where its pod mounts them; the lock
+    # first, so that the conversation shows as open while the pod starts.
+    file="$(ls /var/lib/agent/conversations/*/"$id".jsonl 2>/dev/null | head -1)"
+    [ -n "$file" ] || { echo "agent-resume: $agent has no conversation $id" >&2; exit 1; }
+    take "$file" "pod $(hostname), as $agent, since $(date -u '+%Y-%m-%d %H:%M UTC')"
+    . /usr/local/lib/agent-env
+    agent_setup || echo "agent-resume: set-up did not finish; see above" >&2
+
+    # Where the conversation was held, which is also where the harness
+    # looks for it; and the model that last answered in it, which is the
+    # one the owner is answering. A job chooses a model for each attempt, and
+    # each attempt is a conversation of its own.
+    found="$(python3 - "$file" <<'PY'
+import json, sys
+cwd = model = ""
+for line in open(sys.argv[1]):
+    try:
+        entry = json.loads(line)
+    except ValueError:
+        continue
+    cwd = cwd or entry.get("cwd") or ""
+    said = entry.get("message") or {}
+    if entry.get("type") == "assistant" and not str(said.get("model", "<")).startswith("<"):
+        model = said["model"]
+print(cwd or "/", model)
+PY
+)"
+    cwd="${found% *}" model="${found##* }"
+    [ -n "$model" ] || model="$(echo "${CMEM_ROUTINE_MODELS:-}" | cut -d, -f1)"
+    resume="$id"
+    if ! mkdir -p "$cwd" 2>/dev/null; then
+        echo "agent-resume: $cwd cannot be made here; the conversation opens in the home" >&2
+        cwd="$HOME" resume="$file"
+    fi
+
+    # What the agent may do, as its job had it (cmem routine): every tool,
+    # its limits around the pod; or the memory command and nothing else. A
+    # person at the keyboard does not widen that: what the job could not do
+    # is refused, not asked about.
+    if [ "${CMEM_ROUTINE_TOOLS:-}" = all ]; then
+        mode=bypassPermissions tools="every tool"
+        flags="--permission-mode bypassPermissions"
+    else
+        mode=dontAsk tools="the memory command only"
+        flags="--permission-mode dontAsk --allowedTools 'Bash(cmem *)'"
+    fi
+    [ -z "${CMEM_ROUTINE_MCP_CONFIG:-}" ] || flags="$flags --mcp-config $CMEM_ROUTINE_MCP_CONFIG"
+
+    # The home is new: what the harness asks at its first start (the theme,
+    # trust in the directory, the warning about that mode) is answered as the
+    # job's own start answered it, so that attaching lands in the conversation.
+    python3 - "$cwd" "$mode" <<'PY' || echo "agent-resume: the harness's first-start answers could not be written; it will ask" >&2
+import json, os, sys
+cwd, mode = sys.argv[1], sys.argv[2]
+def update(path, change):
+    try:
+        data = json.load(open(path))
+    except Exception:
+        data = {}
+    change(data)
+    json.dump(data, open(path, "w"), indent=2)
+def state(d):
+    d["hasCompletedOnboarding"] = True
+    d.setdefault("projects", {}).setdefault(cwd, {})["hasTrustDialogAccepted"] = True
+    if mode == "bypassPermissions":
+        d["bypassPermissionsModeAccepted"] = True
+def settings(d):
+    d.setdefault("theme", "dark")
+    if mode == "bypassPermissions":
+        d["skipDangerousModePermissionPrompt"] = True
+update(os.path.expanduser("~/.claude.json"), state)
+os.makedirs(os.path.expanduser("~/.claude"), exist_ok=True)
+update(os.path.expanduser("~/.claude/settings.json"), settings)
+PY
+
+    # The window: the harness, then a shell in the same place. Leaving both
+    # ends the session, and with it this process and the pod.
+    cat > /tmp/agent-resume-window <<EOF
+. /usr/local/lib/agent-env
+claude --resume '$resume' ${model:+--model $model} $flags
+echo
+echo "The harness has ended. Leave this shell too (exit) and the pod ends."
+exec "\${SHELL:-/bin/bash}" -l
+EOF
+    command -v tmux > /tmp/agent-tmux
+    tmux -u new-session -d -s main -c "$cwd" "sh /tmp/agent-resume-window"
+    touch /tmp/agent-session-ready
+    echo "agent-resume: $agent's conversation $id, in $cwd, ${model:-the harness's default model}, $tools"
+    while tmux has-session -t main 2>/dev/null; do sleep 5; done
+    echo "agent-resume: left; the pod ends"
+    ;;
+-*)
+    usage
+    ;;
+*)
+    [ $# -eq 1 ] || usage
+    [ -d "$kept" ] || { echo "agent-resume: this installation keeps no conversations (agent.sessionStorage)" >&2; exit 1; }
+    # shellcheck disable=SC2086
+    file="$(one "$1" $(ls "$kept"/*/*/"$1"*.jsonl 2>/dev/null))"
+    agent="$(agent_of "$file")" id="$(basename "$file" .jsonl)"
+    where="$(open_in "$file")"
+    [ -z "$where" ] || { echo "agent-resume: $id is open already, in $where. Leave it there first." >&2; exit 3; }
+    if [ "$agent" != "${AGENT_NAME:-}" ]; then
+        # Said before the harness takes the screen, and asked, so that it is read.
+        cat <<EOF
+agent-resume: this is $agent's conversation, $id.
+Opened here, it goes on with this pod's rights, not $agent's: this pod's role
+in memory, its tools and its credentials. What $agent may do and this pod may
+not, it cannot do here.
+
+To resume it as $agent, in a pod of its own, from a machine that reaches the
+cluster:
+
+    scripts/deploy.sh CONTEXT agent resume $(echo "$id" | cut -c1-8)
+
+EOF
+        if [ -t 0 ]; then
+            printf 'Open it here anyway? [y/N] '
+            read -r answer || answer=
+            case "$answer" in y | Y | yes) ;; *) exit 0 ;; esac
+        fi
+    fi
+    window=""
+    [ -z "${TMUX:-}" ] || window=", tmux window $(tmux display-message -p '#W' 2>/dev/null || echo '?')"
+    take "$file" "pod $(hostname)$window, since $(date -u '+%Y-%m-%d %H:%M UTC')"
+    echo "agent-resume: $agent, $id"
+    exec claude --resume "$file"
+    ;;
+esac

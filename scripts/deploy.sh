@@ -30,6 +30,9 @@
 #   scripts/deploy.sh CONTEXT agent attach NAME attach this terminal to an interactive agent's session
 #   scripts/deploy.sh CONTEXT agent restart NAME restart an interactive agent, onto the image last deployed;
 #                                       whatever runs in it ends, and conversations resume from disk
+#   scripts/deploy.sh CONTEXT agent resume      the conversations agents' jobs have kept, and where each is open
+#   scripts/deploy.sh CONTEXT agent resume ID   go on with one as the agent that had it, in a pod of its own,
+#                                       and attach; the same again attaches to that pod
 #
 # What is applied is the chart in charts/carman, rendered with the values in
 # deploy/values/NAME.yaml; NAME is `local` unless CARMAN_VALUES names another.
@@ -191,6 +194,127 @@ build_agent() {
     }
     publish "$CARMAN_AGENT_IMAGE"
     echo "built $CARMAN_AGENT_IMAGE" >&2
+}
+
+# Attaches this terminal to the tmux session of an agent's pod. Where this
+# attach comes from: the tmux pane it runs in, or else the terminal. A later
+# attach from the same place replaces the client this one leaves in the pod
+# if its connection is dropped.
+attach() {
+    [ -t 0 ] || die "attach needs a terminal"
+    local from
+    from="$(hostname -s):$(tty 2>/dev/null | tr '/' '_')"
+    [ -z "${TMUX:-}" ] || from="$(hostname -s):tmux:$(tmux display-message -p '#{session_name}:#{window_index}.#{pane_index}' 2>/dev/null)"
+    exec "${kube[@]}" exec -it "$1" -- env AGENT_TERM="${TERM:-}" COLORTERM="${COLORTERM:-truecolor}" AGENT_ATTACH_ID="$from" agent-attach
+}
+
+# The pod a Job has made, once it has made one.
+job_pod() {
+    local pod="" waited=0
+    while [ -z "$pod" ] && [ "$waited" -lt 60 ]; do
+        pod="$("${kube[@]}" get pods -l "job-name=$1" -o 'jsonpath={.items[0].metadata.name}' 2>/dev/null || true)"
+        [ -n "$pod" ] || { sleep 1; waited=$((waited + 1)); }
+    done
+    [ -n "$pod" ] || die "job $1 made no pod"
+    echo "$pod"
+}
+
+# Runs deploy/agent/agent-resume, with the given arguments, where every
+# agent's kept conversations can be read: in a pod made for the purpose, with
+# that volume read-only and no credential, removed after. It is this
+# checkout's copy of the script, so it does not wait for an image.
+conversations() {
+    "${kube[@]}" get pvc agent-sessions >/dev/null 2>&1 || die "this installation keeps no conversations (agent.sessionStorage)"
+    local job="conversations-$(date +%H%M%S)" status=0
+    "${kube[@]}" create job "$job" --from=cronjob/dreamer --dry-run=client -o json |
+        "${kube[@]}" patch --local -f - --type json -o json -p '[
+            {"op":"add","path":"/metadata/ownerReferences","value":null},
+            {"op":"add","path":"/spec/activeDeadlineSeconds","value":300},
+            {"op":"add","path":"/spec/ttlSecondsAfterFinished","value":0},
+            {"op":"add","path":"/spec/template/metadata/labels/app","value":"conversations"},
+            {"op":"add","path":"/spec/template/spec/containers/0/command","value":["sleep","300"]},
+            {"op":"add","path":"/spec/template/spec/containers/0/args","value":null},
+            {"op":"add","path":"/spec/template/spec/containers/0/env","value":[]},
+            {"op":"add","path":"/spec/template/spec/containers/0/volumeMounts","value":[{"name":"sessions","mountPath":"/sessions","readOnly":true}]},
+            {"op":"add","path":"/spec/template/spec/volumes","value":[{"name":"sessions","persistentVolumeClaim":{"claimName":"agent-sessions","readOnly":true}}]}]' |
+        "${kube[@]}" create -f - >/dev/null || die "could not start a pod to read the kept conversations"
+    "${kube[@]}" wait --for=condition=ready "pod/$(job_pod "$job")" --timeout=120s >/dev/null || status=1
+    [ "$status" -ne 0 ] || "${kube[@]}" exec -i "job/$job" -- sh -s -- "$@" < deploy/agent/agent-resume || status=$?
+    "${kube[@]}" delete job "$job" --wait=false >/dev/null
+    return "$status"
+}
+
+# A kept conversation goes on as the agent that had it (ADR 0040): in a pod
+# made from that agent's own definition, its CronJob, with the same image,
+# environment, credentials, mounts and account; the harness on the
+# conversation in tmux. Leaving the harness and its shell ends the pod, and
+# the cluster removes it. A pod is found again by its labels.
+resume() {
+    local want="$1" open pod agent id where job
+    # The pods open on a conversation now: NAME, CONVERSATION.
+    open="$("${kube[@]}" get pods -l conversation --field-selector=status.phase!=Succeeded,status.phase!=Failed \
+        -o 'jsonpath={range .items[*]}{.metadata.name}{"\t"}{.metadata.labels.conversation}{"\n"}{end}')"
+    if [ -z "$want" ]; then
+        conversations
+        return
+    fi
+    case "$want" in *[!0-9a-f-]*) die "an id is hex digits and dashes, for example 58a6d1a8" ;; esac
+    pod="$(printf '%s\n' "$open" | awk -F '\t' -v w="$want" 'NF == 2 && index($2, w) == 1 {print $1}')"
+    [ "$(printf '%s' "$pod" | grep -c .)" -le 1 ] || die "more than one pod has a conversation whose id starts with $want: $(echo $pod)"
+    if [ -n "$pod" ]; then
+        echo "$pod has the conversation open; attaching to it"
+    else
+        IFS=$'\t' read -r agent id where < <(conversations --find "$want") || exit 1
+        [ -n "$id" ] || exit 1
+        [ -z "$where" ] || die "$agent's conversation $id is open already, in $where. Leave it there first."
+        # A harness in an interactive agent's pod that has it open and holds
+        # no lock: started by hand, or by agent-resume from before the lock.
+        for p in $("${kube[@]}" get pods -l 'app.kubernetes.io/component=agent,statefulset.kubernetes.io/pod-name' \
+            --field-selector=status.phase=Running -o 'jsonpath={.items[*].metadata.name}'); do
+            ! "${kube[@]}" exec "$p" -- pgrep -f -- "--resume.*$id" >/dev/null 2>&1 ||
+                die "$agent's conversation $id is open already, in a harness in pod $p. Leave it there first."
+        done
+        local cronjob="agent-$agent"
+        [ "$agent" != dreamer ] || cronjob=dreamer
+        "${kube[@]}" get cronjob "$cronjob" >/dev/null 2>&1 || die "$agent is no longer an agent here (no cronjob/$cronjob); its conversation stays on the volume"
+        job="resume-$(printf %s "$agent" | cut -c1-30)-$(printf %s "$id" | cut -c1-8)-$(date -u +%H%M%S)"
+        # The pod runs this checkout's agent-resume (--hold), handed to it
+        # whole, so that a resume does not wait for an image to carry it.
+        # Not the CronJob's own Job: an open session must not hold up the
+        # agent's schedule, and has no deadline. Its labels and its start
+        # are what will let an idle one be found and ended.
+        "${kube[@]}" create job "$job" "--from=cronjob/$cronjob" --dry-run=client -o json |
+            "${kube[@]}" patch --local -f - --type json -o json -p '[
+                {"op":"add","path":"/metadata/ownerReferences","value":null},
+                {"op":"add","path":"/metadata/labels","value":{"conversation":"'"$id"'","agent":"'"$agent"'"}},
+                {"op":"add","path":"/spec/activeDeadlineSeconds","value":null},
+                {"op":"add","path":"/spec/backoffLimit","value":0},
+                {"op":"add","path":"/spec/ttlSecondsAfterFinished","value":0},
+                {"op":"add","path":"/spec/template/metadata/labels/conversation","value":"'"$id"'"},
+                {"op":"add","path":"/spec/template/metadata/labels/agent","value":"'"$agent"'"},
+                {"op":"add","path":"/spec/template/metadata/annotations","value":{"started":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"}},
+                {"op":"add","path":"/spec/template/spec/containers/0/command","value":["sh","-c","printf %s \"$0\" | base64 -d > /tmp/agent-resume && exec sh /tmp/agent-resume --hold \"$1\" \"$2\"","'"$(base64 < deploy/agent/agent-resume | tr -d '\n')"'","'"$id"'","'"$agent"'"]},
+                {"op":"add","path":"/spec/template/spec/containers/0/args","value":null}]' |
+            "${kube[@]}" create -f - >/dev/null || die "could not make a pod for $agent's conversation"
+        pod="$(job_pod "$job")"
+        echo "made $pod, as $agent, for its conversation $id; waiting until it can be attached to"
+    fi
+    local waited=0 phase
+    until "${kube[@]}" exec "$pod" -- test -f /tmp/agent-session-ready 2>/dev/null; do
+        phase="$("${kube[@]}" get pod "$pod" -o 'jsonpath={.status.phase}' 2>/dev/null || echo gone)"
+        case "$phase" in
+        Succeeded | Failed | gone)
+            "${kube[@]}" logs "$pod" --tail=20 >&2 2>/dev/null || true
+            die "the pod ended before it could be attached to"
+            ;;
+        esac
+        [ "$waited" -lt 300 ] || die "$pod is not ready after five minutes; see: kubectl --context $context -n $namespace logs $pod"
+        sleep 3
+        waited=$((waited + 3))
+    done
+    "${kube[@]}" logs "$pod" 2>/dev/null | grep '^agent-resume: ' | tail -1 || true
+    [ -t 0 ] || { echo "ready; attach from a terminal: scripts/deploy.sh $context agent resume $want"; return 0; }
+    attach "$pod"
 }
 
 # Wraps an object's data, as kubectl prints it, into a patch that changes
@@ -428,8 +552,12 @@ tool)
     echo "agents have the command $(basename "$file")"
     ;;
 agent)
+    if [ "${3:-}" = resume ]; then
+        resume "${4:-}"
+        exit 0
+    fi
     name="${4:-}"
-    [ -n "$name" ] || die "say: agent run NAME, agent log NAME or agent attach NAME"
+    [ -n "$name" ] || die "say: agent run NAME, agent log NAME, agent attach NAME or agent resume [ID]"
     if [ "${3:-}" = restart ]; then
         "${kube[@]}" get statefulset "agent-$name" >/dev/null 2>&1 || die "no interactive agent named $name"
         "${kube[@]}" delete pod "agent-$name-0" --wait=true >/dev/null
@@ -440,13 +568,7 @@ agent)
     fi
     if [ "${3:-}" = attach ]; then
         "${kube[@]}" get statefulset "agent-$name" >/dev/null 2>&1 || die "no interactive agent named $name; one is an entry under 'agents' in the values with interactive: true"
-        [ -t 0 ] || die "attach needs a terminal"
-        # Where this attach comes from: the tmux pane it runs in, or else the
-        # terminal. A later attach from the same place replaces the client
-        # this one leaves in the pod if its connection is dropped.
-        from="$(hostname -s):$(tty 2>/dev/null | tr '/' '_')"
-        [ -z "${TMUX:-}" ] || from="$(hostname -s):tmux:$(tmux display-message -p '#{session_name}:#{window_index}.#{pane_index}' 2>/dev/null)"
-        exec "${kube[@]}" exec -it "agent-$name-0" -- env AGENT_TERM="${TERM:-}" COLORTERM="${COLORTERM:-truecolor}" AGENT_ATTACH_ID="$from" agent-attach
+        attach "agent-$name-0"
     fi
     "${kube[@]}" get cronjob "agent-$name" >/dev/null 2>&1 || die "no agent named $name that runs as a job; agents are listed under 'agents' in the values"
     case "${3:-}" in
