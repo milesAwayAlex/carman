@@ -454,9 +454,11 @@ spec:
           labels:
             app: agent-{{ .name }}
             app.kubernetes.io/component: agent
-            {{- if .routines }}
+            {{- if or .routines .takesMessages }}
             # Whose pod this is, and that a message to this agent by name
-            # starts a run of this template (ADR 0045).
+            # starts a run of this template (ADR 0045). An agent with no
+            # routine of its own, whose work is whatever a message asks,
+            # says so with takesMessages.
             agent: {{ .name | quote }}
             {{- end }}
             {{- with (include "pod.labels" $) }}{{ . | trim | nindent 12 }}{{- end }}
