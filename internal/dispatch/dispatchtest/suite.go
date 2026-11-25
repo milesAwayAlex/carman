@@ -2,6 +2,7 @@ package dispatchtest
 
 import (
 	"encoding/json"
+	"errors"
 	"sort"
 	"strings"
 	"testing"
@@ -29,6 +30,8 @@ var tests = []test{
 	{"R2_WaitEventBeforeRegistered", false, testEventBeforeRegistered},
 	{"R2_WaitSameEventTwice", false, testSameWakeTwice},
 	{"R2_Schedule", false, testSchedule},
+	{"R2_CronSchedule", false, testCronSchedule},
+	{"R2_Undeclare", false, testUndeclare},
 	{"R6_Restart", true, testRestart},
 	{"R6_RestartAtEachStep", true, testRestartAtEachStep},
 	{"R6_RestartAsDifferentBuild", true, testDifferentBuild},
@@ -379,6 +382,79 @@ func testSchedule(t *testing.T, f Factory) {
 	st := e.explain(d, dispatch.ScheduledTaskID("s", ticks[0]))
 	if st.Spec.Class != "scheduled" {
 		t.Errorf("the scheduled task is %+v", st.Spec)
+	}
+	e.check(d)
+}
+
+// cronEvery is a schedule by cron expression, in a zone that is not UTC.
+// A cron tick is a minute; the six-field form, with seconds first, goes
+// through the same arithmetic in seconds.
+func cronEvery(name, expr string) dispatch.Schedule {
+	s := everySecond(name)
+	s.Interval, s.Cron, s.TimeZone = 0, expr, "America/New_York"
+	return s
+}
+
+func testCronSchedule(t *testing.T, f Factory) {
+	e := newEnv(t, f, 8)
+	d := e.open("b1")
+	c, cancel := ctx()
+	defer cancel()
+	for _, bad := range []dispatch.Schedule{cronEvery("x", "61 * * * *"), {Name: "y", Interval: time.Second, Cron: "* * * * *", Template: everySecond("y").Template}} {
+		if err := d.Declare(c, bad); !errors.Is(err, dispatch.ErrInvalid) {
+			t.Errorf("declaring %+v: %v, want ErrInvalid", bad, err)
+		}
+	}
+	if err := d.Declare(c, cronEvery("c", "*/2 * * * * *")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(5500 * time.Millisecond)
+	ticks := e.ticks(d, "c")
+	if len(ticks) < 2 || len(ticks) > 3 {
+		t.Fatalf("in 5.5s a schedule every two seconds fired %d times: %v", len(ticks), ticks)
+	}
+	for i, tk := range ticks {
+		if tk.Second()%2 != 0 || (i > 0 && tk.Sub(ticks[i-1]) != 2*time.Second) {
+			t.Errorf("ticks %v are not the even seconds", ticks)
+		}
+	}
+	if m := e.missed(d, "c"); len(m) != 0 {
+		t.Errorf("a schedule that never stopped missed ticks: %+v", m)
+	}
+	ss, err := d.Schedules(c)
+	if err != nil || len(ss) != 1 || ss[0].Cron != "*/2 * * * * *" || ss[0].TimeZone != "America/New_York" {
+		t.Errorf("schedules: %+v, %v", ss, err)
+	}
+	e.check(d)
+}
+
+// testUndeclare: a schedule removed fires no more, and is not listed.
+func testUndeclare(t *testing.T, f Factory) {
+	e := newEnv(t, f, 8)
+	d := e.open("b1")
+	c, cancel := ctx()
+	defer cancel()
+	for _, n := range []string{"keep", "drop"} {
+		if err := d.Declare(c, everySecond(n)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.eventually(react, "the schedule to fire", func() bool { return len(e.ticks(d, "drop")) > 0 })
+	if err := d.Undeclare(c, "drop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Undeclare(c, "never-declared"); err != nil {
+		t.Errorf("removing what is not there: %v", err)
+	}
+	gone := time.Now()
+	time.Sleep(2500 * time.Millisecond)
+	ticks := e.ticks(d, "drop")
+	if last := ticks[len(ticks)-1]; last.After(gone.Add(time.Second)) {
+		t.Errorf("removed at %s, it fired for %s", gone.Format(time.RFC3339Nano), last.Format(time.RFC3339))
+	}
+	ss, err := d.Schedules(c)
+	if err != nil || len(ss) != 1 || ss[0].Name != "keep" {
+		t.Errorf("schedules after removing one: %+v, %v", ss, err)
 	}
 	e.check(d)
 }

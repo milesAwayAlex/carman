@@ -463,29 +463,48 @@ func (w *wtx) submit(t dispatch.TaskSpec) error {
 }
 
 func (d *Dispatcher) Declare(ctx context.Context, s dispatch.Schedule) error {
-	if s.Name == "" || s.Interval < time.Second || s.Interval%time.Second != 0 {
-		return fmt.Errorf("%w: schedule needs a name and an interval of whole seconds", dispatch.ErrInvalid)
-	}
-	if s.Template.Class == "" || s.Template.AttemptTimeout <= 0 {
-		return fmt.Errorf("%w: schedule template needs a class and a positive attempt timeout", dispatch.ErrInvalid)
+	if err := s.Check(); err != nil {
+		return err
 	}
 	iv := int64(s.Interval / time.Second)
 	err := d.write(ctx, func(w *wtx) error {
 		w.notify = true
+		// The last tick is kept, unless the timing changed: then ticks of
+		// the new timing that passed before it was declared were never due.
 		_, err := w.exec(`INSERT INTO schedules (name, spec, interval_s, last_tick) VALUES ($1, $2, $3, $4)
-			ON CONFLICT (name) DO UPDATE SET spec = excluded.spec, interval_s = excluded.interval_s`,
-			s.Name, mustJSON(s), iv, tickAt(w.now, iv))
+			ON CONFLICT (name) DO UPDATE SET spec = excluded.spec, interval_s = excluded.interval_s,
+				last_tick = CASE WHEN schedules.interval_s <> excluded.interval_s
+						OR coalesce(schedules.spec->>'cron', '') <> coalesce(excluded.spec->>'cron', '')
+						OR coalesce(schedules.spec->>'time_zone', '') <> coalesce(excluded.spec->>'time_zone', '')
+					THEN greatest(schedules.last_tick, excluded.last_tick)
+					ELSE schedules.last_tick END`,
+			s.Name, mustJSON(s), iv, s.Latest(w.now))
 		return err
 	})
 	d.poke()
 	return err
 }
 
-// tickAt is the latest multiple of iv seconds since the Unix epoch at or
-// before now.
-func tickAt(now time.Time, iv int64) time.Time {
-	sec := now.Unix()
-	return time.Unix(sec-sec%iv, 0).UTC()
+func (d *Dispatcher) Undeclare(ctx context.Context, name string) error {
+	return d.write(ctx, func(w *wtx) error {
+		_, err := w.exec(`DELETE FROM schedules WHERE name = $1`, name)
+		return err
+	})
+}
+
+func (d *Dispatcher) Schedules(ctx context.Context) ([]dispatch.Schedule, error) {
+	rows, err := d.pool.Query(ctx, `SELECT spec FROM schedules ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (dispatch.Schedule, error) {
+		var s dispatch.Schedule
+		var spec []byte
+		if err := row.Scan(&spec); err != nil {
+			return s, err
+		}
+		return s, json.Unmarshal(spec, &s)
+	})
 }
 
 func (d *Dispatcher) Explain(ctx context.Context, id string) (dispatch.TaskStatus, error) {

@@ -13,8 +13,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"time"
+
+	"carman/internal/dispatch/cron"
 )
 
 // Event is one entry in the log. The field names follow the CloudEvents
@@ -145,26 +148,109 @@ type Config struct {
 	MaxRunning int
 }
 
-// Schedule submits a task every Interval.
+// Schedule submits a task at every tick: every Interval, or at the times a
+// cron expression names in a time zone.
 //
-// Ticks are the multiples of Interval since the Unix epoch, so they are the
-// same in every instance. The first tick a schedule fires is the first one
-// after it was declared. For tick T the task is Template with ID
-// ScheduledTaskID(Name, T), and StartBy T+StartWithin when StartWithin is
-// positive.
+// With Interval, ticks are the multiples of Interval since the Unix epoch,
+// so they are the same in every instance. With Cron, they are the instants
+// at which the wall clock of TimeZone reads a time the expression matches
+// (package cron says how a change of clock is treated). The first tick a
+// schedule fires is the first one after it was declared. For tick T the
+// task is Template with ID ScheduledTaskID(Name, T), and StartBy
+// T+StartWithin when StartWithin is positive.
 //
 // When ticks have passed without firing (the dispatcher was down), it fires
 // once, for the latest tick that has passed, and emits one schedule.missed
 // event whose data says how many ticks were skipped.
 type Schedule struct {
 	// Name identifies the schedule. Declaring a name again replaces its
-	// interval and template and keeps what it has fired.
+	// timing and template and keeps what it has fired.
 	Name string `json:"name"`
-	// Interval is a whole number of seconds, at least one.
-	Interval time.Duration `json:"interval"`
+	// Interval is a whole number of seconds, at least one. Exactly one of
+	// Interval and Cron is set.
+	Interval time.Duration `json:"interval,omitempty"`
+	// Cron is five fields (minute hour day month weekday), or six with
+	// seconds first; TimeZone is an IANA name, UTC when empty.
+	Cron     string `json:"cron,omitempty"`
+	TimeZone string `json:"time_zone,omitempty"`
 	// Template is the task to submit; its ID and StartBy are ignored.
 	Template    TaskSpec      `json:"template"`
 	StartWithin time.Duration `json:"start_within,omitempty"`
+}
+
+// Check says whether a schedule can be declared.
+func (s Schedule) Check() error {
+	if s.Name == "" {
+		return fmt.Errorf("%w: a schedule needs a name", ErrInvalid)
+	}
+	if s.Template.Class == "" || s.Template.AttemptTimeout <= 0 {
+		return fmt.Errorf("%w: schedule template needs a class and a positive attempt timeout", ErrInvalid)
+	}
+	if (s.Interval != 0) == (s.Cron != "") {
+		return fmt.Errorf("%w: a schedule has an interval or a cron expression, not both or neither", ErrInvalid)
+	}
+	if s.Cron != "" {
+		if _, err := cron.Parse(s.Cron, s.TimeZone); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
+		return nil
+	}
+	if s.TimeZone != "" {
+		return fmt.Errorf("%w: a time zone goes with a cron expression", ErrInvalid)
+	}
+	if s.Interval < time.Second || s.Interval%time.Second != 0 {
+		return fmt.Errorf("%w: schedule needs an interval of whole seconds", ErrInvalid)
+	}
+	return nil
+}
+
+// Latest is the latest tick at or before now, or the zero time when there
+// is none (or the schedule does not check).
+func (s Schedule) Latest(now time.Time) time.Time {
+	if s.Cron == "" {
+		if s.Interval < time.Second {
+			return time.Time{}
+		}
+		iv := int64(s.Interval / time.Second)
+		sec := now.Unix()
+		return time.Unix(sec-sec%iv, 0).UTC()
+	}
+	e, err := cron.Parse(s.Cron, s.TimeZone)
+	if err != nil {
+		return time.Time{}
+	}
+	return e.Prev(now).UTC()
+}
+
+// Next is the first tick after t, or the zero time when there is none.
+func (s Schedule) Next(t time.Time) time.Time {
+	if s.Cron == "" {
+		if s.Interval < time.Second {
+			return time.Time{}
+		}
+		return s.Latest(t).Add(s.Interval)
+	}
+	e, err := cron.Parse(s.Cron, s.TimeZone)
+	if err != nil {
+		return time.Time{}
+	}
+	return e.Next(t).UTC()
+}
+
+// Due says what a schedule that last fired (or was declared) at last fires
+// at now: the latest tick after last and at or before now, and how many
+// ticks before it were skipped; the zero time when nothing is due. A count
+// above a hundred thousand is given as that.
+func (s Schedule) Due(last, now time.Time) (tick time.Time, skipped int) {
+	tick = s.Latest(now)
+	if tick.IsZero() || !tick.After(last) {
+		return time.Time{}, 0
+	}
+	if s.Cron == "" {
+		return tick, int(tick.Sub(last)/s.Interval) - 1
+	}
+	e, _ := cron.Parse(s.Cron, s.TimeZone)
+	return tick, e.Count(last, tick, 100000)
 }
 
 // ScheduledTaskID is the ID of the task a schedule submits for a tick.
@@ -233,6 +319,12 @@ type Dispatcher interface {
 	Submit(ctx context.Context, t TaskSpec) error
 	// Declare records a schedule. Durable when it returns nil.
 	Declare(ctx context.Context, s Schedule) error
+	// Undeclare removes a schedule: it fires no more, and what it submitted
+	// carries on. Removing one that is not there is not an error. Declared
+	// again later, it is a new schedule.
+	Undeclare(ctx context.Context, name string) error
+	// Schedules lists the schedules declared, by name.
+	Schedules(ctx context.Context) ([]Schedule, error)
 	// Explain returns a task's status, or ErrNotFound.
 	Explain(ctx context.Context, taskID string) (TaskStatus, error)
 }

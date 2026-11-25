@@ -129,6 +129,33 @@ func testRestart(t *testing.T, f Factory) {
 		}
 		e.check(b)
 	})
+	t.Run("CronScheduleCatchesUp", func(t *testing.T) {
+		t.Parallel()
+		e := newEnv(t, f, 8)
+		a := e.open("b1")
+		c, cancel := ctx()
+		defer cancel()
+		if err := a.Declare(c, cronEvery("s", "* * * * * *")); err != nil {
+			t.Fatal(err)
+		}
+		e.eventually(react, "the schedule to fire", func() bool { return len(e.ticks(a, "s")) > 0 })
+		e.kill(a)
+		time.Sleep(3500 * time.Millisecond)
+		b := e.open("b1")
+		time.Sleep(2500 * time.Millisecond)
+		ticks := e.ticks(b, "s")
+		var gaps []int
+		for i := 1; i < len(ticks); i++ {
+			if n := int(ticks[i].Sub(ticks[i-1]) / time.Second); n > 1 {
+				gaps = append(gaps, n)
+			}
+		}
+		m := e.missed(b, "s")
+		if len(gaps) != 1 || gaps[0] < 3 || len(m) != 1 || m[0].Skipped != gaps[0]-1 {
+			t.Errorf("down for 3.5s: ticks %v, missed %+v; want one gap of 3 or more ticks and one schedule.missed skipping all but the last", ticks, m)
+		}
+		e.check(b)
+	})
 	t.Run("PriorityAndHoldsAsBefore", func(t *testing.T) {
 		t.Parallel()
 		e := newEnv(t, f, 1)

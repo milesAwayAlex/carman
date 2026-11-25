@@ -193,23 +193,56 @@ func (d *Store) submit(t dispatch.TaskSpec) {
 }
 
 func (d *Dispatcher) Declare(ctx context.Context, s dispatch.Schedule) error {
-	if s.Name == "" || s.Interval < time.Second || s.Interval%time.Second != 0 {
-		return fmt.Errorf("%w: schedule needs a name and an interval of whole seconds", dispatch.ErrInvalid)
-	}
-	if s.Template.Class == "" || s.Template.AttemptTimeout <= 0 {
-		return fmt.Errorf("%w: schedule template needs a class and a positive attempt timeout", dispatch.ErrInvalid)
+	if err := s.Check(); err != nil {
+		return err
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.killed {
 		return ErrKilled
 	}
+	now := time.Now()
 	if old, ok := d.schedules[s.Name]; ok {
+		// New timing starts from now: ticks of the new timing that passed
+		// before it was declared were never due.
+		if !sameTiming(old.spec, s) {
+			if l := s.Latest(now); l.After(old.lastTick) {
+				old.lastTick = l
+			}
+		}
 		old.spec = s
 		return nil
 	}
-	d.schedules[s.Name] = &schedule{spec: s, lastTick: time.Now().Truncate(s.Interval)}
+	d.schedules[s.Name] = &schedule{spec: s, lastTick: s.Latest(now)}
 	return nil
+}
+
+func sameTiming(a, b dispatch.Schedule) bool {
+	return a.Interval == b.Interval && a.Cron == b.Cron && a.TimeZone == b.TimeZone
+}
+
+func (d *Dispatcher) Undeclare(ctx context.Context, name string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.killed {
+		return ErrKilled
+	}
+	delete(d.schedules, name)
+	return nil
+}
+
+func (d *Dispatcher) Schedules(ctx context.Context) ([]dispatch.Schedule, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.killed {
+		return nil, ErrKilled
+	}
+	out := make([]dispatch.Schedule, 0, len(d.schedules))
+	for _, s := range d.schedules {
+		out = append(out, s.spec)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
 }
 
 func (d *Dispatcher) Explain(ctx context.Context, id string) (dispatch.TaskStatus, error) {
@@ -340,11 +373,10 @@ func (d *Dispatcher) actOnTime(now time.Time) {
 		}
 	}
 	for _, s := range d.schedules {
-		latest := now.Truncate(s.spec.Interval)
-		if !latest.After(s.lastTick) {
+		latest, skipped := s.spec.Due(s.lastTick, now)
+		if latest.IsZero() {
 			continue
 		}
-		skipped := int(latest.Sub(s.lastTick)/s.spec.Interval) - 1
 		s.lastTick = latest
 		spec := s.spec.Template
 		spec.ID = dispatch.ScheduledTaskID(s.spec.Name, latest)

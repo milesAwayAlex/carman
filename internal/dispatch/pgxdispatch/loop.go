@@ -80,11 +80,20 @@ func (d *Dispatcher) nextDue(ctx context.Context) (time.Duration, error) {
 			(SELECT min(started_at + timeout_us * interval '1 microsecond') FROM tasks WHERE state = 'running'),
 			(SELECT min(wait_deadline) FROM tasks WHERE state = 'waiting'),
 			(SELECT min(start_by) FROM tasks t
-				WHERE state = 'pending' AND attempt <= 1 AND NOT not_started AND NOT `+live(d.schema)+`),
-			(SELECT min(last_tick + interval_s * interval '1 second') FROM schedules)
+				WHERE state = 'pending' AND attempt <= 1 AND NOT not_started AND NOT `+live(d.schema)+`)
 		) - clock_timestamp())::float8`).Scan(&secs)
-	if err != nil || secs == nil {
+	if err != nil {
 		return idlePoll, err
+	}
+	// A schedule's next tick is computed here, not in SQL: a cron
+	// expression's is not arithmetic.
+	if next, err := d.nextTick(ctx); err != nil {
+		return idlePoll, err
+	} else if next != nil && (secs == nil || *next < *secs) {
+		secs = next
+	}
+	if secs == nil {
+		return idlePoll, nil
 	}
 	// The checks are strict (after the limit, not at it): a little past it.
 	return time.Duration(*secs*float64(time.Second)) + 2*time.Millisecond, nil
@@ -269,33 +278,62 @@ func (w *wtx) actOnTime() error {
 	return w.fireSchedules()
 }
 
+type sched struct {
+	spec dispatch.Schedule
+	last time.Time
+}
+
+func scanSched(row pgx.CollectableRow) (sched, error) {
+	var s sched
+	var spec []byte
+	if err := row.Scan(&spec, &s.last); err != nil {
+		return s, err
+	}
+	return s, json.Unmarshal(spec, &s.spec)
+}
+
+// nextTick is the seconds until the soonest schedule's next tick, by the
+// database's clock; nil when nothing is declared.
+func (d *Dispatcher) nextTick(ctx context.Context) (*float64, error) {
+	var now time.Time
+	if err := d.pool.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
+		return nil, err
+	}
+	rows, err := d.pool.Query(ctx, `SELECT spec, last_tick FROM schedules`)
+	if err != nil {
+		return nil, err
+	}
+	ss, err := pgx.CollectRows(rows, scanSched)
+	if err != nil {
+		return nil, err
+	}
+	var soonest *float64
+	for _, s := range ss {
+		next := s.spec.Next(s.last)
+		if next.IsZero() {
+			continue
+		}
+		if secs := next.Sub(now).Seconds(); soonest == nil || secs < *soonest {
+			soonest = &secs
+		}
+	}
+	return soonest, nil
+}
+
 func (w *wtx) fireSchedules() error {
-	rows, err := w.tx.Query(w.ctx, `SELECT spec, interval_s, last_tick FROM schedules`)
+	rows, err := w.tx.Query(w.ctx, `SELECT spec, last_tick FROM schedules`)
 	if err != nil {
 		return err
 	}
-	type sched struct {
-		spec dispatch.Schedule
-		iv   int64
-		last time.Time
-	}
-	ss, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (sched, error) {
-		var s sched
-		var spec []byte
-		if err := row.Scan(&spec, &s.iv, &s.last); err != nil {
-			return s, err
-		}
-		return s, json.Unmarshal(spec, &s.spec)
-	})
+	ss, err := pgx.CollectRows(rows, scanSched)
 	if err != nil {
 		return err
 	}
 	for _, s := range ss {
-		latest := tickAt(w.now, s.iv)
-		if !latest.After(s.last) {
+		latest, skipped := s.spec.Due(s.last, w.now)
+		if latest.IsZero() {
 			continue
 		}
-		skipped := int(latest.Sub(s.last)/(time.Duration(s.iv)*time.Second)) - 1
 		if _, err := w.exec(`UPDATE schedules SET last_tick = $2 WHERE name = $1`, s.spec.Name, latest); err != nil {
 			return err
 		}
