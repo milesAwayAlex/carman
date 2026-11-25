@@ -149,7 +149,15 @@ type AgentInfo struct {
 	Name        string `json:"name"`
 	Class       string `json:"class,omitempty"`
 	Interactive bool   `json:"interactive,omitempty"`
+	// Deadline is how long the agent's Job may run (its template's
+	// activeDeadlineSeconds); zero when it has none.
+	Deadline time.Duration `json:"deadline,omitempty"`
 }
+
+// Overrun is how long an attempt of an agent's run may go on beyond its
+// Job's deadline, so that the Job's failure, not an overrun, is what the
+// owner hears of (ADR 0043).
+const Overrun = 10 * time.Minute
 
 // Cluster is what messaging needs from the cluster.
 type Cluster interface {
@@ -188,7 +196,9 @@ type Service struct {
 	Cluster Cluster
 	// Context and Namespace name the cluster in what the owner is told.
 	Context, Namespace string
-	// Priority and Timeout are those of the tasks a message becomes.
+	// Priority is that of the tasks a message becomes. Timeout limits
+	// their attempts where the agent's job has no deadline of its own
+	// (thirty minutes when zero).
 	Priority int
 	Timeout  time.Duration
 	// Retention is how long a session that has ended is remembered.
@@ -504,8 +514,11 @@ func (s *Service) start(ctx context.Context, m Message, agent, session string) (
 		env["TASK_SESSION"] = session
 	}
 	payload, _ := json.Marshal(map[string]any{"env": env})
+	// The agent's own time limit: its Job's deadline, as for its scheduled runs.
 	timeout := s.Timeout
-	if timeout <= 0 {
+	if info.Deadline > 0 {
+		timeout = info.Deadline + Overrun
+	} else if timeout <= 0 {
 		timeout = 30 * time.Minute
 	}
 	if err := s.Store.Submit(ctx, dispatch.TaskSpec{ID: task, Class: info.Class, Priority: s.Priority, Payload: payload, AttemptTimeout: timeout}); err != nil {

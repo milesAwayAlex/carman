@@ -536,7 +536,10 @@ image's settings) carry a message into a running session: with the next
 tool results, at the end of its turn, or by waking it when idle. A message
 for a session that is not running, or for an agent by name, is a task
 `message/ID` of that agent's CronJob; it waits for the running limit like
-any task, and `dispatch message ID` says why. Messages are kept
+any task, and `dispatch message ID` says why. Since 2026-11-25 that
+task may run as long as the agent's Job (`deadlineSeconds`) plus ten
+minutes, thirty minutes where there is none, and records its cost
+(`run.usage`, routine `message`). Messages are kept
 `dispatcher.messages.retention` (30 days).
 
 A standing agent's pod has messages after it is restarted on an image that

@@ -94,6 +94,9 @@ running becomes a task that resumes it as its agent, headless, under
 ADR 0040's one-writer lock, and its last words go back as the answer; one
 for an agent by name starts a new conversation; one for the owner is a
 notice. The owner writes with `scripts/deploy.sh CONTEXT dispatch send`.
+(2026-11-25) Such a run has its agent's time limit (the Job's deadline,
+plus ten minutes; thirty minutes where there is none) and records its cost
+as `run.usage`, as a routine's run does.
 
 ### Worker details (proposed)
 

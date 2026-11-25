@@ -313,7 +313,8 @@ func (c *Client) PodAlive(ctx context.Context, name, uid string) (bool, error) {
 }
 
 // Agents are the CronJobs whose pods carry the label agent: each is how a
-// new conversation of that agent starts. Read at most every half minute.
+// new conversation of that agent starts, and how long its Job may run.
+// Read at most every half minute.
 type Agents struct {
 	Client *Client
 
@@ -336,7 +337,8 @@ func (a *Agents) Agents(ctx context.Context) (map[string]message.AgentInfo, erro
 			Spec struct {
 				JobTemplate struct {
 					Spec struct {
-						Template struct {
+						ActiveDeadlineSeconds int64 `json:"activeDeadlineSeconds"`
+						Template              struct {
 							Metadata struct {
 								Labels map[string]string `json:"labels"`
 							} `json:"metadata"`
@@ -352,7 +354,8 @@ func (a *Agents) Agents(ctx context.Context) (map[string]message.AgentInfo, erro
 	out := map[string]message.AgentInfo{}
 	for _, cj := range list.Items {
 		if name := cj.Spec.JobTemplate.Spec.Template.Metadata.Labels["agent"]; name != "" {
-			out[name] = message.AgentInfo{Name: name, Class: cj.Metadata.Name}
+			out[name] = message.AgentInfo{Name: name, Class: cj.Metadata.Name,
+				Deadline: time.Duration(cj.Spec.JobTemplate.Spec.ActiveDeadlineSeconds) * time.Second}
 		}
 	}
 	a.last, a.fetched = out, time.Now()

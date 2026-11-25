@@ -109,3 +109,27 @@ func TestR2Identity(t *testing.T) {
 		}
 	}
 }
+
+// TestR2AgentsCarryTheirDeadline: an agent's CronJob says how a new run of
+// it starts and how long its Job may run; a CronJob whose pods name no
+// agent is not an agent.
+func TestR2AgentsCarryTheirDeadline(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/apis/batch/v1/namespaces/carman/cronjobs" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Write([]byte(`{"items":[
+			{"metadata":{"name":"agent-review"},"spec":{"jobTemplate":{"spec":{"activeDeadlineSeconds":7200,"template":{"metadata":{"labels":{"agent":"review"}}}}}}},
+			{"metadata":{"name":"agent-plain"},"spec":{"jobTemplate":{"spec":{"template":{"metadata":{"labels":{"agent":"plain"}}}}}}},
+			{"metadata":{"name":"backup"},"spec":{"jobTemplate":{"spec":{"activeDeadlineSeconds":60,"template":{"metadata":{}}}}}}]}`))
+	}))
+	defer srv.Close()
+	got, err := (&Agents{Client: &Client{Base: srv.URL, Namespace: "carman", HTTP: srv.Client()}}).Agents(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got["review"].Class != "agent-review" || got["review"].Deadline != 2*time.Hour || got["plain"].Deadline != 0 {
+		t.Errorf("agents: %+v", got)
+	}
+}

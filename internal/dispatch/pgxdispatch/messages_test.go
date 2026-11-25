@@ -49,6 +49,7 @@ func messaging(t *testing.T) (*message.Service, *fakeCluster, *Dispatcher) {
 	cl := &fakeCluster{alive: map[string]bool{}, agents: map[string]message.AgentInfo{
 		"trial": {Name: "trial", Class: "agent-trial"},
 		"desk":  {Name: "desk"},
+		"slow":  {Name: "slow", Class: "agent-slow", Deadline: 2 * time.Hour},
 	}}
 	return &message.Service{Store: inst, Cluster: cl, Log: slog.Default(), Timeout: time.Minute}, cl, inst
 }
@@ -212,6 +213,9 @@ func TestR2MessageSleepingSession(t *testing.T) {
 	if err != nil || st.Spec.Class != "agent-trial" {
 		t.Fatalf("the task: %+v, %v", st, err)
 	}
+	if st.Spec.AttemptTimeout != time.Minute {
+		t.Errorf("an agent whose job has no deadline: attempts may run %s, want the service's %s", st.Spec.AttemptTimeout, time.Minute)
+	}
 	var p kube.Payload
 	_ = json.Unmarshal(st.Spec.Payload, &p)
 	if p.Env["TASK_MESSAGE"] != res.ID || p.Env["TASK_SESSION"] != "sess-b" {
@@ -252,6 +256,15 @@ func TestR2MessageSleepingSession(t *testing.T) {
 	tk, err = s.Take(ctx, run, "new-sess", "start", []string{byName.ID}, 0)
 	if err != nil || len(tk.Messages) != 1 {
 		t.Errorf("the new conversation takes it: %+v, %v", tk, err)
+	}
+	// The agent's own time limit: its job's deadline, and the overrun a
+	// scheduled run of it is allowed.
+	slow, err := s.Send(ctx, a, "sess-a", "slow", "take your time", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, err = inst.Explain(ctx, message.TaskPrefix+slow.ID); err != nil || st.Spec.AttemptTimeout != 2*time.Hour+message.Overrun {
+		t.Errorf("an agent whose job may run two hours: %+v, %v", st.Spec, err)
 	}
 	desk, err := s.Send(ctx, a, "sess-a", "desk", "hello desk", "")
 	if err != nil || !strings.Contains(desk.Detail, "no job") {

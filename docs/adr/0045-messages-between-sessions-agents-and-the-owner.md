@@ -326,6 +326,12 @@ restarted to have any of this):
   owner to add, if wanted: "R11 | Sessions, agents and the owner can write
   to each other | A message reaches its addressee whether its session is
   busy, idle or not running, once; the sender can see what became of it."
+- Added 2026-11-25: a run started for a message may run as long as its
+  agent's Job (the job template's `activeDeadlineSeconds`) plus the ten
+  minutes ADR 0043 gives a dispatched agent, and thirty minutes only where
+  the template has no deadline. It records one `run.usage` (routine
+  `message`, with the message's id) through `cmem routine --usage-of`, the
+  code a routine's run uses.
 
 ## What would make us look again
 

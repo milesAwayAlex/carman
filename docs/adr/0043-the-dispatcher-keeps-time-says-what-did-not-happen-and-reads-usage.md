@@ -125,3 +125,6 @@ admits. The usage reading's priority is above the threshold.
 - The admission rule is a threshold, not yet the curve to reset that
   DESIGN section 5 describes, and it acts only on tasks the dispatcher
   starts: the scheduled agents still on CronJobs are not held.
+- Added 2026-11-25: a run the dispatcher starts for a message (ADR 0045)
+  records `run.usage` too, as routine `message` with the message's id, and
+  its attempt may run as long as its agent's Job plus the same ten minutes.

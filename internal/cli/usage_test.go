@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -70,5 +72,60 @@ func TestR7RunUsageEmitted(t *testing.T) {
 	c.emitUsage(u)
 	if n := strings.Count(errs.String(), "usage is not recorded"); n != 2 {
 		t.Errorf("a refusal and an absent dispatcher gave %d lines: %q", n, errs.String())
+	}
+}
+
+// TestR7MessageRunUsageEmitted: a run the dispatcher started for a message
+// (agent-resume --message) records its usage through the same code as a
+// routine's: the agent, the message, the model the stream says ran, the
+// cost, the tokens and the last reading of the plan's limits. Recording
+// never fails the command, even with nothing to read.
+func TestR7MessageRunUsageEmitted(t *testing.T) {
+	var got []api.EmitRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var e api.EmitRequest
+		json.NewDecoder(r.Body).Decode(&e)
+		got = append(got, e)
+		io.WriteString(w, `{"id":"x"}`)
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	stream := dir + "/out"
+	os.WriteFile(stream, []byte(`{"type":"system","subtype":"init","model":"claude-haiku-5-5"}
+{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.4}}}}
+{"type":"result","result":"answered","total_cost_usd":0.07,"is_error":false,"usage":{"input_tokens":50,"output_tokens":9}}
+`), 0o600)
+	env := map[string]string{"DISPATCHER_URL": srv.URL, "DISPATCHER_TOKEN": "agent-token", "AGENT_NAME": "review",
+		"TASK_ID": "message/m-1", "CMEM_ROUTINE_MODELS": "claude-sonnet-5-5,claude-opus-5-5"}
+	getenv := func(k string) string { return env[k] }
+	var out, errs strings.Builder
+	since := "2026-11-25T08:00:00Z"
+	if code := Run(context.Background(), []string{"routine", "--usage-of", stream, "--message", "m-1", "--since", since}, getenv, nil, &out, &errs); code != 0 {
+		t.Fatalf("exit %d: %s", code, errs.String())
+	}
+	if code := Run(context.Background(), []string{"routine", "--usage-of", dir + "/none", "--message", "m-2", "--failed"}, getenv, nil, &out, &errs); code != 0 {
+		t.Fatalf("a run with no output to read: exit %d: %s", code, errs.String())
+	}
+	if len(got) != 2 {
+		t.Fatalf("emitted %d events, want 2", len(got))
+	}
+	var first, second runUsage
+	json.Unmarshal(got[0].Data, &first)
+	json.Unmarshal(got[1].Data, &second)
+	if got[0].Type != "run.usage" || got[0].Subject != "review" || first.Routine != "message" || first.Message != "m-1" ||
+		first.Task != "message/m-1" || !slices.Equal(first.Models, []string{"claude-haiku-5-5"}) || first.Cost != 0.07 ||
+		first.Tokens["output_tokens"] != 9 || !strings.Contains(string(first.RateLimit), "0.4") || first.Outcome != "done" ||
+		!first.Started.Equal(time.Date(2026, 11, 25, 8, 0, 0, 0, time.UTC)) {
+		t.Errorf("the run's usage: %+v (%+v)", got[0], first)
+	}
+	if second.Message != "m-2" || second.Outcome != "not finished" || !slices.Equal(second.Models, []string{"claude-sonnet-5-5"}) {
+		t.Errorf("a run that left nothing to read: %+v", second)
+	}
+	// No dispatcher: one line, and still no failure.
+	delete(env, "DISPATCHER_URL")
+	errs.Reset()
+	if code := Run(context.Background(), []string{"routine", "--usage-of", stream, "--message", "m-3"}, getenv, nil, &out, &errs); code != 0 ||
+		!strings.Contains(errs.String(), "usage is not recorded") {
+		t.Errorf("no dispatcher: exit %d, %q", code, errs.String())
 	}
 }

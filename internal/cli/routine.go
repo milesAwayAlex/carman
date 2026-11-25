@@ -275,8 +275,16 @@ func (c *command) routine(args []string) (err error) {
 	budget := c.flags.Float64("budget", 0, "stop starting attempts once this many dollars are spent (CMEM_ROUTINE_BUDGET_USD)")
 	wait := c.flags.Int("wait-for-limit", 0, "minutes this run may spend waiting for the plan's usage limit to reset (CMEM_ROUTINE_WAIT_FOR_LIMIT_MINUTES)")
 	onlyFlags := c.flags.Bool("flags", false, "print the harness's flags for what a routine may do here, quoted for sh, and run nothing")
+	usageOf := c.flags.String("usage-of", "", "run nothing: record the usage of a harness run that printed FILE (its stream or its result), as a run for --message, and never fail")
+	forMessage := c.flags.String("message", "", "with --usage-of: the message the run was started for")
+	since := c.flags.String("since", "", "with --usage-of: when the run started (RFC 3339)")
+	failed := c.flags.Bool("failed", false, "with --usage-of: the run did not finish")
 	if _, err := c.parse(args); err != nil {
 		return err
+	}
+	if *usageOf != "" {
+		c.recordRun(*usageOf, *forMessage, *models, *since, *failed)
+		return nil
 	}
 	if *onlyFlags {
 		var words []string
@@ -405,6 +413,7 @@ type runUsage struct {
 	Agent     string           `json:"agent,omitempty"`
 	Routine   string           `json:"routine"`
 	Task      string           `json:"task,omitempty"`
+	Message   string           `json:"message,omitempty"`
 	Models    []string         `json:"models"`
 	Attempts  int              `json:"attempts"`
 	Cost      float64          `json:"cost_usd"`
@@ -430,6 +439,50 @@ func (u *runUsage) add(model string, a attempt) {
 	if len(a.rateLimit) > 0 {
 		u.RateLimit = a.rateLimit
 	}
+}
+
+// recordRun records the usage of one harness run that `cmem routine` did
+// not start: a run the dispatcher started for a message (ADR 0045), which
+// agent-resume runs. Its routine is "message". Like emitUsage, it never
+// fails: what cannot be read is recorded as what is known.
+func (c *command) recordRun(file, msg, model, since string, failed bool) {
+	started, err := time.Parse(time.RFC3339Nano, since)
+	if err != nil {
+		started = time.Now().UTC()
+	}
+	used := runUsage{Agent: c.getenv("AGENT_NAME"), Routine: "message", Task: c.getenv("TASK_ID"), Message: msg,
+		Started: started.UTC(), Ended: time.Now().UTC(), Outcome: "done", Tokens: map[string]int64{}}
+	out, err := os.ReadFile(file)
+	if err != nil {
+		fmt.Fprintf(c.stderr, "cmem routine: the run's output is not readable: %v\n", err)
+	}
+	result, rateLimit, ok := harnessResult(out)
+	// The model the stream says ran, before the one it was asked for.
+	if m := streamModel(out); m != "" {
+		model = m
+	} else if model = strings.TrimSpace(strings.Split(model, ",")[0]); model == "" {
+		model = "unknown"
+	}
+	used.add(model, attempt{cost: result.Cost, usage: result.Usage, rateLimit: rateLimit})
+	used.Cost = result.Cost
+	if failed || !ok || result.IsError {
+		used.Outcome = "not finished"
+		if !ok {
+			used.Error = "the harness gave no result"
+		}
+	}
+	c.emitUsage(used)
+}
+
+// streamModel is the model the harness's stream says it started with.
+func streamModel(out []byte) string {
+	for _, line := range bytes.Split(out, []byte("\n")) {
+		var l struct{ Type, Subtype, Model string }
+		if json.Unmarshal(line, &l) == nil && l.Type == "system" && l.Subtype == "init" {
+			return l.Model
+		}
+	}
+	return ""
 }
 
 // emitUsage records the run's usage in the dispatcher's log, as the agent

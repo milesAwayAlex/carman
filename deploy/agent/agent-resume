@@ -222,19 +222,25 @@ EOF
     flags="$(cmem routine --flags)" || flags="--permission-mode dontAsk --allowedTools 'Bash(dispatcher *)'"
     eval "set -- $flags"
     echo "agent-resume: message $msg for $id, in $cwd, ${model:-the harness's default model}"
-    out="$(mktemp)" rc=0
+    out="$(mktemp)" rc=0 since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     # shellcheck disable=SC2086
     # The prompt on stdin: the flags end with lists that would take it.
+    # A stream, for the plan's limits as the harness last saw them.
     (cd "$cwd" && printf '%s\n' "$text" | claude -p $how ${model:+--model "$model"} \
-        ${CMEM_ROUTINE_BUDGET_USD:+--max-budget-usd "$CMEM_ROUTINE_BUDGET_USD"} --output-format json "$@") > "$out" 2>/tmp/harness.err || rc=$?
+        ${CMEM_ROUTINE_BUDGET_USD:+--max-budget-usd "$CMEM_ROUTINE_BUDGET_USD"} --output-format stream-json --verbose "$@") > "$out" 2>/tmp/harness.err || rc=$?
+    # What it cost, as a routine's run records it (run.usage); never a failure.
+    cmem routine --usage-of "$out" --message "$msg" --since "$since" ${model:+--models "$model"} \
+        $([ $rc -eq 0 ] || echo --failed) || true
     result="$(python3 - "$out" <<'PY'
 import json, sys
 for line in reversed(open(sys.argv[1]).read().splitlines()):
     try:
-        print(json.loads(line).get("result") or "")
-        break
+        said = json.loads(line)
     except Exception:
         continue
+    if isinstance(said, dict) and "result" in said:
+        print(said.get("result") or "")
+        break
 PY
 )"
     [ -n "$result" ] || result="(The run started for this message ended without an answer: $(tail -c 300 /tmp/harness.err | tr '\n' ' '))"
