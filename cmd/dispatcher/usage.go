@@ -105,6 +105,16 @@ func (b budgetRule) admit(ctx context.Context, task dispatch.TaskSpec, _ []dispa
 	return true, ""
 }
 
+// windowLine is one usage window as of now. A window whose reset has
+// passed since the reading has reset, and its old percentage is not shown.
+func windowLine(n string, w window, now time.Time) string {
+	at := w.resets().Format("2006-01-02 15:04 UTC")
+	if !w.resets().After(now) {
+		return fmt.Sprintf("  %-22s reset at %s, %s ago; no reading since", windowName(n), at, now.Sub(w.resets()).Round(time.Minute))
+	}
+	return fmt.Sprintf("  %-22s %3.0f%%, resets %s (in %s)", windowName(n), w.Utilization*100, at, w.resets().Sub(now).Round(time.Minute))
+}
+
 // standing prints the account's standing: the latest reading and its age,
 // when each window resets, and what runs cost lately, by agent.
 func standing(ctx context.Context, c *api.Client) error {
@@ -121,8 +131,7 @@ func standing(ctx context.Context, c *api.Client) error {
 		fmt.Printf("usage, as read %s ago (%s):\n", now.Sub(last[0].Time).Round(time.Minute), last[0].Time.UTC().Format("2006-01-02 15:04 UTC"))
 		for _, n := range sortedWindows(rd.Info.Windows) {
 			w := rd.Info.Windows[n]
-			fmt.Printf("  %-22s %3.0f%%, resets %s (in %s)\n", windowName(n), w.Utilization*100,
-				w.resets().Format("2006-01-02 15:04 UTC"), w.resets().Sub(now).Round(time.Minute))
+			fmt.Println(windowLine(n, w, now))
 		}
 	}
 	var runs []api.Record

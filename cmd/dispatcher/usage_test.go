@@ -75,3 +75,18 @@ not json
 		t.Error("a stream without a reading was taken")
 	}
 }
+
+// TestR7WindowLine: a window whose reset has passed since the reading says
+// it has reset, and does not show its old percentage as current.
+func TestR7WindowLine(t *testing.T) {
+	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
+	past := window{Utilization: 0.83, ResetsAt: float64(now.Add(-42 * time.Minute).Unix())}
+	got := windowLine("five_hour", past, now)
+	if strings.Contains(got, "83%") || strings.Contains(got, "in -") || !strings.Contains(got, "reset at") || !strings.Contains(got, "42m0s ago") {
+		t.Errorf("a window that has reset: %q", got)
+	}
+	future := window{Utilization: 0.83, ResetsAt: float64(now.Add(90 * time.Minute).Unix())}
+	if got := windowLine("five_hour", future, now); !strings.Contains(got, "83%") || !strings.Contains(got, "in 1h30m0s") {
+		t.Errorf("a window that has not reset: %q", got)
+	}
+}
