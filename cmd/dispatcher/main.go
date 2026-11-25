@@ -330,9 +330,21 @@ func serve(ctx context.Context) error {
 	}
 
 	dbURL := os.Getenv("DISPATCHER_DATABASE_URL")
-	d, err := pgxdispatch.OpenWith(ctx, dbURL, dispatch.Config{Starter: starter, MaxRunning: maxRunning}, build, opts)
-	if err != nil {
-		return fmt.Errorf("opening the database: %w", err)
+	// The database may be starting beside it: it is tried for two minutes.
+	var d *pgxdispatch.Dispatcher
+	for tries := 0; ; tries++ {
+		d, err = pgxdispatch.OpenWith(ctx, dbURL, dispatch.Config{Starter: starter, MaxRunning: maxRunning}, build, opts)
+		if err == nil {
+			break
+		}
+		if tries >= 40 || errors.Is(err, pgxdispatch.ErrSchemaNewer) || ctx.Err() != nil {
+			return fmt.Errorf("opening the database: %w", err)
+		}
+		logger.Warn("opening the database; trying again", "error", err)
+		select {
+		case <-ctx.Done():
+		case <-time.After(3 * time.Second):
+		}
 	}
 	defer d.Kill() // nothing is flushed: the dispatcher is safe to stop at any moment
 

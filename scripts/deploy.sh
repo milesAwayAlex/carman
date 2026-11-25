@@ -35,6 +35,12 @@
 #   scripts/deploy.sh CONTEXT agent resume      the conversations agents' jobs have kept, and where each is open
 #   scripts/deploy.sh CONTEXT agent resume ID   go on with one as the agent that had it, in a pod of its own,
 #                                       and attach; the same again attaches to that pod
+#   scripts/deploy.sh CONTEXT dispatch status [ID]   what the dispatcher runs, what waits and why, the last runs
+#   scripts/deploy.sh CONTEXT dispatch log [--type T] [--after N] [--last N]   its log
+#   scripts/deploy.sh CONTEXT dispatch submit CLASS [ID] [--priority N] ...   start a run of the CronJob CLASS
+#                                       through the dispatcher (ADR 0042)
+#   scripts/deploy.sh CONTEXT dispatch dump > FILE      its database, as SQL
+#   scripts/deploy.sh CONTEXT dispatch restore FILE     put a dump in place of its database, which is kept aside
 #
 # What is applied is the chart in charts/carman, rendered with the values in
 # deploy/values/NAME.yaml; NAME is `local` unless CARMAN_VALUES names another.
@@ -130,6 +136,31 @@ linux_cmem() {
     # The same source gives the same file, and so the same image: without
     # this the commit is written into it, and every commit restarts the pods.
     CGO_ENABLED=0 GOOS=linux GOARCH="$arch" "${build[@]}" -buildvcs=false -trimpath -o "$1/cmem-$arch" ./cmd/cmem
+}
+
+# The dispatcher's image (deploy/dispatcher). Sets DISPATCHER_IMAGE unless
+# it is already set to an image pushed elsewhere.
+build_dispatcher() {
+    [ -z "${DISPATCHER_IMAGE:-}" ] || return 0
+    local root="$build_root/dispatcher" arch build=(go build)
+    mkdir -p "$root"
+    arch="$(docker info --format '{{.Architecture}}')"
+    case "$arch" in aarch64 | arm64) arch=arm64 ;; x86_64 | amd64) arch=amd64 ;; *) die "unknown architecture $arch" ;; esac
+    command -v go >/dev/null || build=(nix develop -c go build)
+    CGO_ENABLED=0 GOOS=linux GOARCH="$arch" "${build[@]}" -buildvcs=false -trimpath -o "$root/dispatcher-$arch" ./cmd/dispatcher
+    cp deploy/dispatcher/Dockerfile "$root/"
+    DISPATCHER_IMAGE="${registry}carman-dispatcher:$(cat "$root/dispatcher-$arch" "$root/Dockerfile" | shasum -a 256 | cut -c1-12)"
+    docker image inspect "$DISPATCHER_IMAGE" >/dev/null 2>&1 || docker build -q --label built-by=deploy -t "$DISPATCHER_IMAGE" "$root" >/dev/null ||
+        die "the dispatcher's image did not build"
+    publish "$DISPATCHER_IMAGE"
+    echo "built $DISPATCHER_IMAGE" >&2
+}
+
+# Runs the dispatcher's client inside its pod, as the owner: no port of
+# this machine is needed.
+dispatch_client() {
+    "${kube[@]}" get deployment dispatcher >/dev/null 2>&1 || die "this installation runs no dispatcher (dispatcher.enabled)"
+    "${kube[@]}" exec -i deployment/dispatcher -- dispatcher "$@"
 }
 
 # The egress proxy answers in the name of each host it holds a credential
@@ -377,13 +408,37 @@ stringData:
 EOF
         echo "made the token secret"
     fi
+    # The dispatcher's tokens and its database's password: random values,
+    # through standard input, never printed. The password is made even for
+    # a database the installation gives, where it is replaced by its own.
+    if ! "${kube[@]}" get secret dispatcher-tokens >/dev/null 2>&1; then
+        owner="$(openssl rand -hex 24)" agent="$(openssl rand -hex 24)" backup="$(openssl rand -hex 24)"
+        "${kube[@]}" apply -f - >/dev/null <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dispatcher-tokens
+  namespace: $namespace
+stringData:
+  DISPATCHER_TOKENS: "owner=$owner,agent=$agent,backup=$backup"
+  owner: "$owner"
+  agent: "$agent"
+  backup: "$backup"
+EOF
+        echo "made the dispatcher's token secret"
+    fi
+    if ! "${kube[@]}" get secret dispatcher-db >/dev/null 2>&1; then
+        openssl rand -hex 24 | tr -d '\n' | "${kube[@]}" create secret generic dispatcher-db --from-file=password=/dev/stdin >/dev/null
+        echo "made the dispatcher's database password"
+    fi
+    build_dispatcher
 
     build_agent
     # Whether the dreamer's schedule is on is a setting of the cluster, not of
     # the manifest: a deploy leaves it as it was, and off the first time.
     dreaming="$("${kube[@]}" get cronjob dreamer -o 'jsonpath={.spec.suspend}' 2>/dev/null || true)"
     # What the egress proxy is to hold a credential for, from the values.
-    egress="$(helm template carman charts/carman --namespace "$namespace" "${chart_values[@]}" --set memory.image=m:0 --set agent.image=a:0 --show-only templates/egress.yaml 2>/dev/null || true)"
+    egress="$(helm template carman charts/carman --namespace "$namespace" "${chart_values[@]}" --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 --show-only templates/egress.yaml 2>/dev/null || true)"
     egress_hosts="$(printf '%s\n' "$egress" | sed -n 's/^  hosts: "\(.*\)"$/\1/p')"
     egress_keys="$(printf '%s\n' "$egress" | sed -n 's/^  keys: "\(.*\)"$/\1/p')"
     if [ -n "$egress_hosts" ]; then
@@ -407,7 +462,7 @@ EOF
         [ -z "$running" ] || renewal_image="$running"
     fi
     rendered="$(helm template carman charts/carman --namespace "$namespace" "${chart_values[@]}" \
-        --set "memory.image=$CARMAN_IMAGE" --set "agent.image=$CARMAN_AGENT_IMAGE" --set "egress.renewalImage=$renewal_image" --set "dreamer.suspend=${dreaming:-true}")" ||
+        --set "memory.image=$CARMAN_IMAGE" --set "agent.image=$CARMAN_AGENT_IMAGE" --set "dispatcher.image=$DISPATCHER_IMAGE" --set "egress.renewalImage=$renewal_image" --set "dreamer.suspend=${dreaming:-true}")" ||
         die "the chart did not render"
     # With a warm image, agents' jobs start from a tag the warm job moves.
     # One made on the agent image this deploy replaces would start them with
@@ -430,6 +485,10 @@ EOF
     # Applying does not remove what the values no longer ask for.
     [ -n "$warm_ref" ] || "${kube[@]}" delete cronjob/agent-warm networkpolicy/warm-job-reaches-the-registry serviceaccount/agent-warm --ignore-not-found >/dev/null
     "${kube[@]}" rollout status statefulset/cmem --timeout=120s
+    if "${kube[@]}" get deployment dispatcher >/dev/null 2>&1; then
+        ! "${kube[@]}" get statefulset dispatcher-db >/dev/null 2>&1 || "${kube[@]}" rollout status statefulset/dispatcher-db --timeout=180s
+        "${kube[@]}" rollout status deployment/dispatcher --timeout=180s
+    fi
     if "${kube[@]}" get deployment egress >/dev/null 2>&1; then
         "${kube[@]}" annotate deployment egress "renewal-source=$renewal_source" --overwrite >/dev/null
         # A new certificate is read when the proxy starts.
@@ -449,8 +508,8 @@ EOF
     # interactive agent keeps its image until it is restarted). One that a
     # finished Job still names is left by the runtime, and that is fine.
     in_use=" $("${kube[@]}" get pods -o 'jsonpath={.items[*].spec.containers[*].image} {.items[*].spec.initContainers[*].image}' 2>/dev/null) "
-    for old in $(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E '^([^/]+/)?carman-(cmem|agent):' || true); do
-        [ "$old" = "$CARMAN_IMAGE" ] || [ "$old" = "$CARMAN_AGENT_IMAGE" ] || [ "${in_use#* $old }" != "$in_use" ] || docker rmi "$old" >/dev/null 2>&1 || true
+    for old in $(docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep -E '^([^/]+/)?carman-(cmem|agent|dispatcher):' || true); do
+        [ "$old" = "$CARMAN_IMAGE" ] || [ "$old" = "$CARMAN_AGENT_IMAGE" ] || [ "$old" = "$DISPATCHER_IMAGE" ] || [ "${in_use#* $old }" != "$in_use" ] || docker rmi "$old" >/dev/null 2>&1 || true
     done
     # The cluster's runtime keeps a record of its own for an image it has
     # run, which outlives the tag: remove those of this script's builds too.
@@ -664,7 +723,43 @@ dreamer)
     *) die "say: dreamer on, dreamer off, dreamer run or dreamer log" ;;
     esac
     ;;
+dispatch)
+    case "${3:-}" in
+    status | log | submit)
+        dispatch_client "${@:3}"
+        ;;
+    dump)
+        [ ! -t 1 ] || die "this writes the dump to standard output; send it to a file"
+        dispatch_client dump
+        ;;
+    restore)
+        file="${4:-}"
+        [ -f "$file" ] || die "name the dump to restore, a file made by: dispatch dump > FILE"
+        grep -q '^-- PostgreSQL database dump complete' "$file" || die "$file is not a whole dump: its last line is missing"
+        "${kube[@]}" get statefulset dispatcher-db >/dev/null 2>&1 || die "the dispatcher's database is the installation's own here; restore it there"
+        # The service stops, so that nothing writes while the database is
+        # replaced; the database in place is renamed, never dropped.
+        "${kube[@]}" scale deployment/dispatcher --replicas=0 >/dev/null
+        "${kube[@]}" wait --for=delete pod -l app=dispatcher --timeout=120s >/dev/null 2>&1 || true
+        aside="dispatcher_replaced_$(date +%Y%m%d%H%M%S)"
+        status=0
+        "${kube[@]}" exec -i dispatcher-db-0 -- sh -c '
+            set -e
+            db="$POSTGRES_DB"
+            psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -c "ALTER DATABASE \"$db\" RENAME TO '"$aside"'"
+            createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$db"
+            psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$db" >/dev/null
+            echo "the database that was in place is kept as '"$aside"'"' < "$file" || status=1
+        "${kube[@]}" scale deployment/dispatcher --replicas=1 >/dev/null
+        "${kube[@]}" rollout status deployment/dispatcher --timeout=180s >/dev/null
+        [ "$status" -eq 0 ] || die "the restore failed; the service runs on what is in place now"
+        sleep 3
+        dispatch_client status
+        ;;
+    *) die "say: dispatch status [ID], dispatch log, dispatch submit CLASS [ID], dispatch dump > FILE or dispatch restore FILE" ;;
+    esac
+    ;;
 *)
-    die "unknown action $action; say deploy, status, check, backup, restore, env, token, secret, agent-image, dreamer, routine, tool or agent"
+    die "unknown action $action; say deploy, status, check, backup, restore, env, token, secret, agent-image, dreamer, routine, tool, agent or dispatch"
     ;;
 esac

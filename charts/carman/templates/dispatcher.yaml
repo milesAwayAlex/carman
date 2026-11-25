@@ -1,0 +1,288 @@
+{{- if .Values.dispatcher.enabled }}
+{{- $db := .Values.dispatcher.database }}
+{{- $local := not $db.host }}
+# The dispatcher (ADR 0042). Inside the cluster it is
+# http://dispatcher:{{ .Values.dispatcher.service.port }} in this namespace.
+apiVersion: v1
+kind: Service
+metadata:
+  name: dispatcher
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app: dispatcher
+  ports:
+    - name: http
+      port: {{ .Values.dispatcher.service.port }}
+      targetPort: http
+---
+{{ include "pod.account" (dict "name" "dispatcher" "root" .) }}
+---
+# What the dispatcher may do in its namespace, and nothing more: make Jobs
+# from the CronJobs' templates, follow every Job to its end, and read a
+# Job's pods for the exit code. It deletes nothing and changes nothing it
+# did not make.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dispatcher
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dispatcher
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dispatcher
+subjects:
+  - kind: ServiceAccount
+    name: dispatcher
+    namespace: {{ .Release.Namespace }}
+---
+# One replica. A second for a moment, during a rollout, is safe: instances
+# on one database start each attempt once and record each transition once
+# (ADR 0039), and the watchers' events have IDs the log refuses twice.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dispatcher
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dispatcher
+  template:
+    metadata:
+      labels:
+        app: dispatcher
+        {{- with (include "pod.labels" .) }}{{ . | trim | nindent 8 }}{{- end }}
+    spec:
+      serviceAccountName: dispatcher
+      # Its own account is how it talks to the cluster's API (the Role above).
+      automountServiceAccountToken: true
+      {{- with (include "pod.placement" .) }}{{ . | trim | nindent 6 }}{{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: dispatcher
+          image: {{ required "dispatcher.image is required" .Values.dispatcher.image }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DISPATCHER_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.dispatcher.tokensSecret }}
+                  key: DISPATCHER_TOKENS
+            # For the client inside this pod, which is how the owner's
+            # commands reach the service (scripts/deploy.sh dispatch).
+            - name: DISPATCHER_URL
+              value: http://127.0.0.1:8379
+            - name: DISPATCHER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.dispatcher.tokensSecret }}
+                  key: owner
+            - name: DISPATCHER_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: DISPATCHER_BUILD
+              value: {{ .Values.dispatcher.image | quote }}
+            - name: DISPATCHER_MAX_RUNNING
+              value: {{ .Values.dispatcher.maxRunning | quote }}
+            - name: DISPATCHER_RETENTION
+              value: {{ .Values.dispatcher.retention | quote }}
+            - name: DISPATCHER_RETENTION_UNOWNED
+              value: {{ .Values.dispatcher.retentionUnowned | quote }}
+            # The database, as libpq's variables: the service and pg_dump
+            # both read them, and the password is in no address.
+            - name: PGHOST
+              value: {{ ternary "dispatcher-db" $db.host $local | quote }}
+            - name: PGPORT
+              value: {{ $db.port | quote }}
+            - name: PGDATABASE
+              value: {{ $db.name | quote }}
+            - name: PGUSER
+              value: {{ $db.user | quote }}
+            - name: PGSSLMODE
+              value: {{ ternary "disable" $db.sslmode $local | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $db.secret }}
+                  key: password
+          ports:
+            - name: http
+              containerPort: 8379
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.dispatcher.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # Where a dump is made before it is sent.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- if $local }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dispatcher-db
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app: dispatcher-db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+{{ include "pod.account" (dict "name" "dispatcher-db" "root" .) }}
+---
+# The dispatcher's own Postgres, as the memory service has its own library:
+# nothing else writes to it. Its password is made by scripts/deploy.sh.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dispatcher-db
+  namespace: {{ .Release.Namespace }}
+spec:
+  serviceName: dispatcher-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dispatcher-db
+  template:
+    metadata:
+      labels:
+        app: dispatcher-db
+        {{- with (include "pod.labels" .) }}{{ . | trim | nindent 8 }}{{- end }}
+    spec:
+      serviceAccountName: dispatcher-db
+      automountServiceAccountToken: false
+      {{- with (include "pod.placement" .) }}{{ . | trim | nindent 6 }}{{- end }}
+      securityContext:
+        runAsNonRoot: true
+        # The image's postgres user.
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: postgres
+          image: {{ $db.image }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POSTGRES_USER
+              value: {{ $db.user | quote }}
+            - name: POSTGRES_DB
+              value: {{ $db.name | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $db.secret }}
+                  key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", {{ $db.user | quote }}, "-d", {{ $db.name | quote }}]
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-h", "127.0.0.1", "-U", {{ $db.user | quote }}, "-d", {{ $db.name | quote }}]
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml $db.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        {{- with .Values.podLabels }}
+        labels:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with $db.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $db.storage }}
+---
+# Only the dispatcher reaches its database. The nightly backup asks the
+# dispatcher for the dump instead.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dispatcher-db-admits-only-the-dispatcher
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: dispatcher-db
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: dispatcher
+      ports:
+        - {protocol: TCP, port: 5432}
+{{- end }}
+{{- end }}

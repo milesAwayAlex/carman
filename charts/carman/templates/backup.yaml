@@ -80,8 +80,20 @@ spec:
                       optional: true
                 - name: BACKUP_KEEP
                   value: {{ .Values.backup.keep | quote }}
+                {{- $also := .Values.backup.also }}
+                {{- if and .Values.dispatcher.enabled (not .Values.dispatcher.database.host) }}
+                # The dispatcher's database, as SQL: the service makes the dump
+                # with a client of its server's version, and hands it to the
+                # backup role. The token goes on standard input, not a command line.
+                {{- $also = append $also (dict "name" "dispatcher" "command" (list "sh" "-c" (printf "printf 'Authorization: Bearer %%s' \"$DISPATCHER_BACKUP_TOKEN\" | curl -fsS --max-time 600 -H @- http://dispatcher:%v/v1/dump" .Values.dispatcher.service.port))) }}
+                - name: DISPATCHER_BACKUP_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.dispatcher.tokensSecret }}
+                      key: backup
+                {{- end }}
                 - name: BACKUP_ALSO
-                  value: {{ .Values.backup.also | toJson | quote }}
+                  value: {{ $also | toJson | quote }}
                 {{- range $name, $value := .Values.backup.env }}
                 - name: {{ $name }}
                   value: {{ $value | quote }}
@@ -90,7 +102,7 @@ spec:
                 - name: HTTPS_PROXY
                   value: http://egress:3128
                 - name: NO_PROXY
-                  value: cmem,localhost,127.0.0.1,metadata.google.internal,169.254.169.254{{ range .Values.agent.namespaces }},.{{ . }}{{ end }}{{ with .Values.backup.store.host }},{{ . }}{{ end }}
+                  value: cmem,dispatcher,localhost,127.0.0.1,metadata.google.internal,169.254.169.254{{ range .Values.agent.namespaces }},.{{ . }}{{ end }}{{ with .Values.backup.store.host }},{{ . }}{{ end }}
                 - name: EGRESS_CA
                   value: /etc/agent/egress/ca.crt
                 {{- end }}

@@ -33,6 +33,51 @@ memory:
     requests: {cpu: 10m, memory: 32Mi}
     limits: {memory: 256Mi}
 
+# The dispatcher (ADR 0042): starts agents' runs as Jobs made from their
+# CronJobs' job templates, and records in its log how every Job in the
+# namespace ended. Its state is in a Postgres database it owns.
+dispatcher:
+  enabled: true
+  # The image of the service. Required when enabled; scripts/deploy.sh sets it.
+  image: ""
+  # The secret holding the role tokens (keys DISPATCHER_TOKENS, owner, agent,
+  # backup). scripts/deploy.sh makes it on the first deploy.
+  tokensSecret: dispatcher-tokens
+  # How many tasks it runs at once. One until pacing decides more.
+  maxRunning: 1
+  # How long the log keeps a finished task and its events, counted from its
+  # end; and events that belong to no task (every Job's end, and later the
+  # account's usage readings), counted from their arrival. Longer for the
+  # second: a month of task history explains what happened; half a year of
+  # runs shows what did not.
+  retention: 720h
+  retentionUnowned: 4320h
+  service:
+    port: 8379
+  resources:
+    requests: {cpu: 10m, memory: 32Mi}
+    limits: {memory: 256Mi}
+  database:
+    # The address of a database the installation already has. Empty runs a
+    # Postgres of the dispatcher's own here, with a volume, that only the
+    # service can reach, and adds its dump to the nightly backup.
+    host: ""
+    port: 5432
+    name: dispatcher
+    user: dispatcher
+    # disable for the one run here, which is reached inside the namespace.
+    sslmode: require
+    # The secret holding the database's password under `password`.
+    # scripts/deploy.sh makes it, from a random value, for the one run here.
+    secret: dispatcher-db
+    # The one run here.
+    image: postgres:17-alpine
+    storage: 2Gi
+    storageClass: ""
+    resources:
+      requests: {cpu: 20m, memory: 64Mi}
+      limits: {memory: 512Mi}
+
 agent:
   # The agent image: the harness, the memory client and the routines. Required.
   image: ""

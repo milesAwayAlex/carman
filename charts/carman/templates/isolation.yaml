@@ -8,7 +8,11 @@ metadata:
   name: only-this-namespace-comes-in
   namespace: {{ .Release.Namespace }}
 spec:
-  podSelector: {}
+  # The dispatcher's database admits only the dispatcher (dispatcher.yaml);
+  # this would widen that to the whole namespace.
+  podSelector:
+    matchExpressions:
+      - {key: app, operator: NotIn, values: [dispatcher-db]}
   policyTypes: ["Ingress"]
   ingress:
     - from:

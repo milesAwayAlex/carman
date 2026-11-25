@@ -214,6 +214,16 @@ spec:
               app: cmem
       ports:
         - {protocol: TCP, port: 8377}
+    {{- if .Values.dispatcher.enabled }}
+    # The dispatcher, to emit events (the agent role) and, for the backup, to
+    # read its dump.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: dispatcher
+      ports:
+        - {protocol: TCP, port: {{ .Values.dispatcher.service.port }}}
+    {{- end }}
     - to:
         {{- include "dns.peers" . | nindent 8 }}
       ports:
