@@ -290,6 +290,14 @@ dreamer:
   #   mcpTools: {tracker: [get_issue, list_comments, list_issues]}
   mcp: {}
   mcpTools: {}
+  # Command prefixes it may run, each with any arguments: ones that only
+  # read, for checking what an entry claims (a pull request's state, say).
+  # A prefix is a program and one to three subcommands ending in a verb
+  # that reads (view, list, ls, show, get, status, diff, log, describe,
+  # search, checks); anything else fails the deploy. The program reaches
+  # the outside through the egress proxy, with its credential.
+  #   commands: [gh pr view, gh pr list, gh issue view]
+  commands: []
 
 backup:
   # Off until there is somewhere outside the cluster to keep the copies.

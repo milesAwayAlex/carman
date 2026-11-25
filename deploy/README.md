@@ -248,6 +248,17 @@ The proxy puts its credential on the dreamer's requests as on any agent's,
 and that credential may be able to write: the list is what stops the
 dreamer. Name only tools that read.
 
+Since 2026-11-25 it can also be given commands that only read, by prefix,
+each run with any arguments (ADR 0046, proposed):
+
+    dreamer:
+      commands: [gh pr view, gh pr list, gh issue view]
+
+A prefix is a program and one to three subcommands ending in a verb that
+reads (`view`, `list`, `ls`, `show`, `get`, `status`, `diff`, `log`,
+`describe`, `search`, `checks`); the deploy fails on any other, so that
+`gh` alone or `gh pr edit` cannot slip in.
+
 The dreamer is told its limits at its start: what it may run, read and
 call, that a shell call holds memory commands only, and that a refused call
 takes nothing else away.

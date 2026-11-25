@@ -39,7 +39,8 @@ Built so far:
   present state of a system, the reasons for a design. Sessions are told so;
   the dreamer reads the installation's definitions (`agents.yaml` and its
   routines) to retire a job's instruction its definition holds, and may be
-  given read-only MCP tools to check a claim. `cmem note --adds-to` adds to
+  given read-only MCP tools or command prefixes (ADR 0046) to check a
+  claim. `cmem note --adds-to` adds to
   an entry without marking it corrected; `cmem relabel` turns a correction
   into an addition, in a run. A restricted routine is told its limits.
 - The dreamer: the first agent. `routines/consolidate.md` and

@@ -157,3 +157,48 @@ func TestSessionsAreToldWhatMemoryIsNotFor(t *testing.T) {
 	expectContains(t, laptop.ok("", "help"), "--adds-to ID")
 	expectContains(t, laptop.ok("", "help", "all"), "cmem relabel ID --run RUN")
 }
+
+// ADR 0044, measured 2026-11-25: a restricted routine can be given command
+// prefixes that only read, set by the installation. Each is an allow rule
+// beside the others and is named in what the agent is told; one that is not
+// plainly a read is left out, and said.
+func TestARestrictedRoutineCanBeGivenReadOnlyCommands(t *testing.T) {
+	env := map[string]string{"CMEM_ROUTINE_COMMANDS": "gh pr view, gh  issue view,gh pr list, gh, gh pr, gh pr edit, gh api, " +
+		"gh pr view --web, sh -c view, env gh pr view, gh pr view *, gh pr view; rm, GH PR VIEW, git log, gh pr view"}
+	var out, errOut strings.Builder
+	if code := Run(context.Background(), []string{"routine", "--flags"}, func(k string) string { return env[k] }, nil, &out, &errOut); code != 0 {
+		t.Fatalf("cmem routine --flags: exit %d: %s", code, errOut.String())
+	}
+	words, err := exec.Command("sh", "-c", `eval "set -- $0"; printf '%s\0' "$@"`, out.String()).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags := strings.Split(strings.TrimSuffix(string(words), "\x00"), "\x00")
+	i := slices.Index(flags, "--allowedTools")
+	j := slices.Index(flags, "--append-system-prompt")
+	if i < 0 || j < 0 {
+		t.Fatalf("flags: %q", flags)
+	}
+	want := []string{"Bash(cmem *)", "Bash(gh pr view *)", "Bash(gh issue view *)", "Bash(gh pr list *)", "Bash(git log *)"}
+	if got := flags[i+1 : i+1+len(want)]; !slices.Equal(got, want) || strings.HasPrefix(flags[i+1+len(want)], "Bash(") {
+		t.Errorf("allowed %q, want %q", flags[i+1:j], want)
+	}
+	expectContains(t, flags[j+1], "which only read", "`gh pr view`, `gh issue view`, `gh pr list`")
+	for _, bad := range []string{`"gh"`, `"gh pr"`, `"gh pr edit"`, `"gh api"`, `"gh pr view --web"`, `"sh -c view"`, `"env gh pr view"`,
+		`"gh pr view *"`, `"gh pr view; rm"`, `"GH PR VIEW"`} {
+		if !strings.Contains(errOut.String(), bad+" is refused") {
+			t.Errorf("%s was not said to be refused:\n%s", bad, errOut.String())
+		}
+	}
+	if strings.Count(errOut.String(), "is refused") != 10 {
+		t.Errorf("refused other than the ten:\n%s", errOut.String())
+	}
+
+	// An agent with every tool needs none of it.
+	env["CMEM_ROUTINE_TOOLS"] = "all"
+	out.Reset()
+	Run(context.Background(), []string{"routine", "--flags"}, func(k string) string { return env[k] }, nil, &out, &errOut)
+	if strings.Contains(out.String(), "gh pr view") {
+		t.Errorf("every tool: %s", out.String())
+	}
+}

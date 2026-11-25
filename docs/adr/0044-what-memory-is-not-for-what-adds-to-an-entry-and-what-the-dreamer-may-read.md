@@ -133,6 +133,10 @@ MCP tool not on the list was refused while one on it ran.
 - A service older than this does not know `--adds-to`'s relation: it stores
   the pointer as a flag that reads as wrong. Client and service come from the
   same image, so a deploy brings both.
+- Added 2026-11-25: a restricted routine may also be given command
+  prefixes that only read (`dreamer.commands`, `CMEM_ROUTINE_COMMANDS`),
+  each an allow rule `Bash(PREFIX *)` and named in what it is told
+  (ADR 0046, proposed).
 
 ## Alternatives considered
 

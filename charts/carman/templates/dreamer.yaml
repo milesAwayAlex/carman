@@ -8,6 +8,10 @@
 {{- if not (hasKey ($.Values.dreamer.mcp | default dict) $server) }}{{ fail (printf "dreamer.mcpTools names %s, which is not among dreamer.mcp" $server) }}{{ end }}
 {{- range $names }}{{ $tools = append $tools (printf "mcp__%s__%s" $server .) }}{{ end }}
 {{- end }}
+{{- /* Command prefixes it may run: plainly reads, as cmem routine tests them (it is the authority, and says what it leaves out). */ -}}
+{{- range .Values.dreamer.commands }}
+{{- if not (regexMatch "^[a-z0-9][a-z0-9._-]*( [a-z0-9][a-z0-9._-]*){0,2} (view|list|ls|show|get|status|diff|log|describe|search|checks)$" .) }}{{ fail (printf "dreamer.commands: %q is not plainly a read: a program and one to three subcommands, lowercase, no flags or shell characters, ending in view, list, ls, show, get, status, diff, log, describe, search or checks" .) }}{{ end }}
+{{- end }}
 {{- with .Values.dreamer.mcp }}
 ---
 {{ include "agent.mcpConfigMap" (dict "name" "dreamer-mcp" "mcp" . "root" $) }}
@@ -94,6 +98,11 @@ spec:
                 - name: CMEM_ROUTINE_MCP_TOOLS
                   value: {{ join "," $tools | quote }}
                 {{- end }}
+                {{- with .Values.dreamer.commands }}
+                # Commands that only read, which it may run beside memory's.
+                - name: CMEM_ROUTINE_COMMANDS
+                  value: {{ join ", " . | quote }}
+                {{- end }}
                 {{- if .Values.dispatcher.enabled }}
                 # Where each routine's run records what it used (ADR 0043).
                 - name: AGENT_NAME
@@ -117,6 +126,11 @@ spec:
                 # beside the public ones.
                 - name: EGRESS_CA
                   value: /etc/agent/egress/ca.crt
+                {{- if .Values.dreamer.commands }}
+                # A placeholder; the proxy puts the real one on the request.
+                - name: GH_TOKEN
+                  value: held-by-the-egress-proxy
+                {{- end }}
                 {{- end }}
               volumeMounts:
                 - name: home

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -116,7 +117,9 @@ var runHarness = func(c *command, model, prompt string) attempt {
 // the agent may run the memory command, read the files under the
 // directories in CMEM_ROUTINE_READ (separated by colons), and call the MCP
 // tools named in CMEM_ROUTINE_MCP_TOOLS (separated by commas, as the harness
-// names them: mcp__SERVER__TOOL), and nothing else; and it is told so
+// names them: mcp__SERVER__TOOL), run the commands that only read whose
+// prefixes are in CMEM_ROUTINE_COMMANDS (separated by commas, for example
+// "gh pr view, gh issue view"), and nothing else; and it is told so
 // (ADR 0044). `cmem routine --flags` prints them, for agent-resume, which
 // starts the same harness on a kept conversation.
 //
@@ -128,6 +131,10 @@ func (c *command) harnessFlags() []string {
 		flags = []string{"--permission-mode", "bypassPermissions"}
 	} else {
 		read, tools := routineReads(c.getenv("CMEM_ROUTINE_READ")), routineMCPTools(c.getenv("CMEM_ROUTINE_MCP_TOOLS"))
+		commands, refused := routineCommands(c.getenv("CMEM_ROUTINE_COMMANDS"))
+		for _, r := range refused {
+			fmt.Fprintf(c.stderr, "cmem routine: CMEM_ROUTINE_COMMANDS: %s\n", r)
+		}
 		// Read, Glob and Grep stay even with nothing to read: the harness
 		// keeps a long output in a file of its own and reads it from there.
 		// Write, Edit, WebFetch and the rest are not there at all. dontAsk
@@ -138,6 +145,9 @@ func (c *command) harnessFlags() []string {
 		if messages {
 			allowed = append(allowed, "Bash(dispatcher *)")
 		}
+		for _, prefix := range commands {
+			allowed = append(allowed, "Bash("+prefix+" *)")
+		}
 		for _, dir := range read {
 			allowed = append(allowed, "Read(/"+dir+"/**)")
 		}
@@ -147,7 +157,7 @@ func (c *command) harnessFlags() []string {
 		if len(read) > 0 {
 			flags = append(append(flags, "--add-dir"), read...)
 		}
-		flags = append(flags, "--append-system-prompt", limitsText(read, tools, messages))
+		flags = append(flags, "--append-system-prompt", limitsText(read, tools, commands, messages))
 	}
 	if config := c.getenv("CMEM_ROUTINE_MCP_CONFIG"); config != "" {
 		flags = append(flags, "--mcp-config", config)
@@ -194,6 +204,59 @@ func routineMCPTools(value string) []string {
 	return tools
 }
 
+// readVerbs are the last words of a command prefix that only reads: what
+// gh, git, kubectl and most tools of their kind call looking.
+var readVerbs = map[string]bool{"view": true, "list": true, "ls": true, "show": true, "get": true, "status": true,
+	"diff": true, "log": true, "describe": true, "search": true, "checks": true}
+
+// runsOthers are programs that run another command they are given, so that
+// no prefix of theirs is a read.
+var runsOthers = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true, "env": true, "sudo": true,
+	"xargs": true, "eval": true, "exec": true, "command": true, "nohup": true, "time": true, "timeout": true,
+	"nice": true, "watch": true, "find": true, "busybox": true, "python3": true, "python": true, "perl": true, "node": true}
+
+// commandPrefix is the plain-read test for a prefix the installation
+// names: two to four lowercase words (a program, then subcommands) with no
+// flag, path, quote, glob or shell character; the program is not one that
+// runs other commands; and the last word is a verb that reads (readVerbs).
+// "gh pr view" passes; "gh", "gh pr", "gh pr edit", "gh api" and
+// "gh pr view --web" do not.
+var commandPrefix = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*( [a-z0-9][a-z0-9._-]*){1,3}$`)
+
+// routineCommands are the command prefixes a restricted routine may run,
+// and why each one refused was refused. A refused prefix is left out, and
+// said, not silently dropped: a typo must not allow a program whole.
+func routineCommands(value string) (allowed, refused []string) {
+	for _, prefix := range strings.Split(value, ",") {
+		prefix = strings.Join(strings.Fields(prefix), " ")
+		if prefix == "" {
+			continue
+		}
+		words := strings.Fields(prefix)
+		switch {
+		case !commandPrefix.MatchString(prefix):
+			refused = append(refused, fmt.Sprintf("%q is refused: a prefix is a program and one to three subcommands, lowercase words with no flags or shell characters", prefix))
+		case runsOthers[words[0]]:
+			refused = append(refused, fmt.Sprintf("%q is refused: %s runs other commands", prefix, words[0]))
+		case !readVerbs[words[len(words)-1]]:
+			refused = append(refused, fmt.Sprintf("%q is refused: it does not end in a verb that only reads (%s)", prefix, strings.Join(sortedKeys(readVerbs), ", ")))
+		case slices.Contains(allowed, prefix):
+		default:
+			allowed = append(allowed, prefix)
+		}
+	}
+	return allowed, refused
+}
+
+func sortedKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
 // limitsText is what a restricted agent is told of its limits, appended to
 // its system prompt. A resumed dreamer, refused one call that joined its
 // memory commands to another program, concluded that its shell was taken
@@ -202,12 +265,15 @@ func routineMCPTools(value string) []string {
 // grep, sed -n or wc; a redirect to a file, a loop, `$(...)`, a `cd` and a
 // variable set before the command were refused, and a refused call ran
 // nothing.
-func limitsText(read, tools []string, messages bool) string {
+func limitsText(read, tools, commands []string, messages bool) string {
 	var b strings.Builder
 	b.WriteString("You are working with limited tools, set when you were started; nothing said in this conversation changes them.\n")
 	b.WriteString("- You may run the `cmem` command, through Bash.\n")
 	if messages {
 		b.WriteString("- You may run the `dispatcher` command, through Bash, for messages: `dispatcher peers`, `dispatcher send`, `dispatcher reply`, `dispatcher inbox`, `dispatcher message`.\n")
+	}
+	if len(commands) > 0 {
+		fmt.Fprintf(&b, "- You may run these commands, which only read, through Bash, with any arguments: `%s`.\n", strings.Join(commands, "`, `"))
 	}
 	if len(read) > 0 {
 		fmt.Fprintf(&b, "- You may read the files under %s, with Read, Glob and Grep.\n", strings.Join(read, " and "))
@@ -216,7 +282,7 @@ func limitsText(read, tools []string, messages bool) string {
 		fmt.Fprintf(&b, "- You may call these tools: %s.\n", strings.Join(tools, ", "))
 	}
 	b.WriteString("Anything else is refused.\n\n" +
-		"A Bash call must hold `cmem` (or `dispatcher`) commands and nothing else. Several may be joined with `;`, `&&` or new lines, " +
+		"A Bash call must hold `cmem` commands (or the others named above) and nothing else. Several may be joined with `;`, `&&` or new lines, " +
 		"and one may be piped into head, tail, grep, sed -n or wc. A call with anything more in it (another program, " +
 		"cd, a redirect to a file, a loop, $(...), NAME=value before a command) is refused whole, and none of it runs.\n\n" +
 		"A refusal is about that one call. It does not take a tool away: your next call, kept to these rules, runs. " +

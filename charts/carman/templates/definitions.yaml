@@ -33,6 +33,9 @@ ConfigMap) are put beside this file in the dreamer's pod.
 {{- $_ := set $dreamer "mcp" . }}
 {{- $_ := set $dreamer "mcpTools" $.Values.dreamer.mcpTools }}
 {{- end }}
+{{- with .Values.dreamer.commands }}
+{{- $_ := set $dreamer "commands" . }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

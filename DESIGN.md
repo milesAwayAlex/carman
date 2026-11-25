@@ -530,7 +530,9 @@ Decisions are recorded one per file in `docs/adr/`. The index,
    the commands that switch it on and run it once, and its model credential
    as a secret in the cluster (ADR 0028). It has run once on a real library.
    It reads the installation's definitions and may be given read-only MCP
-   tools to check a claim; it is told its limits (ADR 0044).
+   tools to check a claim; it is told its limits (ADR 0044). (2026-11-25)
+   It may also be given command prefixes that only read, such as
+   `gh pr view` (ADR 0046, proposed).
    Not yet: distilling long documents, a comparison of models, a check on
    unattended runs.
 8. Walking skeleton of the task path: one trigger, one worker, one verifier,
