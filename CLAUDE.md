@@ -93,10 +93,22 @@ Built so far:
   by `dispatch status`. An admission rule that holds low-priority work
   while a usage window is high is built and off.
 
+- Messages (ADR 0045, proposed): sessions, agents by name and the owner
+  write to each other with `dispatcher peers|send|reply|inbox|message`
+  (the owner: `scripts/deploy.sh CONTEXT dispatch send TO 'TEXT'`). A
+  message is an event in the dispatcher's log; an agent's pod proves which
+  agent it is with a token the cluster makes for the dispatcher; the
+  harness's hooks carry a message into a running session (between tool
+  calls, at the end of a turn, or waking an idle one), and a message for a
+  session that is not running starts it again as its agent.
+
 Not built yet: the way in from a laptop to a service on a shared cluster,
+messages to and from the laptop's own sessions, a message that starts an
+interactive agent's session that is not open,
 the task-stream benchmark (M7), a second harness (M8), and for agents that
 do work outside memory: triggers other than a schedule, and a way for the
-owner to answer an agent's message where it arrives. The scheduled agents
+owner to answer an agent's message where it arrives (today: `dispatch reply`
+from the laptop). The scheduled agents
 are not yet moved onto the dispatcher, notices are not yet switched on, and
 pacing is a threshold, not yet a curve to the window's reset. The build
 order is in DESIGN.md, section 11.

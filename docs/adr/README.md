@@ -55,3 +55,4 @@ To change a decision, add a new record and mark the old one superseded.
 | [0042](0042-the-dispatcher-runs-as-a-service-that-starts-jobs-and-watches-every-job.md) | The dispatcher runs as a service that starts Jobs from CronJob templates and records how every Job ended | Accepted |
 | [0043](0043-the-dispatcher-keeps-time-says-what-did-not-happen-and-reads-usage.md) | The dispatcher starts work on time, says what did not happen, and reads the account's usage | Accepted |
 | [0044](0044-what-memory-is-not-for-what-adds-to-an-entry-and-what-the-dreamer-may-read.md) | What memory is not for; a note that adds to an entry; what the dreamer may read and check | Accepted |
+| [0045](0045-messages-between-sessions-agents-and-the-owner.md) | Messages between sessions, agents and the owner are events in the dispatcher's log | Proposed |

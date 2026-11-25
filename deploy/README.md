@@ -515,6 +515,34 @@ reset; `status` says why. A reading older than `maxAge` admits.
 What it does not do yet: cancel or delete a Job, hold the agents still on
 their CronJobs, or let the owner answer a notice where it arrives.
 
+### Messages
+
+Sessions, agents by name and the owner write to each other through the
+dispatcher (ADR 0045). As the owner, from the laptop:
+
+```
+scripts/deploy.sh CONTEXT dispatch peers                  who can be written to, and whether each is busy, idle or not running
+scripts/deploy.sh CONTEXT dispatch send AGENT/SESSION 'TEXT'   to a session by its name; AGENT alone starts a new conversation
+scripts/deploy.sh CONTEXT dispatch inbox [--read]         what agents wrote to the owner (notices of them are withheld while notices are off)
+scripts/deploy.sh CONTEXT dispatch reply ID 'TEXT'        answer one
+scripts/deploy.sh CONTEXT dispatch message ID             what became of a message: delivered, how and where, read, answered
+```
+
+An agent does the same in its shell with `dispatcher ...`. Its pod has a
+token the cluster makes for it for the dispatcher
+(`/var/run/secrets/dispatcher/token`), which says which agent it is; the
+shared agent token cannot message. The harness's hooks (in the agent
+image's settings) carry a message into a running session: with the next
+tool results, at the end of its turn, or by waking it when idle. A message
+for a session that is not running, or for an agent by name, is a task
+`message/ID` of that agent's CronJob; it waits for the running limit like
+any task, and `dispatch message ID` says why. Messages are kept
+`dispatcher.messages.retention` (30 days).
+
+A standing agent's pod has messages after it is restarted on an image that
+carries them (`scripts/deploy.sh CONTEXT agent restart NAME`); the dreamer
+has none yet.
+
 ## Agents beyond the dreamer
 
 An agent is a routine run in the agent image with what it needs to work

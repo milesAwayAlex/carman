@@ -72,11 +72,28 @@ clock ─────────────┘       │                      
 | Component | Responsibility | State |
 |---|---|---|
 | **Memory service** | Section 6 | Built |
-| **Dispatcher** | Keeps a durable log of events; turns events into tasks; starts work, routes later events to the task waiting for them, and records what did not happen (an overrun, a missed deadline or tick); decides what runs now. Its state is in tables of its own in a Postgres database it owns (ADR 0039). It runs as a service on the cluster: it starts a task as a Job made from the job template of the CronJob its class names, and records the end of every Job in its namespace, whoever started it (ADR 0042). It starts work on schedules by time of day from the values, expects a Job at each tick of the CronJobs it does not start and records a tick without one, tells the owner of what failed or did not happen through a task of class `notify` (withheld until switched on), and keeps hourly readings of the account's usage and each routine run's cost (ADR 0043) | Built and running on the local cluster (`cmd/dispatcher`, `internal/dispatch`); schedules only the usage reading so far; notices withheld; admission rule built, off |
+| **Dispatcher** | Keeps a durable log of events; turns events into tasks; starts work, routes later events to the task waiting for them, and records what did not happen (an overrun, a missed deadline or tick); decides what runs now. Its state is in tables of its own in a Postgres database it owns (ADR 0039). It runs as a service on the cluster: it starts a task as a Job made from the job template of the CronJob its class names, and records the end of every Job in its namespace, whoever started it (ADR 0042). It starts work on schedules by time of day from the values, expects a Job at each tick of the CronJobs it does not start and records a tick without one, tells the owner of what failed or did not happen through a task of class `notify` (withheld until switched on), and keeps hourly readings of the account's usage and each routine run's cost (ADR 0043). It carries messages between sessions, agents and the owner as events in its log, delivered into a running session by the harness's hooks and starting a session that is not running again as its agent (ADR 0045) | Built and running on the local cluster (`cmd/dispatcher`, `internal/dispatch`); schedules only the usage reading so far; notices withheld; admission rule built, off |
 | **Task ledger** | One row per task: trigger, state, what it is waiting for, session ID, branch, cost, verifier result, handoff note. State, waits and attempts are the dispatcher's tasks table; the rest is to come | Partly built, in the dispatcher |
 | **Worker** | One pod per task. Runs the agent, then the verifier, then records the episode | Proposed |
 | **Verifier** | A check separate from the agent's own claim. On failure the task continues with the result | Proposed |
 | **Dreamer** | Scheduled agent run that consolidates memory | Built, switched off (ADR 0027) |
+
+### Messages (ADR 0045, proposed)
+
+A session (a conversation, wherever it runs or does not), an agent by name
+and the owner can be written to with the dispatcher's client
+(`dispatcher peers|send|reply|inbox|read|message|watch`). A message and
+what became of it are events in the dispatcher's log. An agent's pod
+proves which agent it is with a token the cluster makes for it for the
+dispatcher; which session of its pod it is, is its word. A running session
+gets messages through the harness's hooks: with the next tool results, at
+the end of its turn, or, idle, woken by an `asyncRewake` waiter that holds
+a long poll to the dispatcher (channels, the harness's own way, are not
+available to the agents' credential). A message for a session that is not
+running becomes a task that resumes it as its agent, headless, under
+ADR 0040's one-writer lock, and its last words go back as the answer; one
+for an agent by name starts a new conversation; one for the owner is a
+notice. The owner writes with `scripts/deploy.sh CONTEXT dispatch send`.
 
 ### Worker details (proposed)
 
@@ -524,8 +541,10 @@ Decisions are recorded one per file in `docs/adr/`. The index,
    Then (ADR 0043): schedules by time of day from the values, expectations
    of the CronJobs it does not start, notices to the owner as tasks
    (withheld until switched on), hourly usage readings and each run's cost,
-   and a first admission rule. Next: move the scheduled agents onto the
-   dispatcher one by one, switch notices on, and pace by a curve to reset.
+   and a first admission rule. Then (ADR 0045, proposed): messages between
+   sessions, agents and the owner, each pod known by a token of its own.
+   Next: move the scheduled agents onto the dispatcher one by one, switch
+   notices on, reach the laptop's sessions, and pace by a curve to reset.
 
 ## 12. References
 
