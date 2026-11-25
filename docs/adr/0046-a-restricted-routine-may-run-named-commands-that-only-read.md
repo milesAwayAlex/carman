@@ -47,8 +47,11 @@ says so on its standard error, which is in the run's log.
   not the credential the proxy puts on its requests (as for MCP tools,
   ADR 0044).
 - The rules under which joined commands run or are refused were measured
-  for `Bash(cmem *)` (ADR 0044's table) and are assumed to hold for these
-  prefixes; it was not measured again for them here (the session that
-  built this had no model credential for a child harness).
+  for `Bash(cmem *)` (ADR 0044's table), and then for these prefixes, on
+  2026-11-25 in a pod made from the dreamer's definition (harness 2.1.326,
+  the cheapest model, the prefixes `gh pr view`, `gh pr list` and
+  `gh issue view`): `gh pr list ...` ran; `gh pr view N | head -2` ran;
+  `gh pr view N; gh pr edit N --title x` was refused whole, so nothing in
+  it ran; `gh api user` was refused.
 - Only the dreamer takes them from the chart. An agent with every tool
   needs none.
