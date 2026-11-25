@@ -150,6 +150,43 @@ or the VM's state disk does lose it, and so does a VM rebuilt from nothing.
    the new ones (`scripts/deploy.sh devvm token laptop | ...`, and the same
    for `dreamer`), or sessions will be told memory cannot be reached.
 
+## A change broke it
+
+A deploy can break what agents stand on: the egress proxy and its
+credentials, the network rules, the start of an agent's pod, the
+dispatcher's schema. An agent that builds this installation from inside the
+cluster then cannot repair it, because it can no longer reach its model.
+The way back is from outside, from a checkout on a machine that reaches the
+cluster, and it is the same whoever made the change:
+
+    scripts/deploy.sh CONTEXT status      # "deployed:" and "before it:" name two commits
+
+Each deploy that ends with the service answering records in the cluster the
+commit it was made from and the one before it, and the same for the
+installation's own definition. To go back, deploy the one before:
+
+    git worktree add ../back COMMIT-BEFORE && cd ../back
+    ln -s PATH-TO/.local .local           # the installation's definition; check out its commit-before too if it changed
+    nix develop -c scripts/deploy.sh CONTEXT
+
+Images are named by their content, so the earlier ones are still in the
+registry or the node's store and nothing is rebuilt unless they were
+removed. Data is not rolled back by this: a dispatcher migration that ran
+stays (an older build refuses a newer schema and says so; restore its
+database from the store if the migration itself is the damage), and memory
+is untouched by any deploy.
+
+**Before a risky change** (anything in the list above, or to the rights of
+whoever is deploying), the one making it tells someone who can run the way
+back, a person or a session on a machine outside the cluster:
+
+1. what is about to change, and what would show that it went wrong;
+2. the commit to go back to (`status` prints it) and the commands above;
+3. a time by which they will hear that it went well.
+
+If that time passes with no word, the other side runs the way back without
+being asked. The change is made only after they have said they have it.
+
 ## Not covered yet
 
 - Anything that tells you a night's backup never ran. A night that ran and

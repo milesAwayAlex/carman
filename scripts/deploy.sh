@@ -527,6 +527,20 @@ EOF
         echo "the service is running in the cluster but does not answer at $url from this machine;"
         echo "see deploy/README.md, \"Reaching it from the laptop\""
     fi
+    # What is deployed, and what was before it, kept in the cluster: the way
+    # back from a change that broke something is to deploy the one before
+    # (deploy/RECOVERY.md). A commit is named only when nothing was changed
+    # beside it; the installation's own definition has its commit too.
+    now="$(git rev-parse HEAD 2>/dev/null || echo unknown)$([ -z "$(git status --porcelain 2>/dev/null)" ] || echo " with changes not committed")"
+    theirs=""
+    [ ! -e "${CARMAN_INSTALLATION:-.local}/.git" ] || theirs="$(git -C "${CARMAN_INSTALLATION:-.local}" rev-parse HEAD 2>/dev/null)$([ -z "$(git -C "${CARMAN_INSTALLATION:-.local}" status --porcelain 2>/dev/null)" ] || echo " with changes not committed")"
+    was="$("${kube[@]}" get configmap deployed -o 'jsonpath={.data.commit}' 2>/dev/null || true)"
+    was_theirs="$("${kube[@]}" get configmap deployed -o 'jsonpath={.data.installation}' 2>/dev/null || true)"
+    if [ "$was" != "$now" ] || [ "$was_theirs" != "$theirs" ]; then
+        "${kube[@]}" create configmap deployed --from-literal="commit=$now" --from-literal="installation=$theirs" \
+            --from-literal="at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" --from-literal="previous=$was" --from-literal="previous-installation=$was_theirs" \
+            --dry-run=client -o json | "${kube[@]}" apply -f - >/dev/null || echo "deploy: what was deployed could not be recorded in the cluster" >&2
+    fi
     # Every deploy that changes a binary makes a new image tag. Where images
     # are built straight into the cluster's runtime, the old ones only fill
     # its disk: remove those this deploy did not use and no pod names (an
@@ -561,6 +575,7 @@ warm)
     ;;
 status)
     "${kube[@]}" get statefulset,pod,pvc,service -o wide
+    "${kube[@]}" get configmap deployed -o 'jsonpath=deployed: {.data.commit}, at {.data.at}{"\n"}before it: {.data.previous}{"\n"}the installation'"'"'s definition: {.data.installation}; before it: {.data.previous-installation}{"\n"}' 2>/dev/null || true
     if answers; then echo "the service answers at $url"; else echo "the service does not answer at $url from this machine"; fi
     ;;
 env)
