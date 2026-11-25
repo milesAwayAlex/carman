@@ -85,6 +85,10 @@ func messages(ctx context.Context, c *api.Client, cmd string, pos []string, flag
 			if me != "" && p.Address == message.SessionAddress(me) {
 				mine = "  (you)"
 			}
+			if p.NotWritable != "" {
+				fmt.Printf("%-52s %s%s: %s%s\n", p.Address, or(p.Agent, p.Kind), name, p.NotWritable, mine)
+				continue
+			}
 			fmt.Printf("%-52s %s%s: %s%s%s\n", p.Address, or(p.Agent, p.Kind), name, p.State, prefixed(", ", p.Where), mine)
 		}
 		return nil

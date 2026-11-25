@@ -16,7 +16,8 @@
 // DISPATCHER_RETENTION_UNOWNED (4320h, events that belong to no task),
 // DISPATCHER_NAMESPACE (the pod's own), DISPATCHER_BUILD,
 // DISPATCHER_SCHEDULES (a JSON list: name, class, cron, timeZone,
-// startWithin, timeout, priority), DISPATCHER_EXPECT_GRACE (1h, beyond a
+// startWithin, timeout, priority), DISPATCHER_WRITERS (a JSON object: each
+// agent to the agents that may write to it, ADR 0047), DISPATCHER_EXPECT_GRACE (1h, beyond a
 // CronJob's own catch-up), DISPATCHER_NOTICES (on to send them; withheld
 // otherwise), DISPATCHER_NOTICE_CLASS (notify), DISPATCHER_CONTEXT_NAME (the
 // kubectl context a notice names) and, for the admission rule,
@@ -380,6 +381,10 @@ func serve(ctx context.Context) error {
 	if build == "" {
 		build = "unnamed"
 	}
+	writers, err := message.ParseWriters(os.Getenv("DISPATCHER_WRITERS"))
+	if err != nil {
+		return fmt.Errorf("DISPATCHER_WRITERS: %w", err)
+	}
 	schedules, err := parseSchedules(os.Getenv("DISPATCHER_SCHEDULES"))
 	if err != nil {
 		return err
@@ -492,7 +497,7 @@ func serve(ctx context.Context) error {
 	var messages *message.Service
 	if cluster.Client != nil {
 		messages = &message.Service{Store: d, Cluster: cluster, Context: contextName, Namespace: namespace,
-			Priority: 50, Timeout: 30 * time.Minute, Retention: messagesKept, Log: logger}
+			Priority: 50, Timeout: 30 * time.Minute, Retention: messagesKept, Writers: writers, Log: logger}
 		go (&message.Router{Service: messages, Logger: logger}).Run(work)
 	}
 

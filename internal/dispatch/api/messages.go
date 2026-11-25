@@ -175,7 +175,7 @@ func (s *Server) watch(_ http.ResponseWriter, r *http.Request, _ Role) (any, err
 }
 
 func (s *Server) peers(_ http.ResponseWriter, r *http.Request, _ Role) (any, error) {
-	m, _, err := s.messaging(r)
+	m, c, err := s.messaging(r)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +185,7 @@ func (s *Server) peers(_ http.ResponseWriter, r *http.Request, _ Role) (any, err
 			return nil, fmt.Errorf("%w: since is a duration", errBadRequest)
 		}
 	}
-	return m.Peers(r.Context(), since)
+	return m.Peers(r.Context(), c, since)
 }
 
 // who is the caller, for a client that wants to know what the dispatcher

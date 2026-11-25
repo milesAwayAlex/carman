@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"carman/internal/dispatch"
@@ -162,18 +163,22 @@ func (s *Service) sessionOf(ctx context.Context, session, agent string) bool {
 
 // Peer is someone who can be written to.
 type Peer struct {
-	Address string    `json:"address"`
-	Kind    string    `json:"kind"` // owner, agent, session
-	Agent   string    `json:"agent,omitempty"`
-	Name    string    `json:"name,omitempty"`
-	State   string    `json:"state"` // busy, idle, not running; for an agent: what a message starts
-	Where   string    `json:"where,omitempty"`
-	Seen    time.Time `json:"seen,omitzero"`
+	Address string `json:"address"`
+	Kind    string `json:"kind"` // owner, agent, session
+	Agent   string `json:"agent,omitempty"`
+	Name    string `json:"name,omitempty"`
+	State   string `json:"state"` // busy, idle, not running; for an agent: what a message starts
+	Where   string `json:"where,omitempty"`
+	// NotWritable says why the caller may not write to it (ADR 0047);
+	// empty when it may.
+	NotWritable string    `json:"not_writable,omitempty"`
+	Seen        time.Time `json:"seen,omitzero"`
 }
 
 // Peers are who can be written to: the owner, the agents by name, and the
-// sessions seen lately, running or not.
-func (s *Service) Peers(ctx context.Context, since time.Duration) ([]Peer, error) {
+// sessions seen lately, running or not; those the caller may not write to
+// say so.
+func (s *Service) Peers(ctx context.Context, c Caller, since time.Duration) ([]Peer, error) {
 	out := []Peer{{Address: Owner, Kind: Owner, State: "a notice (withheld while notices are off); read with dispatch inbox"}}
 	agents, err := s.agents(ctx)
 	if err != nil {
@@ -190,7 +195,7 @@ func (s *Service) Peers(ctx context.Context, since time.Duration) ([]Peer, error
 		if a.Class == "" {
 			state = "no job to start: a message waits for one of its sessions"
 		}
-		out = append(out, Peer{Address: AgentAddress(n), Kind: "agent", Agent: n, State: state})
+		out = append(out, Peer{Address: AgentAddress(n), Kind: "agent", Agent: n, State: state, NotWritable: s.notWritable(c, n)})
 	}
 	sessions, err := s.Store.Sessions(ctx, "", s.now().Add(-since))
 	if err != nil {
@@ -201,7 +206,7 @@ func (s *Service) Peers(ctx context.Context, since time.Duration) ([]Peer, error
 		if err != nil {
 			return nil, err
 		}
-		p := Peer{Address: SessionAddress(x.ID), Kind: "session", Agent: x.Agent, Name: x.Name, Seen: x.Seen, State: "not running (kept)", Where: "last in " + x.Pod}
+		p := Peer{Address: SessionAddress(x.ID), Kind: "session", Agent: x.Agent, Name: x.Name, Seen: x.Seen, State: "not running (kept)", Where: "last in " + x.Pod, NotWritable: s.notWritable(c, x.Agent)}
 		if running {
 			p.State, p.Where = x.State, x.Kind+" in "+x.Pod
 			if x.State == Idle && !listening.listening(x.ID) {
@@ -211,6 +216,19 @@ func (s *Service) Peers(ctx context.Context, since time.Duration) ([]Peer, error
 		out = append(out, p)
 	}
 	return out, nil
+}
+
+// notWritable says, for a peer of agent target, why the caller may not
+// write to it unless answering it.
+func (s *Service) notWritable(c Caller, target string) string {
+	if c.Owner || s.mayWrite(c.Agent, target) {
+		return ""
+	}
+	who := "the owner and its own sessions"
+	if w := s.Writers[target]; len(w) > 0 {
+		who += ", and agents " + strings.Join(w, ", ")
+	}
+	return "not writable by you (only " + who + "; you may answer a message from it)"
 }
 
 // Router does, in the background, what the log asks of messaging: routes

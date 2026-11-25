@@ -259,6 +259,7 @@ func TestR2MessageSleepingSession(t *testing.T) {
 	}
 	// The agent's own time limit: its job's deadline, and the overrun a
 	// scheduled run of it is allowed.
+	s.Writers = map[string][]string{"slow": {"trial"}, "desk": {"trial"}}
 	slow, err := s.Send(ctx, a, "sess-a", "slow", "take your time", "")
 	if err != nil {
 		t.Fatal(err)
@@ -344,5 +345,92 @@ func TestR2MessageExchangeEnds(t *testing.T) {
 			t.Fatalf("answer %d was not refused: %+v, %v", i, next, err)
 		}
 		break
+	}
+}
+
+// TestR2MessageWhoMayWrite: with nothing listed, only the owner and the
+// agent's own sessions may write to an agent or its sessions; an agent
+// listed in its writtenBy may; anyone may answer a message it was sent;
+// a refusal says who may, and is recorded (ADR 0047).
+func TestR2MessageWhoMayWrite(t *testing.T) {
+	s, cl, inst := messaging(t)
+	ctx := context.Background()
+	a := pod("trial", "pod-a")
+	d := pod("desk", "pod-d")
+	start(t, s, cl, a, "sess-a", "alpha", message.Idle)
+	start(t, s, cl, d, "sess-d", "front", message.Idle)
+	start(t, s, cl, pod("trial", "pod-b"), "sess-b", "beta", message.Busy)
+
+	refused := func(what string, res message.Result, err error) {
+		t.Helper()
+		if err != nil || res.State != "refused" {
+			t.Errorf("%s: want refused, got %+v, %v", what, res, err)
+		}
+	}
+	sent := func(what string, res message.Result, err error) {
+		t.Helper()
+		if err != nil || res.State == "refused" {
+			t.Errorf("%s: want sent, got %+v, %v", what, res, err)
+		}
+	}
+
+	// Nothing listed: another agent may not, by name or to a session.
+	res, err := s.Send(ctx, d, "sess-d", "trial", "run something", "")
+	refused("desk to trial by name", res, err)
+	if !strings.Contains(res.Detail, "only by the owner and its own sessions") || !strings.Contains(res.Detail, "writtenBy") {
+		t.Errorf("the refusal does not say who may: %s", res.Detail)
+	}
+	recs, err := inst.OfTypeAbout(ctx, message.TypeRefused, res.ID)
+	if err != nil || len(recs) != 1 {
+		t.Errorf("the refusal is not recorded: %d, %v", len(recs), err)
+	}
+	res, err = s.Send(ctx, d, "sess-d", "trial/alpha", "hello", "")
+	refused("desk to a session of trial", res, err)
+	// The owner may; sessions of one agent may write to each other; any
+	// agent may write to the owner.
+	res, err = s.Send(ctx, message.Caller{Owner: true}, "", "trial/alpha", "from the owner", "")
+	sent("the owner", res, err)
+	res, err = s.Send(ctx, a, "sess-a", "trial/beta", "sibling", "")
+	sent("a sibling session", res, err)
+	res, err = s.Send(ctx, d, "sess-d", "owner", "to the owner", "")
+	sent("to the owner", res, err)
+
+	// A session answers a message it was sent, whoever sent it; it may not
+	// use that answer to reach anyone else.
+	ask, err := s.Send(ctx, a, "sess-a", "desk/front", "what is 2+2?", "")
+	refused("trial to desk, nothing listed", ask, err)
+	s.Writers = map[string][]string{"desk": {"trial"}}
+	ask, err = s.Send(ctx, a, "sess-a", "desk/front", "what is 2+2?", "")
+	sent("trial to desk, listed", ask, err)
+	res, err = s.Send(ctx, d, "sess-d", "", "4", ask.ID)
+	sent("desk answers trial", res, err)
+	res, err = s.Send(ctx, d, "sess-d", "trial/beta", "4", ask.ID)
+	refused("an answer sent elsewhere", res, err)
+	// The list is one way.
+	res, err = s.Send(ctx, d, "sess-d", "trial", "new work", "")
+	refused("desk to trial, desk listed only for itself", res, err)
+	if !strings.Contains(res.Detail, "not by agent desk") {
+		t.Errorf("the refusal: %s", res.Detail)
+	}
+
+	// Peers marks what the caller may not write to.
+	ps, err := s.Peers(ctx, d, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range ps {
+		want := p.Agent == "trial" || p.Agent == "slow"
+		if got := p.NotWritable != ""; got != want {
+			t.Errorf("peers for desk: %s marked %v, want %v (%q)", p.Address, got, want, p.NotWritable)
+		}
+	}
+	ps, err = s.Peers(ctx, message.Caller{Owner: true}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range ps {
+		if p.NotWritable != "" {
+			t.Errorf("peers for the owner: %s marked %q", p.Address, p.NotWritable)
+		}
 	}
 }

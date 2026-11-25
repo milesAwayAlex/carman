@@ -203,8 +203,11 @@ type Service struct {
 	Timeout  time.Duration
 	// Retention is how long a session that has ended is remembered.
 	Retention time.Duration
-	Log       *slog.Logger
-	Now       func() time.Time
+	// Writers are, for each agent, the other agents that may write to it
+	// and its sessions (ADR 0047). An agent not here has none.
+	Writers map[string][]string
+	Log     *slog.Logger
+	Now     func() time.Time
 }
 
 func (s *Service) now() time.Time {
@@ -398,12 +401,23 @@ func (s *Service) Send(ctx context.Context, c Caller, session, given, body, answ
 		if !errors.Is(err, ErrUnknown) {
 			return Result{}, err
 		}
-		m.Reason = err.Error()
-		data, _ := json.Marshal(m)
-		if err := s.Store.Emit(ctx, dispatch.Event{ID: TypeRefused + "/" + m.ID, Type: TypeRefused, Source: Source, Subject: m.ID, Data: data}); err != nil {
+		return s.refuse(ctx, m, err.Error())
+	}
+	if !c.Owner {
+		target, err := s.targetAgent(ctx, to)
+		if err != nil {
 			return Result{}, err
 		}
-		return Result{ID: m.ID, State: "refused", Detail: m.Reason}, nil
+		if !s.mayWrite(c.Agent, target) {
+			ok, err := s.answering(ctx, c, to, answers)
+			if err != nil {
+				return Result{}, err
+			}
+			if !ok {
+				m.To = to
+				return s.refuse(ctx, m, s.refusal(c.Agent, target))
+			}
+		}
 	}
 	m.To = to
 	data, _ := json.Marshal(m)
@@ -419,6 +433,16 @@ func (s *Service) Send(ctx context.Context, c Caller, session, given, body, answ
 		return Result{}, err
 	}
 	return Result{ID: m.ID, To: to, State: "waiting", Detail: detail}, nil
+}
+
+// refuse records a message that is not sent, and why.
+func (s *Service) refuse(ctx context.Context, m Message, why string) (Result, error) {
+	m.Reason = why
+	data, _ := json.Marshal(m)
+	if err := s.Store.Emit(ctx, dispatch.Event{ID: TypeRefused + "/" + m.ID, Type: TypeRefused, Source: Source, Subject: m.ID, Data: data}); err != nil {
+		return Result{}, err
+	}
+	return Result{ID: m.ID, To: m.To, State: "refused", Detail: why}, nil
 }
 
 func (s *Service) mark(typ, msg string, d Delivery) dispatch.Event {
