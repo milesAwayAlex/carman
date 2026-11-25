@@ -76,6 +76,14 @@ spec:
                 - name: WARM_CREDENTIAL
                   value: {{ . | quote }}
                 {{- end }}
+                {{- if eq .credential "basic" }}
+                - name: WARM_REGISTRY_USER
+                  valueFrom:
+                    secretKeyRef: {name: {{ .secret | quote }}, key: username}
+                - name: WARM_REGISTRY_PASSWORD
+                  valueFrom:
+                    secretKeyRef: {name: {{ .secret | quote }}, key: password}
+                {{- end }}
                 {{- if $.Values.egress.enabled }}
                 - name: HTTPS_PROXY
                   value: http://egress:3128

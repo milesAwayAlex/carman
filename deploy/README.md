@@ -360,6 +360,17 @@ local cluster, needs to answer on an address of the node's that pods reach
 too; until it does, the job fails, says so, and agents start from the agent
 image and install the harness.
 
+A registry that takes writes to these images only with a key: set
+`agent.warm.credential: basic`, and put the user and the key in the secret
+`agent.warm.secret` names (`registry` unless set), from a pipe:
+
+    printf %s USER | scripts/deploy.sh CONTEXT secret registry username
+    PROGRAM-THAT-PRINTS-THE-KEY | scripts/deploy.sh CONTEXT secret registry password
+
+The deploy's own pushes are made by the machine's container tool, which is
+given the key by whatever the machine uses for that; the script holds none.
+Agents are given no key: what they build goes to repositories of their own.
+
 ## The dispatcher
 
 The dispatcher (ADR 0042) starts agents' runs as Jobs and records in its log

@@ -218,7 +218,12 @@ agent:
     # tools. The identity is the pod's own (workload identity): either the
     # installation's (google, as an agent's google: true) or one the
     # platform gives the job's account by annotation.
+    # Or "basic": a user and a password, the keys username and password of
+    # the secret named here (scripts/deploy.sh CONTEXT secret NAME KEY, from
+    # a pipe). For a registry that takes writes to these images only with
+    # a key.
     credential: ""
+    secret: registry
     google: false
     serviceAccountAnnotations: {}
     # Builds kept beside the current one; older ones are deleted where the
