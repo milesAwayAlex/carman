@@ -2,6 +2,16 @@
 # beside the memory they tidy (ADR 0027). It needs a model credential in the
 # secret named by agent.modelSecret, which is put there on purpose (ADR 0028).
 {{ include "pod.account" (dict "name" "dreamer" "root" .) }}
+{{- /* The MCP tools the dreamer may call, as the harness names them. */ -}}
+{{- $tools := list }}
+{{- range $server, $names := .Values.dreamer.mcpTools }}
+{{- if not (hasKey ($.Values.dreamer.mcp | default dict) $server) }}{{ fail (printf "dreamer.mcpTools names %s, which is not among dreamer.mcp" $server) }}{{ end }}
+{{- range $names }}{{ $tools = append $tools (printf "mcp__%s__%s" $server .) }}{{ end }}
+{{- end }}
+{{- with .Values.dreamer.mcp }}
+---
+{{ include "agent.mcpConfigMap" (dict "name" "dreamer-mcp" "mcp" . "root" $) }}
+{{- end }}
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -67,6 +77,19 @@ spec:
                   value: {{ join "," .Values.dreamer.models | quote }}
                 - name: CMEM_ROUTINE_BUDGET_USD
                   value: {{ .Values.dreamer.budgetUSD | quote }}
+                {{- if .Values.dreamer.definitions }}
+                # Beside memory it may read what each agent is and the
+                # installation's routines, and nothing else (ADR 0044).
+                - name: CMEM_ROUTINE_READ
+                  value: /etc/agent/definitions
+                {{- end }}
+                {{- if .Values.dreamer.mcp }}
+                # MCP servers, of whose tools it may call only these.
+                - name: CMEM_ROUTINE_MCP_CONFIG
+                  value: /etc/agent/mcp/mcp.json
+                - name: CMEM_ROUTINE_MCP_TOOLS
+                  value: {{ join "," $tools | quote }}
+                {{- end }}
                 {{- if .Values.dispatcher.enabled }}
                 # Where each routine's run records what it used (ADR 0043).
                 - name: AGENT_NAME
@@ -100,6 +123,16 @@ spec:
                 - name: tools
                   mountPath: /etc/agent/bin
                   readOnly: true
+                {{- if .Values.dreamer.definitions }}
+                - name: definitions
+                  mountPath: /etc/agent/definitions
+                  readOnly: true
+                {{- end }}
+                {{- if .Values.dreamer.mcp }}
+                - name: mcp
+                  mountPath: /etc/agent/mcp
+                  readOnly: true
+                {{- end }}
                 {{- if .Values.agent.sessionStorage }}
                 # Its conversations are kept as every job's are, for the
                 # owner to read or pick up from an interactive agent.
@@ -126,6 +159,23 @@ spec:
                 name: tools
                 optional: true
                 defaultMode: 0555
+            {{- if .Values.dreamer.definitions }}
+            # One directory: agents.yaml, and each of the installation's
+            # routines as NAME.md.
+            - name: definitions
+              projected:
+                sources:
+                  - configMap:
+                      name: agent-definitions
+                  - configMap:
+                      name: routines
+                      optional: true
+            {{- end }}
+            {{- if .Values.dreamer.mcp }}
+            - name: mcp
+              configMap:
+                name: dreamer-mcp
+            {{- end }}
             {{- if .Values.agent.sessionStorage }}
             - name: sessions
               persistentVolumeClaim:

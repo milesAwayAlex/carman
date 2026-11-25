@@ -125,6 +125,9 @@ class Workspace:
         self.env: dict[str, str] = {}
         self.calls: list[dict] = []
         self.service: cmem_arm.Service | None = None
+        # What the harness may do: everything, unless a caller sets the
+        # flags a restricted routine gets (`cmem routine --flags`).
+        self.permissions = "--permission-mode bypassPermissions"
         for repo, origin in CHECKOUTS.items():
             (self.dir / repo / ".git").mkdir(parents=True)
             (self.dir / repo / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
@@ -198,7 +201,7 @@ class Workspace:
     def claude(self, step: str, repo: str, prompt: str, resume: str | None = None) -> dict:
         (self.dir / ".prompt").write_text(prompt)
         args = f'claude -p "$(cat /workspace/.prompt)" --output-format stream-json --verbose ' \
-               f"--permission-mode bypassPermissions --model {self.model}"
+               f"{self.permissions} --model {self.model}"
         if resume:
             args += f" --resume {resume}"
         env = {"CLAUDE_CONFIG_DIR": CONFIG, "IS_SANDBOX": "1", "DISABLE_AUTOUPDATER": "1",
@@ -398,6 +401,10 @@ def consolidate(run_dir: Path, model: str, dreamer_model: str, probes: bool) -> 
             ids[item["key"]] = service.call("POST", "/v1/notes", note)["id"]
             if "flag" in item:
                 service.call("POST", f"/v1/entries/{ids[item['key']]}/flag", {"reason": item["flag"]})
+            if "adds_to" in item:
+                # As `cmem note --adds-to` leaves it (ADR 0044).
+                service.call("POST", f"/v1/entries/{ids[item['adds_to']]}/flag", {
+                    "reason": f"Added to by {ids[item['key']]}: {item['text']}", "relation": "adds", "note": ids[item["key"]]})
     finally:
         service.stop()
     work = run_dir / "consolidated" / "library"
@@ -409,6 +416,14 @@ def consolidate(run_dir: Path, model: str, dreamer_model: str, probes: bool) -> 
         before = service.call("GET", "/v1/entries")
         dreamer = Workspace("none", {"id": "dreamer", "files": {}}, run_dir / "dreamer", dreamer_model, [])
         dreamer.env.update({"CMEM_URL": service.env()["CMEM_URL"], "CMEM_TOKEN": service.dreamer})
+        # The installation's definitions, which it may read, and the limits
+        # `cmem routine` gives a restricted routine, as the dreamer has them.
+        for name, text in mess.get("definitions", {}).items():
+            (dreamer.dir / "definitions").mkdir(exist_ok=True)
+            (dreamer.dir / "definitions" / name).write_text(text)
+        dreamer.permissions = subprocess.run([str(cmem_arm.REPO / "bin" / "cmem"), "routine", "--flags"], check=True,
+                                             capture_output=True, text=True,
+                                             env={**os.environ, "CMEM_ROUTINE_READ": "/workspace/definitions"}).stdout.strip()
         call = dreamer.claude("consolidate", "repo-a", routine)
         after = service.call("GET", "/v1/entries")
         every_run = service.call("GET", "/v1/runs")
@@ -424,8 +439,21 @@ def consolidate(run_dir: Path, model: str, dreamer_model: str, probes: bool) -> 
     current = {e["id"]: e for e in after}
     key_of = {v: k for k, v in ids.items()}
     results = []
+    report = ""
+    for line in (run_dir / "dreamer" / "consolidate.jsonl").read_text().splitlines():
+        if '"type":"result"' in line.replace(" ", ""):
+            report = json.loads(line).get("result") or ""
+    asked = report.split("Questions for the owner", 1)[1] if "Questions for the owner" in report else ""
     for check in mess["checks"]:
         problems = []
+        for key, words in check.get("retired_naming", {}).items():
+            reasons = [c["text"] for r in runs for c in r["changes"] if c["action"] == "retire" and c["entry"] == ids[key]]
+            problems += [f"{key} was not retired with a reason naming {w!r}: {reasons}" for w in words
+                         if not any(w in reason for reason in reasons)]
+        problems += [f"the report asks the owner nothing about {w!r}" for w in check.get("asked", []) if w not in asked]
+        problems += [f"a run dropped {d!r} as if corrected" for d in
+                     [d for r in runs for c in r["changes"] for d in c.get("drops") or []]
+                     if any(w in d for w in check.get("not_dropped", []))]
         problems += [f"{k} is still current" for k in check.get("gone", []) if ids[k] in current]
         problems += [f"{k} is no longer current" for k in check.get("kept", []) if ids[k] not in current]
         if check.get("kept_crowd"):

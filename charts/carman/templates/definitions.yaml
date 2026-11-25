@@ -1,0 +1,49 @@
+{{- /*
+What the installation's agents are, for the dreamer to read (ADR 0044): an
+instruction for one job that memory holds is told from what the job's own
+definition says. Settings only. An agent's environment and the node's
+directories it mounts are left out, and nothing in the values is a
+credential (ADR 0028). The installation's routines (the `routines`
+ConfigMap) are put beside this file in the dreamer's pod.
+*/ -}}
+{{- if .Values.dreamer.definitions }}
+{{- $agents := list }}
+{{- range .Values.agents }}
+{{- $a := pick . "name" "routines" "command" "interactive" "schedule" "dispatched" "models" "budgetUSD" "deadlineSeconds" "waitForLimitMinutes" "scope" "plugins" "permissionMode" "memoryRole" }}
+{{- if and .schedule (not .interactive) }}
+{{- $_ := set $a "suspended" (or .dispatched (default false .suspend)) }}
+{{- else if not .interactive }}
+{{- $_ := set $a "schedule" "none: runs when asked" }}
+{{- end }}
+{{- $_ := set $a "tools" (ternary "all" (.tools | default "memory") (default false .interactive)) }}
+{{- with .mcp }}
+{{- $servers := dict }}
+{{- range $server, $spec := . }}
+{{- $_ := set $servers $server (ternary $spec (printf "the command %v" (get (kindIs "map" $spec | ternary $spec dict) "command")) (kindIs "string" $spec)) }}
+{{- end }}
+{{- $_ := set $a "mcp" $servers }}
+{{- end }}
+{{- if .google }}
+{{- $_ := set $a "cloudIdentity" true }}
+{{- end }}
+{{- $agents = append $agents $a }}
+{{- end }}
+{{- $dreamer := dict "name" "dreamer" "routines" .Values.dreamer.routines "schedule" .Values.dreamer.schedule "models" .Values.dreamer.models "budgetUSD" .Values.dreamer.budgetUSD "tools" "memory" }}
+{{- with .Values.dreamer.mcp }}
+{{- $_ := set $dreamer "mcp" . }}
+{{- $_ := set $dreamer "mcpTools" $.Values.dreamer.mcpTools }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-definitions
+  namespace: {{ .Release.Namespace }}
+data:
+  agents.yaml: |
+    # This installation's agents: for each, the routines it runs (each is
+    # the prompt in ROUTINE.md beside this file, where the installation has
+    # its own), when it runs, on which models, with which tools (all: every
+    # tool, its limits set around its pod; memory: the memory command only),
+    # and what else it may reach: MCP servers, a cloud identity.
+    {{- toYaml (dict "agents" (append $agents $dreamer)) | nindent 4 }}
+{{- end }}

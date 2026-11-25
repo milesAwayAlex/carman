@@ -268,6 +268,20 @@ dreamer:
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}
+  # What it may read beside memory (ADR 0044): what each agent is (its
+  # routines, schedule, models, tools and what it may reach; no credential)
+  # and the installation's routines, so that an instruction for one job
+  # that memory holds can be told from what the job's definition says.
+  definitions: true
+  # MCP servers, named as an agent's are (see agents below), and the tools
+  # of theirs it may call, by server: read-only ones, for checking what an
+  # entry claims. It may call no other tool of theirs. The proxy's
+  # credential for a server is the same whichever agent calls it, so the
+  # list here is what keeps the dreamer to reading.
+  #   mcp: {tracker: "https://mcp.example.com/mcp"}
+  #   mcpTools: {tracker: [get_issue, list_comments, list_issues]}
+  mcp: {}
+  mcpTools: {}
 
 backup:
   # Off until there is somewhere outside the cluster to keep the copies.

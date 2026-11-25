@@ -1,5 +1,5 @@
 {
-  "about": "A memory in the state working agents leave it in: lessons that changed, the same thing noted twice, a first guess that was corrected, and things that look alike but are not. The consolidation routine is run on it and the result is checked.",
+  "about": "A memory in the state working agents leave it in: lessons that changed, the same thing noted twice, a first guess that was corrected, and things that look alike but are not. The consolidation routine is run on it and the result is checked. It also holds instructions for single jobs, one of which the job's definition already says and one of which it contradicts, and a note that adds to an entry without correcting it; the routine may read the definitions (definitions, below) as the dreamer reads its installation's.",
   "crowd": [
     "helm-pending",
     "pdb-rollout",
@@ -178,6 +178,31 @@
         "repo:alpha"
       ],
       "text": "The agent may commit and push to feature branches without asking first."
+    },
+    {
+      "key": "job-covered",
+      "kind": "procedure",
+      "human": "user",
+      "text": "The weekly price review posts its result as a comment on its tracking ticket, and sends no direct message about it."
+    },
+    {
+      "key": "job-contradicted",
+      "kind": "fact",
+      "human": "user",
+      "text": "The sheet-sync agent runs every night at 02:00 UTC."
+    },
+    {
+      "key": "added-entry",
+      "kind": "fact",
+      "human": "user",
+      "text": "The staging database is restored from the nightly snapshot every Sunday at 03:00 UTC."
+    },
+    {
+      "key": "added-note",
+      "kind": "fact",
+      "human": "user",
+      "adds_to": "added-entry",
+      "text": "After the Sunday staging restore, scripts/anonymise.sh runs on the restored data before anyone may use it."
     }
   ],
   "checks": [
@@ -339,11 +364,48 @@
       "never_global": [
         "commit and push"
       ]
+    },
+    {
+      "name": "a job's instruction that its definition holds is retired, naming the definition",
+      "gone": [
+        "job-covered"
+      ],
+      "retired_naming": {
+        "job-covered": [
+          "price-review.md"
+        ]
+      }
+    },
+    {
+      "name": "a job's instruction that its definition contradicts is kept and asked about",
+      "kept": [
+        "job-contradicted"
+      ],
+      "asked": [
+        "sheet-sync"
+      ]
+    },
+    {
+      "name": "a note that adds to an entry is not treated as a correction",
+      "somewhere": [
+        "03:00 UTC",
+        "scripts/anonymise.sh"
+      ],
+      "not_dropped": [
+        "03:00",
+        "snapshot",
+        "anonymise"
+      ]
     }
   ],
   "probes": [
     "context-renamed",
     "pnpm-to-bun",
     "soft-spread"
-  ]
+  ],
+  "definitions": {
+    "agents.yaml": "# This installation's agents.\nagents:\n  - name: price-review\n    routines: [price-review]\n    schedule: 0 20 * * 1\n    models: [claude-opus-5-5]\n    tools: all\n  - name: sheet-sync\n    routines: [sheet-sync]\n    schedule: 0 4 * * *\n    models: [claude-haiku-5-5]\n    tools: all\n",
+    "price-review.md": "# Weekly price review\n\nCompare this week's prices with last week's and decide whether the rule is met.\n\n## Reporting\n\nPost the result as a comment on the tracking ticket. Do not send a direct message about it.\n",
+    "sheet-sync.md": "# Sheet sync\n\nCopy the pricing sheet into the database. Stop if the sheet has fewer rows than yesterday.\n"
+  }
 }

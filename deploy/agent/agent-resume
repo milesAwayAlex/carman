@@ -111,18 +111,24 @@ PY
         cwd="$HOME" resume="$file"
     fi
 
-    # What the agent may do, as its job had it (cmem routine): every tool,
-    # its limits around the pod; or the memory command and nothing else. A
-    # person at the keyboard does not widen that: what the job could not do
-    # is refused, not asked about.
+    # What the agent may do, as its job had it, from the same place its job
+    # had it (cmem routine --flags): every tool, its limits around the pod;
+    # or the memory command, the directories it may read and the MCP tools it
+    # may call, and nothing else, which it is told in its system prompt
+    # (ADR 0044). A person at the keyboard does not widen that: what the job
+    # could not do is refused, not asked about.
     if [ "${CMEM_ROUTINE_TOOLS:-}" = all ]; then
         mode=bypassPermissions tools="every tool"
-        flags="--permission-mode bypassPermissions"
     else
         mode=dontAsk tools="the memory command only"
-        flags="--permission-mode dontAsk --allowedTools 'Bash(cmem *)'"
+        [ -z "${CMEM_ROUTINE_READ:-}${CMEM_ROUTINE_MCP_TOOLS:-}" ] || tools="the memory command, with what it may read and call"
     fi
-    [ -z "${CMEM_ROUTINE_MCP_CONFIG:-}" ] || flags="$flags --mcp-config $CMEM_ROUTINE_MCP_CONFIG"
+    if ! flags="$(cmem routine --flags 2>/dev/null)"; then
+        # An image whose cmem is older than --flags: the rule it had then.
+        flags="--permission-mode bypassPermissions"
+        [ "$mode" = bypassPermissions ] || flags="--permission-mode dontAsk --allowedTools 'Bash(cmem *)'"
+        [ -z "${CMEM_ROUTINE_MCP_CONFIG:-}" ] || flags="$flags --mcp-config $CMEM_ROUTINE_MCP_CONFIG"
+    fi
 
     # The home is new: what the harness asks at its first start (the theme,
     # trust in the directory, the warning about that mode) is answered as the
