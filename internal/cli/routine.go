@@ -2,17 +2,20 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"carman/internal/dispatch/api"
 	"carman/internal/memory"
 )
 
@@ -31,6 +34,40 @@ type attempt struct {
 	report string
 	cost   float64
 	failed bool
+	// What the harness's result says the attempt used, and the last
+	// reading of the plan's limits it saw, when it says them.
+	usage     json.RawMessage
+	rateLimit json.RawMessage
+}
+
+// harnessResult reads what the harness printed: its result, as one JSON
+// object or as the last "result" line of a stream, and the stream's last
+// rate_limit_event.
+func harnessResult(out []byte) (result struct {
+	Result  string          `json:"result"`
+	Cost    float64         `json:"total_cost_usd"`
+	IsError bool            `json:"is_error"`
+	Usage   json.RawMessage `json:"usage"`
+}, rateLimit json.RawMessage, ok bool) {
+	if json.Unmarshal(bytes.TrimSpace(out), &result) == nil {
+		return result, nil, true
+	}
+	for _, line := range bytes.Split(out, []byte("\n")) {
+		var l struct {
+			Type      string          `json:"type"`
+			RateLimit json.RawMessage `json:"rate_limit_info"`
+		}
+		if json.Unmarshal(line, &l) != nil {
+			continue
+		}
+		switch l.Type {
+		case "result":
+			ok = json.Unmarshal(line, &result) == nil
+		case "rate_limit_event":
+			rateLimit = l.RateLimit
+		}
+	}
+	return result, rateLimit, ok
 }
 
 // runHarness starts the harness on a prompt. Tests put a stand-in here.
@@ -47,7 +84,9 @@ var runHarness = func(c *command, model, prompt string) attempt {
 		// else. CMEM_ROUTINE_TOOLS=all is for an agent whose limits are set around
 		// it and not inside it: a pod that can reach only the egress proxy
 		// and holds no credential of its own.
-		args := []string{"-p", prompt, "--model", model, "--output-format", "json"}
+		// A stream, for the plan's limits as the harness last saw them
+		// beside its result.
+		args := []string{"-p", prompt, "--model", model, "--output-format", "stream-json", "--verbose"}
 		if c.getenv("CMEM_ROUTINE_TOOLS") == "all" {
 			args = append(args, "--permission-mode", "bypassPermissions")
 		} else {
@@ -62,16 +101,12 @@ var runHarness = func(c *command, model, prompt string) attempt {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
-	var result struct {
-		Result  string  `json:"result"`
-		Cost    float64 `json:"total_cost_usd"`
-		IsError bool    `json:"is_error"`
-	}
-	if json.Unmarshal(bytes.TrimSpace(out), &result) != nil {
+	result, rateLimit, ok := harnessResult(out)
+	if !ok {
 		// Not the harness's own report: take what was printed as it is.
 		result.Result = strings.TrimSpace(string(out))
 	}
-	a := attempt{report: result.Result, cost: result.Cost, failed: err != nil || result.IsError}
+	a := attempt{report: result.Result, cost: result.Cost, failed: err != nil || result.IsError, usage: result.Usage, rateLimit: rateLimit}
 	if a.failed && a.report == "" {
 		a.report = strings.TrimSpace(stderr.String())
 	}
@@ -119,7 +154,7 @@ var pause = func(c *command, d time.Duration) {
 	}
 }
 
-func (c *command) routine(args []string) error {
+func (c *command) routine(args []string) (err error) {
 	models := c.flags.String("models", c.getenv("CMEM_ROUTINE_MODELS"), "the ladder: models to try in order, separated by commas; a name may repeat")
 	budget := c.flags.Float64("budget", 0, "stop starting attempts once this many dollars are spent (CMEM_ROUTINE_BUDGET_USD)")
 	wait := c.flags.Int("wait-for-limit", 0, "minutes this run may spend waiting for the plan's usage limit to reset (CMEM_ROUTINE_WAIT_FOR_LIMIT_MINUTES)")
@@ -149,6 +184,15 @@ func (c *command) routine(args []string) error {
 	// know what day it is.
 	today := "\n\nToday's date is " + started.Format("2006-01-02") + " (UTC).\n"
 	spent, carried := 0.0, ""
+	used := runUsage{Agent: c.getenv("AGENT_NAME"), Routine: strings.TrimSuffix(filepath.Base(c.flags.Arg(0)), ".md"),
+		Task: c.getenv("TASK_ID"), Started: started, Tokens: map[string]int64{}}
+	defer func() {
+		used.Cost, used.Ended, used.Outcome = spent, time.Now().UTC(), "done"
+		if err != nil {
+			used.Outcome, used.Error = "not finished", err.Error()
+		}
+		c.emitUsage(used)
+	}()
 	for rung := 0; rung < len(ladder); rung++ {
 		model := ladder[rung]
 		if *budget > 0 && spent >= *budget {
@@ -158,6 +202,7 @@ func (c *command) routine(args []string) error {
 		fmt.Fprintf(c.stdout, "== attempt %d of at most %d, %s ==\n", rung+1, len(ladder), model)
 		a := runHarness(c, model, string(text)+carried+today)
 		spent += a.cost
+		used.add(model, a)
 		fmt.Fprintf(c.stdout, "%s\n", strings.TrimSpace(a.report))
 		if a.failed && usageLimit.MatchString(a.report) {
 			// Nothing was attempted, so this rung is not used up.
@@ -227,4 +272,64 @@ func carryOver(a attempt, open []memory.Refusal, runs []string) string {
 			"or leave those entries as they are and say why in your report.\n", strings.Join(refusal.Entries, ", "), refusal.Reason)
 	}
 	return b.String()
+}
+
+// runUsage is the data of the run.usage event a routine's run emits: what
+// it cost, on which models, and the plan's limits as last seen.
+type runUsage struct {
+	Agent     string           `json:"agent,omitempty"`
+	Routine   string           `json:"routine"`
+	Task      string           `json:"task,omitempty"`
+	Models    []string         `json:"models"`
+	Attempts  int              `json:"attempts"`
+	Cost      float64          `json:"cost_usd"`
+	Tokens    map[string]int64 `json:"tokens,omitempty"`
+	RateLimit json.RawMessage  `json:"rate_limit,omitempty"`
+	Outcome   string           `json:"outcome"`
+	Error     string           `json:"error,omitempty"`
+	Started   time.Time        `json:"started"`
+	Ended     time.Time        `json:"ended"`
+}
+
+func (u *runUsage) add(model string, a attempt) {
+	u.Models = append(u.Models, model)
+	u.Attempts++
+	var tokens map[string]any
+	if json.Unmarshal(a.usage, &tokens) == nil {
+		for k, v := range tokens {
+			if n, ok := v.(float64); ok && strings.HasSuffix(k, "_tokens") {
+				u.Tokens[k] += int64(n)
+			}
+		}
+	}
+	if len(a.rateLimit) > 0 {
+		u.RateLimit = a.rateLimit
+	}
+}
+
+// emitUsage records the run's usage in the dispatcher's log, as the agent
+// role. It never fails the run: anything in the way is one line, and no more.
+func (c *command) emitUsage(u runUsage) {
+	url, token := c.getenv("DISPATCHER_URL"), c.getenv("DISPATCHER_TOKEN")
+	if url == "" || token == "" {
+		fmt.Fprintln(c.stderr, "cmem routine: this run's usage is not recorded: DISPATCHER_URL and DISPATCHER_TOKEN are not both set")
+		return
+	}
+	if len(u.Tokens) == 0 {
+		u.Tokens = nil
+	}
+	data, _ := json.Marshal(u)
+	who := u.Agent
+	if who == "" {
+		who = "routine"
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 10*time.Second)
+	defer cancel()
+	req := api.EmitRequest{ID: "run.usage/" + who + "/" + u.Routine + "/" + u.Started.Format(time.RFC3339Nano),
+		Type: "run.usage", Source: "routine", Subject: who, Data: data}
+	if err := (&api.Client{URL: url, Token: token}).Do(ctx, http.MethodPost, "/v1/events", nil, req, nil); err != nil {
+		fmt.Fprintf(c.stderr, "cmem routine: this run's usage is not recorded: %v\n", err)
+		return
+	}
+	fmt.Fprintf(c.stdout, "Usage recorded: $%.2f in %d attempt(s).\n", u.Cost, u.Attempts)
 }

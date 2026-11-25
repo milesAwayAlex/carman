@@ -35,7 +35,15 @@ type JobEnded struct {
 	ExitCode *int       `json:"exit_code,omitempty"` // of its last pod, when one is left
 	Task     string     `json:"task,omitempty"`      // when the dispatcher started it
 	Attempt  string     `json:"attempt,omitempty"`   //
+	// The Job says it tells the owner of its own failure
+	// (AnnotationNotifiesOwner).
+	NotifiesOwner bool `json:"notifies_owner,omitempty"`
 }
+
+// AnnotationNotifiesOwner, "true" on a Job (put on its CronJob's job
+// template), says that the program it runs tells the owner itself when it
+// fails, so that a failure it reported is not told twice.
+const AnnotationNotifiesOwner = "dispatcher/notifies-owner"
 
 // object is what the watcher reads of a Job or a Pod.
 type object struct {
@@ -270,6 +278,7 @@ func endOf(job object) (JobEnded, bool) {
 	}
 	m := job.Metadata
 	e.Task, e.Attempt = m.Annotations[AnnotationTask], m.Annotations[AnnotationAttempt]
+	e.NotifiesOwner = m.Annotations[AnnotationNotifiesOwner] == "true"
 	switch {
 	case e.Attempt != "":
 		e.By, e.Template = "dispatcher", m.Annotations[AnnotationClass]

@@ -13,7 +13,15 @@
 // database from DISPATCHER_DATABASE_URL or else libpq's PG* variables,
 // DISPATCHER_MAX_RUNNING (1), DISPATCHER_RETENTION (720h, task history),
 // DISPATCHER_RETENTION_UNOWNED (4320h, events that belong to no task),
-// DISPATCHER_NAMESPACE (the pod's own) and DISPATCHER_BUILD.
+// DISPATCHER_NAMESPACE (the pod's own), DISPATCHER_BUILD,
+// DISPATCHER_SCHEDULES (a JSON list: name, class, cron, timeZone,
+// startWithin, timeout, priority), DISPATCHER_EXPECT_GRACE (1h, beyond a
+// CronJob's own catch-up), DISPATCHER_NOTICES (on to send them; withheld
+// otherwise), DISPATCHER_NOTICE_CLASS (notify), DISPATCHER_CONTEXT_NAME (the
+// kubectl context a notice names) and, for the admission rule,
+// DISPATCHER_ADMISSION (on), DISPATCHER_ADMISSION_BELOW (priority, 50),
+// DISPATCHER_ADMISSION_ABOVE (utilization, 0.9) and
+// DISPATCHER_ADMISSION_MAX_AGE (2h).
 package main
 
 import (
@@ -37,6 +45,7 @@ import (
 	"carman/internal/dispatch"
 	"carman/internal/dispatch/api"
 	"carman/internal/dispatch/kube"
+	"carman/internal/dispatch/notice"
 	"carman/internal/dispatch/pgxdispatch"
 )
 
@@ -222,6 +231,9 @@ func status(ctx context.Context, c *api.Client, pos []string) error {
 		fmt.Printf("%s (%s, priority %d): %s\n", t.ID, t.Class, t.Priority, describe(t))
 		return nil
 	}
+	if err := standing(ctx, c); err != nil {
+		return err
+	}
 	for _, state := range []dispatch.State{dispatch.Running, dispatch.Pending, dispatch.Waiting} {
 		var ts []api.Task
 		if err := c.Do(ctx, http.MethodGet, "/v1/tasks", url.Values{"state": {string(state)}}, nil, &ts); err != nil {
@@ -322,24 +334,65 @@ func serve(ctx context.Context) error {
 	if build == "" {
 		build = "unnamed"
 	}
+	schedules, err := parseSchedules(os.Getenv("DISPATCHER_SCHEDULES"))
+	if err != nil {
+		return err
+	}
+	grace, err := duration("DISPATCHER_EXPECT_GRACE", time.Hour)
+	if err != nil {
+		return err
+	}
+	scheduled := map[string]bool{}
+	for _, s := range schedules {
+		scheduled[s.Template.Class] = true
+	}
 
 	var starter dispatch.Starter
 	var check func(context.Context, dispatch.TaskSpec) error
+	var checkSuspended func(context.Context, string) error
 	var watcher *kube.Watcher
-	if client, err := kube.InCluster(os.Getenv("DISPATCHER_NAMESPACE")); err != nil {
+	var expect *kube.Expect
+	namespace := os.Getenv("DISPATCHER_NAMESPACE")
+	if client, err := kube.InCluster(namespace); err != nil {
 		logger.Warn("starting no jobs and watching none", "reason", err)
 		starter = noCluster{fmt.Errorf("this dispatcher is not in a cluster: %w", err)}
 	} else {
-		s := &kube.Starter{Client: client}
-		starter, check = s, s.Check
+		s := &kube.Starter{Client: client, Scheduled: scheduled}
+		starter, check, checkSuspended = s, s.Check, s.CheckSuspended
 		watcher = &kube.Watcher{Client: client, Log: logger}
+		expect = &kube.Expect{Client: client, Log: logger, Grace: grace}
+		namespace = client.Namespace
+	}
+
+	// The admission rule reads the latest usage reading, from the database
+	// opened below.
+	var latest func(context.Context) (dispatch.Record, bool, error)
+	var admission dispatch.Admission
+	if os.Getenv("DISPATCHER_ADMISSION") == "on" {
+		rule := budgetRule{Below: 50, Above: 0.9, MaxAge: 2 * time.Hour,
+			Latest: func(ctx context.Context) (dispatch.Record, bool, error) { return latest(ctx) }}
+		if v := os.Getenv("DISPATCHER_ADMISSION_BELOW"); v != "" {
+			if rule.Below, err = strconv.Atoi(v); err != nil {
+				return fmt.Errorf("DISPATCHER_ADMISSION_BELOW: %w", err)
+			}
+		}
+		if v := os.Getenv("DISPATCHER_ADMISSION_ABOVE"); v != "" {
+			if rule.Above, err = strconv.ParseFloat(v, 64); err != nil || rule.Above <= 0 || rule.Above > 1 {
+				return errors.New("DISPATCHER_ADMISSION_ABOVE is a utilization between 0 and 1")
+			}
+		}
+		if rule.MaxAge, err = duration("DISPATCHER_ADMISSION_MAX_AGE", rule.MaxAge); err != nil {
+			return err
+		}
+		admission = rule.admit
+		logger.Info("holding work below a priority while a usage window is high", "below", rule.Below, "above", rule.Above, "max_age", rule.MaxAge.String())
 	}
 
 	dbURL := os.Getenv("DISPATCHER_DATABASE_URL")
 	// The database may be starting beside it: it is tried for two minutes.
 	var d *pgxdispatch.Dispatcher
 	for tries := 0; ; tries++ {
-		d, err = pgxdispatch.OpenWith(ctx, dbURL, dispatch.Config{Starter: starter, MaxRunning: maxRunning}, build, opts)
+		d, err = pgxdispatch.OpenWith(ctx, dbURL, dispatch.Config{Starter: starter, Admission: admission, MaxRunning: maxRunning}, build, opts)
 		if err == nil {
 			break
 		}
@@ -353,6 +406,18 @@ func serve(ctx context.Context) error {
 		}
 	}
 	defer d.Kill() // nothing is flushed: the dispatcher is safe to stop at any moment
+	latest = func(ctx context.Context) (dispatch.Record, bool, error) {
+		rs, err := d.Last(ctx, TypeUsageObserved, 1)
+		if err != nil || len(rs) == 0 {
+			return dispatch.Record{}, false, err
+		}
+		return rs[0], true, nil
+	}
+
+	// The schedules are the ones the installation lists, and no others.
+	if err := declareSchedules(ctx, d, schedules, checkSuspended, logger); err != nil {
+		logger.Error("some schedules were not declared", "error", err)
+	}
 
 	work, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -360,6 +425,20 @@ func serve(ctx context.Context) error {
 		watcher.Emit = d.Emit
 		go watcher.Run(work)
 	}
+	if expect != nil {
+		expect.Emit, expect.Marks, expect.Ended = d.Emit, d, d.JobsEnded
+		go expect.Run(work)
+	}
+	contextName := os.Getenv("DISPATCHER_CONTEXT_NAME")
+	if contextName == "" {
+		contextName = "CONTEXT"
+	}
+	notices := &notice.Notifier{Log: d, Enabled: os.Getenv("DISPATCHER_NOTICES") == "on", Class: os.Getenv("DISPATCHER_NOTICE_CLASS"),
+		Context: contextName, Namespace: namespace, Logger: logger}
+	if notices.Class == "" {
+		notices.Class = "notify"
+	}
+	go notices.Run(work)
 
 	srv := &api.Server{Store: d, Tokens: tokens, Check: check, Log: logger,
 		Dump: func(ctx context.Context, f *os.File) error {
@@ -382,7 +461,7 @@ func serve(ctx context.Context) error {
 	hs := &http.Server{Addr: listen, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	failed := make(chan error, 1)
 	go func() { failed <- hs.ListenAndServe() }()
-	logger.Info("serving", "listen", listen, "max_running", maxRunning, "build", build,
+	logger.Info("serving", "listen", listen, "max_running", maxRunning, "build", build, "notices", notices.Enabled, "notice_class", notices.Class,
 		"retention", opts.Retention.String(), "retention_unowned", opts.RetentionUnowned.String())
 
 	tick := time.NewTicker(5 * time.Second)

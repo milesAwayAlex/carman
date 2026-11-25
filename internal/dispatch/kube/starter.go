@@ -108,6 +108,10 @@ func labelValue(s string) string {
 // named for the attempt, and finding it there is success.
 type Starter struct {
 	Client *Client
+	// Scheduled are the classes the dispatcher starts on a schedule. Their
+	// CronJobs must be suspended, or the cluster would start them on its
+	// own as well: a start of one that is not is refused.
+	Scheduled map[string]bool
 }
 
 var _ dispatch.Starter = (*Starter)(nil)
@@ -150,24 +154,35 @@ func (s *Starter) Check(ctx context.Context, t dispatch.TaskSpec) error {
 	if _, err := ParsePayload(t.Payload); err != nil {
 		return err
 	}
-	_, err := s.template(ctx, t.Class)
+	_, _, err := s.template(ctx, t.Class)
 	return err
 }
 
-func (s *Starter) template(ctx context.Context, class string) (map[string]any, error) {
+// CheckSuspended says whether a class can be scheduled: its CronJob is
+// here, and suspended, so that only the dispatcher starts it.
+func (s *Starter) CheckSuspended(ctx context.Context, class string) error {
+	_, suspended, err := s.template(ctx, class)
+	if err == nil && !suspended {
+		err = fmt.Errorf("the CronJob %s is not suspended, so the cluster starts it on its own schedule as well", class)
+	}
+	return err
+}
+
+func (s *Starter) template(ctx context.Context, class string) (map[string]any, bool, error) {
 	var cj map[string]any
 	err := s.Client.do(ctx, http.MethodGet, s.Client.path("cronjobs")+"/"+class, nil, &cj)
 	if IsStatus(err, http.StatusNotFound) {
-		return nil, fmt.Errorf("%w: no template: there is no CronJob %q in namespace %s", dispatch.ErrInvalid, class, s.Client.Namespace)
+		return nil, false, fmt.Errorf("%w: no template: there is no CronJob %q in namespace %s", dispatch.ErrInvalid, class, s.Client.Namespace)
 	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	tmpl, _ := dig(cj, "spec", "jobTemplate").(map[string]any)
 	if tmpl == nil {
-		return nil, fmt.Errorf("the CronJob %s has no job template", class)
+		return nil, false, fmt.Errorf("the CronJob %s has no job template", class)
 	}
-	return tmpl, nil
+	suspended, _ := dig(cj, "spec", "suspend").(bool)
+	return tmpl, suspended, nil
 }
 
 // job is the Job for an attempt: the template's metadata and spec as they
@@ -177,9 +192,12 @@ func (s *Starter) job(ctx context.Context, a dispatch.Attempt, name string) (map
 	if err != nil {
 		return nil, err
 	}
-	tmpl, err := s.template(ctx, a.Task.Class)
+	tmpl, suspended, err := s.template(ctx, a.Task.Class)
 	if err != nil {
 		return nil, err
+	}
+	if s.Scheduled[a.Task.Class] && !suspended {
+		return nil, fmt.Errorf("not starting %s: the dispatcher schedules it, and its CronJob is not suspended, so the cluster starts it as well", a.Task.Class)
 	}
 	meta, _ := tmpl["metadata"].(map[string]any)
 	spec, _ := tmpl["spec"].(map[string]any)
