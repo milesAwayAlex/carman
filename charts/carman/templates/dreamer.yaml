@@ -75,6 +75,10 @@ spec:
                   value: "off"
                 - name: CMEM_ROUTINE_MODELS
                   value: {{ join "," .Values.dreamer.models | quote }}
+                {{- range $routine, $models := .Values.dreamer.modelsFor }}
+                - name: CMEM_ROUTINE_MODELS_{{ $routine | upper | replace "-" "_" }}
+                  value: {{ join "," $models | quote }}
+                {{- end }}
                 - name: CMEM_ROUTINE_BUDGET_USD
                   value: {{ .Values.dreamer.budgetUSD | quote }}
                 {{- if .Values.dreamer.definitions }}

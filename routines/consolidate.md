@@ -134,7 +134,10 @@ the prompt of the routine NAME. Look the job up:
 open, how many of something there are. The system itself knows, and the
 entry is out of date as soon as the system changes. When a later entry
 replaces it, retire it as above ("An entry that a newer entry has
-replaced"). Otherwise list it in your report for the owner.
+replaced"). Otherwise list it in your report for the owner. An entry that
+holds more than the state (a plan to come back to, the reasons, how a thing
+was done) is not replaced by a later state: keep it, or write it again
+without the lines the later entry makes untrue, and say which.
 
 ## Scope: who sees an entry
 

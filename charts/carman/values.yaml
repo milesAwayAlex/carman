@@ -259,6 +259,9 @@ dreamer:
   routines: [consolidate, distill]
   # The ladder: one attempt each, in this order (ADR 0029).
   models: [claude-sonnet-5-5, claude-sonnet-5-5, claude-opus-5-5, claude-fable-5-2]
+  # A ladder of its own for one routine, by the routine's name:
+  #   modelsFor: {consolidate: [claude-opus-5-5, claude-opus-5-5, claude-fable-5-2]}
+  modelsFor: {}
   # No further attempt at a routine starts once it has cost this much tonight.
   budgetUSD: 3
   deadlineSeconds: 1800

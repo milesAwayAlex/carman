@@ -27,13 +27,17 @@ for routine in "$@"; do
         cat "$file" /usr/local/lib/agent-attention.md > "$prompt"
         file="$prompt"
     fi
-    echo "run-routine: $routine, models ${CMEM_ROUTINE_MODELS:-claude-sonnet-5-5}, budget \$${CMEM_ROUTINE_BUDGET_USD:-none} for this routine, memory at $CMEM_URL"
+    echo "run-routine: $routine, models $(printenv "CMEM_ROUTINE_MODELS_$(printf %s "$routine" | tr 'a-z-' 'A-Z_')" || echo "${CMEM_ROUTINE_MODELS:-claude-sonnet-5-5}"), budget \$${CMEM_ROUTINE_BUDGET_USD:-none} for this routine, memory at $CMEM_URL"
     # `cmem routine` runs the harness, and runs it again up the ladder of
     # models for whatever memory refused and was not then done (ADR 0029).
     # One routine that does not finish does not stop the next.
     said="$(mktemp)" && pipe="$(mktemp -u)" && mkfifo "$pipe"
     tee "$said" < "$pipe" &
-    cmem routine "$file" > "$pipe" 2>&1 || failed=1
+    # A routine may have a ladder of its own (CMEM_ROUTINE_MODELS_NAME, the
+    # name in capitals with _ for -): tidying may want a stronger model than
+    # distilling does.
+    own="$(printenv "CMEM_ROUTINE_MODELS_$(printf %s "$routine" | tr 'a-z-' 'A-Z_')" || true)"
+    CMEM_ROUTINE_MODELS="${own:-${CMEM_ROUTINE_MODELS:-}}" cmem routine "$file" > "$pipe" 2>&1 || failed=1
     wait
     rm -f "$pipe"
     # A routine that may run only the memory command cannot tell the owner
