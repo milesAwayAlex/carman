@@ -26,6 +26,14 @@ history, where `cmem get ID` still reads all of it.
      something works. It has no end.
 
    Only finished work is distilled. Leave the other two exactly as they are.
+
+   Look before you ask. Your instructions say whether you were given tools
+   that read a ticket or a document, or the installation's definitions.
+   Where a candidate names the ticket its work was done under and you can
+   read that ticket, read it before sorting: a ticket that is closed, done
+   or cancelled means the work is over, however the notes end; one that is
+   open means it is in progress. A question to the owner about whether work
+   is over, which a look would have answered, is a failure of this step.
 3. Take at most three finished documents in one run, shortest first. For each,
    read the whole of it before writing anything: its outline, then every part
    with `cmem get --from START --to NEXT-START ID`.
@@ -87,6 +95,9 @@ End with a short report:
   line what kind of thing was left out;
 - each long entry you did not distil, with its kind (in progress, a
   reference, finished with no lesson, or more than this run could take);
+- what you checked with a tool, and what it showed; and what you would have
+  checked and had no tool for (name the system: a tracker, a code host, a
+  document store), so that the owner knows what access would have helped;
 - a question only a person can answer, if you have one, under a heading
   that reads exactly `Questions for the owner`. The owner is told of a
   report that has that heading, so leave it out when you have no question;

@@ -234,7 +234,9 @@ End with a short report:
 
 - the run's ID;
 - each change in one line, with why;
-- what you checked with a tool, and what it showed;
+- what you checked with a tool, and what it showed; and what you would have
+  checked and had no tool for (name the system: a tracker, a code host, a
+  document store), so that the owner knows what access would have helped;
 - questions only a person can answer, each in a line (see "Two entries that
   disagree"), under a heading that reads exactly `Questions for the owner`.
   The owner is told of a report that has that heading, so leave the heading
