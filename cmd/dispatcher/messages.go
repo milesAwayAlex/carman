@@ -337,7 +337,13 @@ func hook(ctx context.Context, flags map[string][]string) error {
 	}
 	switch in.Event {
 	case "SessionStart":
-		if err := present("started"); err != nil {
+		// An interactive session waits at its prompt once started, and its
+		// waiter (the same hook with --wait) is listening already.
+		state := message.Busy
+		if kind == "interactive" {
+			state = message.Idle
+		}
+		if err := present(state); err != nil {
 			fmt.Fprintf(os.Stderr, "dispatcher: this session could not be registered for messages: %v\n", err)
 			return nil
 		}

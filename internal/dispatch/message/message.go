@@ -46,6 +46,9 @@ const (
 	Source = "messages"
 	Owner  = "owner"
 
+	// MaxDepth is how many answers one exchange between sessions may have.
+	MaxDepth = 6
+
 	// TaskPrefix starts the ID of every task a message becomes.
 	TaskPrefix = "message/"
 )
@@ -67,6 +70,7 @@ type Message struct {
 	Answers string    `json:"answers,omitempty"` // the message this answers
 	Sent    time.Time `json:"sent"`
 	Reason  string    `json:"reason,omitempty"` // for a refused one: why
+	Depth   int       `json:"depth,omitempty"`  // how many answers deep it is
 }
 
 // Delivery is how a message reached a session, or who read it.
@@ -364,6 +368,20 @@ func (s *Service) Send(ctx context.Context, c Caller, session, given, body, answ
 		}
 		given = orig.From
 		m.Given = given
+	}
+	if answers != "" {
+		orig, ok, err := s.message(ctx, answers)
+		if err != nil {
+			return Result{}, err
+		}
+		if ok {
+			m.Depth = orig.Depth + 1
+		}
+		// Two sessions that answer each other's answers would go on for
+		// ever, each woken by the other.
+		if m.Depth > MaxDepth && !c.Owner && orig.From != Owner {
+			return Result{}, fmt.Errorf("%w: this would be answer %d in one exchange between sessions; the most is %d. Send a new message if there is something new to say", ErrInvalid, m.Depth, MaxDepth)
+		}
 	}
 	to, err := s.Resolve(ctx, given)
 	if err != nil {
