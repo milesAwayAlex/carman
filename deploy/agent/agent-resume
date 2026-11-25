@@ -15,6 +15,13 @@
 #                                   conversation, in tmux, where the conversation was held;
 #                                   the pod ends when the harness and then its shell are left
 #
+# What run-routine runs when the dispatcher started the job for a message (ADR 0045):
+#
+#   agent-resume --message MESSAGE [ID]   the message as the next input of conversation ID,
+#                                   resumed headless as this agent, or of a new conversation;
+#                                   what the run ends with goes back to the sender, unless
+#                                   the session answered by itself
+#
 # One writer: whatever opens a conversation holds a lock on a file beside it
 # (ID.lock) for as long as it has it open, and writes in the file where that
 # is. The lock is the kernel's, so it goes when its holder does, however that
@@ -25,7 +32,7 @@ set -eu
 # the working directory the harness was in, as the harness names it.
 kept=/sessions
 
-usage() { echo "usage: agent-resume [ID] | --find ID | --hold ID AGENT" >&2; exit 2; }
+usage() { echo "usage: agent-resume [ID] | --find ID | --hold ID AGENT | --message MESSAGE [ID]" >&2; exit 2; }
 
 # Where a conversation is open, if it is: what its holder wrote.
 open_in() {  # FILE
@@ -57,6 +64,26 @@ one() {  # PREFIX FILES...
 
 agent_of() { echo "$1" | cut -d/ -f3; }   # /sessions/AGENT/DIR/ID.jsonl
 
+# Where a conversation was held, and the model that last answered in it,
+# which is the one whose words are being answered. A job chooses a model for
+# each attempt, and each attempt is a conversation of its own.
+held_where() {  # FILE
+    python3 - "$1" <<'PY'
+import json, sys
+cwd = model = ""
+for line in open(sys.argv[1]):
+    try:
+        entry = json.loads(line)
+    except ValueError:
+        continue
+    cwd = cwd or entry.get("cwd") or ""
+    said = entry.get("message") or {}
+    if entry.get("type") == "assistant" and not str(said.get("model", "<")).startswith("<"):
+        model = said["model"]
+print(cwd or "/", model)
+PY
+}
+
 case "${1:-}" in
 "")
     [ -d "$kept" ] || { echo "agent-resume: this installation keeps no conversations (agent.sessionStorage)" >&2; exit 1; }
@@ -81,6 +108,7 @@ case "${1:-}" in
     file="$(ls /var/lib/agent/conversations/*/"$id".jsonl 2>/dev/null | head -1)"
     [ -n "$file" ] || { echo "agent-resume: $agent has no conversation $id" >&2; exit 1; }
     take "$file" "pod $(hostname), as $agent, since $(date -u '+%Y-%m-%d %H:%M UTC')"
+    export DISPATCHER_SESSION_KIND=interactive DISPATCHER_SESSION_NAME=resumed
     . /usr/local/lib/agent-env
     agent_setup || echo "agent-resume: set-up did not finish; see above" >&2
 
@@ -88,21 +116,7 @@ case "${1:-}" in
     # looks for it; and the model that last answered in it, which is the
     # one the owner is answering. A job chooses a model for each attempt, and
     # each attempt is a conversation of its own.
-    found="$(python3 - "$file" <<'PY'
-import json, sys
-cwd = model = ""
-for line in open(sys.argv[1]):
-    try:
-        entry = json.loads(line)
-    except ValueError:
-        continue
-    cwd = cwd or entry.get("cwd") or ""
-    said = entry.get("message") or {}
-    if entry.get("type") == "assistant" and not str(said.get("model", "<")).startswith("<"):
-        model = said["model"]
-print(cwd or "/", model)
-PY
-)"
+    found="$(held_where "$file")"
     cwd="${found% *}" model="${found##* }"
     [ -n "$model" ] || model="$(echo "${CMEM_ROUTINE_MODELS:-}" | cut -d, -f1)"
     resume="$id"
@@ -172,6 +186,54 @@ EOF
     echo "agent-resume: $agent's conversation $id, in $cwd, ${model:-the harness's default model}, $tools"
     while tmux has-session -t main 2>/dev/null; do sleep 5; done
     echo "agent-resume: left; the pod ends"
+    ;;
+--message)
+    [ $# -ge 2 ] && [ $# -le 3 ] || usage
+    msg="$2" id="${3:-}"
+    trap 'exit 0' HUP INT TERM
+    export DISPATCHER_SESSION_KIND=headless DISPATCHER_SESSION_NAME=message
+    if [ -n "$id" ]; then
+        file="$(ls /var/lib/agent/conversations/*/"$id".jsonl 2>/dev/null | head -1)"
+        [ -n "$file" ] || { echo "agent-resume: ${AGENT_NAME:-this agent} has no conversation $id" >&2; exit 1; }
+        # One writer: a session that is open somewhere gets the message
+        # there, at its next tool call or turn; this run is not needed.
+        take "$file" "pod $(hostname), as ${AGENT_NAME:-?}, for message $msg, since $(date -u '+%Y-%m-%d %H:%M UTC')"
+    fi
+    . /usr/local/lib/agent-env
+    agent_setup || echo "agent-resume: set-up did not finish; see above" >&2
+    model=""
+    if [ -n "$id" ]; then
+        found="$(held_where "$file")"
+        cwd="${found% *}" model="${found##* }" how="--resume $id"
+        if ! mkdir -p "$cwd" 2>/dev/null; then cwd="$HOME" how="--resume $file"; fi
+    else
+        id="$(cat /proc/sys/kernel/random/uuid)" cwd="${PWD:-/work}" how="--session-id $id"
+    fi
+    [ -n "$model" ] || model="$(echo "${CMEM_ROUTINE_MODELS:-}" | cut -d, -f1)"
+    # The message, taken: from now it is this session's, delivered at its start.
+    text="$(DISPATCHER_SESSION="$id" dispatcher take --message "$msg" --how start)" || { echo "agent-resume: message $msg could not be taken" >&2; exit 1; }
+    [ -n "$text" ] || { echo "agent-resume: message $msg was taken already; nothing to do"; exit 0; }
+    flags="$(cmem routine --flags)" || flags="--permission-mode dontAsk --allowedTools 'Bash(dispatcher *)'"
+    eval "set -- $flags"
+    echo "agent-resume: message $msg for $id, in $cwd, ${model:-the harness's default model}"
+    out="$(mktemp)" rc=0
+    # shellcheck disable=SC2086
+    # The prompt on stdin: the flags end with lists that would take it.
+    (cd "$cwd" && printf '%s\n' "$text" | claude -p $how ${model:+--model "$model"} \
+        ${CMEM_ROUTINE_BUDGET_USD:+--max-budget-usd "$CMEM_ROUTINE_BUDGET_USD"} --output-format json "$@") > "$out" 2>/tmp/harness.err || rc=$?
+    result="$(python3 - "$out" <<'PY'
+import json, sys
+for line in reversed(open(sys.argv[1]).read().splitlines()):
+    try:
+        print(json.loads(line).get("result") or "")
+        break
+    except Exception:
+        continue
+PY
+)"
+    [ -n "$result" ] || result="(The run started for this message ended without an answer: $(tail -c 300 /tmp/harness.err | tr '\n' ' '))"
+    printf '%s' "$result" | DISPATCHER_SESSION="$id" dispatcher answer "$msg" - || rc=1
+    exit $rc
     ;;
 -*)
     usage

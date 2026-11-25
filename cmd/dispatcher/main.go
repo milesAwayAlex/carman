@@ -46,6 +46,7 @@ import (
 	"carman/internal/dispatch"
 	"carman/internal/dispatch/api"
 	"carman/internal/dispatch/kube"
+	"carman/internal/dispatch/message"
 	"carman/internal/dispatch/notice"
 	"carman/internal/dispatch/pgxdispatch"
 )
@@ -65,7 +66,18 @@ dispatcher emit TYPE [--subject S] [--id ID] [--source S] [--data JSON]
 dispatcher status [ID]
 dispatcher log [--after N] [--type T] [--limit N] [--last N]
 dispatcher dump > FILE
-HARNESS --output-format stream-json --verbose | dispatcher reading [--model M]`
+HARNESS --output-format stream-json --verbose | dispatcher reading [--model M]
+
+Messages (ADR 0045), as this session (DISPATCHER_SESSION) or as the owner:
+dispatcher peers [--since 168h]           who can be written to, and whether each is busy, idle or not running
+dispatcher send TO 'TEXT' [--answers ID]  TO: owner, an agent's name, AGENT/SESSION-NAME or session/ID; TEXT - reads stdin
+dispatcher reply ID 'TEXT'                answer a message, to whoever sent it
+dispatcher inbox [--read]                 what is unread for me; --read marks it read
+dispatcher read ID...                     mark messages read
+dispatcher message ID                     what became of a message, and its answers
+dispatcher watch SESSION                  be told, by a message, when it next goes idle
+dispatcher whoami                         what the dispatcher makes of this caller
+dispatcher hook claude-code [--wait D]    the harness's hook that carries messages into a running session`
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
@@ -77,6 +89,21 @@ func run(ctx context.Context, args []string) error {
 	if args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 		fmt.Println(usage)
 		return nil
+	}
+	switch args[0] {
+	case "hook", "peers", "send", "reply", "inbox", "read", "message", "watch", "whoami", "take", "answer", "session":
+		pos, flags, err := parse(args[1:])
+		if err != nil {
+			return err
+		}
+		if args[0] == "hook" {
+			return hook(ctx, flags)
+		}
+		mc, err := client()
+		if err != nil {
+			return err
+		}
+		return messages(ctx, mc, args[0], pos, flags)
 	}
 	c := &api.Client{URL: os.Getenv("DISPATCHER_URL"), Token: os.Getenv("DISPATCHER_TOKEN")}
 	if c.URL == "" || c.Token == "" {
@@ -123,6 +150,10 @@ func parse(args []string) ([]string, map[string][]string, error) {
 		}
 		if n, v, ok := strings.Cut(name, "="); ok {
 			flags[n] = append(flags[n], v)
+			continue
+		}
+		if name == "read" { // a switch, not a flag with a value
+			flags[name] = append(flags[name], "yes")
 			continue
 		}
 		if i+1 >= len(args) {
@@ -334,6 +365,17 @@ func serve(ctx context.Context) error {
 	if opts.RetentionUnowned, err = duration("DISPATCHER_RETENTION_UNOWNED", 180*24*time.Hour); err != nil {
 		return err
 	}
+	// Messages and the sessions' own words about themselves (ADR 0045):
+	// kept for a period of their own, from the values.
+	messagesKept, err := duration("DISPATCHER_RETENTION_MESSAGES", 30*24*time.Hour)
+	if err != nil {
+		return err
+	}
+	opts.RetentionByType = map[string]time.Duration{}
+	for _, t := range message.Types {
+		opts.RetentionByType[t] = messagesKept
+	}
+	opts.RetentionByType["message.task"] = messagesKept
 	build := os.Getenv("DISPATCHER_BUILD")
 	if build == "" {
 		build = "unnamed"
@@ -355,6 +397,8 @@ func serve(ctx context.Context) error {
 	var check func(context.Context, dispatch.TaskSpec) error
 	var checkSuspended func(context.Context, string) error
 	var watcher *kube.Watcher
+	var cluster messageCluster
+	var verify func(context.Context, string) (message.Caller, error)
 	var expect *kube.Expect
 	namespace := os.Getenv("DISPATCHER_NAMESPACE")
 	if client, err := kube.InCluster(namespace); err != nil {
@@ -366,6 +410,8 @@ func serve(ctx context.Context) error {
 		watcher = &kube.Watcher{Client: client, Log: logger}
 		expect = &kube.Expect{Client: client, Log: logger, Grace: grace}
 		namespace = client.Namespace
+		cluster = messageCluster{Client: client, agents: &kube.Agents{Client: client}}
+		verify = (&kube.Verifier{Client: client}).Verify
 	}
 
 	// The admission rule reads the latest usage reading, from the database
@@ -443,8 +489,14 @@ func serve(ctx context.Context) error {
 		notices.Class = "notify"
 	}
 	go notices.Run(work)
+	var messages *message.Service
+	if cluster.Client != nil {
+		messages = &message.Service{Store: d, Cluster: cluster, Context: contextName, Namespace: namespace,
+			Priority: 50, Timeout: 30 * time.Minute, Retention: messagesKept, Log: logger}
+		go (&message.Router{Service: messages, Logger: logger}).Run(work)
+	}
 
-	srv := &api.Server{Store: d, Tokens: tokens, Check: check, Log: logger,
+	srv := &api.Server{Store: d, Tokens: tokens, Check: check, Log: logger, Messages: messages, Verify: verify,
 		Dump: func(ctx context.Context, f *os.File) error {
 			args := []string{"--no-owner", "--no-privileges", "--format=plain"}
 			if dbURL != "" {
@@ -487,4 +539,14 @@ func serve(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// messageCluster is what messaging asks of the cluster.
+type messageCluster struct {
+	*kube.Client
+	agents *kube.Agents
+}
+
+func (m messageCluster) Agents(ctx context.Context) (map[string]message.AgentInfo, error) {
+	return m.agents.Agents(ctx)
 }

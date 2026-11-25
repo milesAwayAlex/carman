@@ -66,6 +66,8 @@ case "${1:-}" in
     name="$2"; id="${3:-}"
     set +eu
     . /usr/local/lib/agent-env
+    # Messages reach it as AGENT/NAME (ADR 0045).
+    export DISPATCHER_SESSION_NAME="$name" DISPATCHER_SESSION_KIND=interactive
     kept="$HOME/.claude/projects/$(pwd | sed 's/[^A-Za-z0-9]/-/g')"
     if [ -z "$id" ]; then
         mine="$(grep -l -F "\"customTitle\":\"$name\"" "$kept"/*.jsonl 2>/dev/null | xargs -r ls -t 2>/dev/null | head -1)"

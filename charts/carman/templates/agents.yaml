@@ -85,6 +85,11 @@ containers:
       {{- if .interactive }}
       - name: AGENT_INTERACTIVE
         value: "1"
+      {{- if $root.Values.dispatcher.enabled }}
+      # Messages to and from its sessions (ADR 0045), as this pod.
+      - name: DISPATCHER_URL
+        value: http://dispatcher.{{ $root.Release.Namespace }}.svc:{{ $root.Values.dispatcher.service.port }}
+      {{- end }}
       # How the harness treats what it is about to do, when started here.
       - name: AGENT_PERMISSION_MODE
         value: {{ .permissionMode | default "auto" | quote }}
@@ -187,6 +192,13 @@ containers:
       - name: tools
         mountPath: /etc/agent/bin
         readOnly: true
+      {{- if $root.Values.dispatcher.enabled }}
+      # A token the cluster makes for this pod to show the dispatcher, which
+      # tells it which agent is speaking (ADR 0045).
+      - name: dispatcher-identity
+        mountPath: /var/run/secrets/dispatcher
+        readOnly: true
+      {{- end }}
       {{- if $root.Values.egress.enabled }}
       - name: egress-ca
         mountPath: /etc/agent/egress
@@ -233,6 +245,15 @@ volumes:
   - name: sessions
     persistentVolumeClaim:
       claimName: agent-sessions
+  {{- end }}
+  {{- if $root.Values.dispatcher.enabled }}
+  - name: dispatcher-identity
+    projected:
+      sources:
+        - serviceAccountToken:
+            audience: dispatcher
+            expirationSeconds: 3600
+            path: token
   {{- end }}
   # Commands of this installation's own, put on the agent's PATH.
   - name: tools
@@ -382,6 +403,8 @@ spec:
       labels:
         app: agent-{{ .name }}
         app.kubernetes.io/component: agent
+        # Whose pod this is, for the dispatcher (ADR 0045).
+        agent: {{ .name | quote }}
         {{- with (include "pod.labels" $) }}{{ . | trim | nindent 8 }}{{- end }}
     spec:
       {{- include "agent.podspec" (dict "root" $ "agent" .) | nindent 6 }}
@@ -431,6 +454,11 @@ spec:
           labels:
             app: agent-{{ .name }}
             app.kubernetes.io/component: agent
+            {{- if .routines }}
+            # Whose pod this is, and that a message to this agent by name
+            # starts a run of this template (ADR 0045).
+            agent: {{ .name | quote }}
+            {{- end }}
             {{- with (include "pod.labels" $) }}{{ . | trim | nindent 12 }}{{- end }}
         spec:
           {{- include "agent.podspec" (dict "root" $ "agent" .) | nindent 10 }}

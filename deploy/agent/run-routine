@@ -8,6 +8,12 @@
 # in), the harness's own model credential, CMEM_ROUTINE_MODELS (the ladder of
 # models, in order) and CMEM_ROUTINE_BUDGET_USD (what one run may spend).
 set -eu
+# A run the dispatcher started for a message (ADR 0045): the message is
+# the input, to the conversation it is for (resumed as this agent) or to a
+# new one; the routines are not run.
+if [ -n "${TASK_MESSAGE:-}" ]; then
+    exec agent-resume --message "$TASK_MESSAGE" "${TASK_SESSION:-}"
+fi
 [ $# -gt 0 ] || { echo "run-routine: name a routine, for example: consolidate" >&2; exit 2; }
 [ -n "${CMEM_URL:-}" ] && [ -n "${CMEM_TOKEN:-}" ] || { echo "run-routine: CMEM_URL and CMEM_TOKEN must be set" >&2; exit 2; }
 
@@ -37,6 +43,8 @@ for routine in "$@"; do
     # name in capitals with _ for -): tidying may want a stronger model than
     # distilling does.
     own="$(printenv "CMEM_ROUTINE_MODELS_$(printf %s "$routine" | tr 'a-z-' 'A-Z_')" || true)"
+    # The session's name, for messages: AGENT/ROUTINE reaches it while it runs.
+    DISPATCHER_SESSION_NAME="$routine" DISPATCHER_SESSION_KIND=headless \
     CMEM_ROUTINE_MODELS="${own:-${CMEM_ROUTINE_MODELS:-}}" cmem routine "$file" > "$pipe" 2>&1 || failed=1
     wait
     rm -f "$pipe"

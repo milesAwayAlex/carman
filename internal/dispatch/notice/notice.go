@@ -30,7 +30,10 @@ const (
 )
 
 // Watched are the event types that may give a notice.
-var Watched = []string{kube.TypeJobEnded, kube.TypeRunMissed, dispatch.TypeNotStarted, dispatch.TypeOverran, dispatch.TypeMissed}
+var Watched = []string{kube.TypeJobEnded, kube.TypeRunMissed, dispatch.TypeNotStarted, dispatch.TypeOverran, dispatch.TypeMissed, TypeMessage}
+
+// TypeMessage is a message (ADR 0045): one for the owner is a notice.
+const TypeMessage = "message.sent"
 
 // Notice is what would be sent: the payload's variables for the template.
 type Notice struct {
@@ -235,6 +238,25 @@ func (n *Notifier) Compose(ctx context.Context, r dispatch.Record) (Notice, bool
 		no.Title = fmt.Sprintf("The schedule %s skipped %d run(s)", r.Subject, tr.Skipped)
 		no.Text = fmt.Sprintf("The dispatcher was down across %d tick(s) of the schedule %s; on its return it ran only the latest, %s. Its log: %s.",
 			tr.Skipped, r.Subject, at(*tr.Tick), n.deploy("dispatch log --type schedule.missed"))
+	case TypeMessage:
+		var m struct{ ID, From, Agent, Name, To, Body string }
+		if json.Unmarshal(r.Data, &m) != nil || m.To != "owner" {
+			return no, false
+		}
+		who := m.From
+		if m.Agent != "" {
+			who = "agent " + m.Agent
+			if m.Name != "" {
+				who += ", session " + m.Name
+			}
+		}
+		body := m.Body
+		if len(body) > 3000 {
+			body = body[:3000] + " [...] (all of it: " + n.deploy("dispatch message "+m.ID) + ")"
+		}
+		no.Title = "A message from " + who
+		no.Text = fmt.Sprintf("%s\n\n(%s, message %s.) To answer: %s. Read: %s.",
+			body, m.From, m.ID, n.deploy("dispatch reply "+m.ID+" 'YOUR ANSWER'"), n.deploy("dispatch inbox"))
 	default:
 		return no, false
 	}

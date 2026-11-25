@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"carman/internal/dispatch"
+	"carman/internal/dispatch/message"
 )
 
 type Role string
@@ -78,7 +79,12 @@ type Server struct {
 	Check func(context.Context, dispatch.TaskSpec) error
 	// Dump writes a dump of the database to the file; nil offers none.
 	Dump func(context.Context, *os.File) error
-	Log  *slog.Logger
+	// Messages is messaging (ADR 0045), and Verify says which agent's pod a
+	// token the cluster made for the dispatcher is; without them, there
+	// are no messages.
+	Messages *message.Service
+	Verify   func(context.Context, string) (message.Caller, error)
+	Log      *slog.Logger
 }
 
 // Reserved are the prefixes of the types only the dispatcher, its job
@@ -100,6 +106,16 @@ func (s *Server) routes() []route {
 		{http.MethodGet, "/v1/tasks", owner, s.tasks},
 		{http.MethodGet, "/v1/tasks/{id}", owner, s.task},
 		{http.MethodGet, "/v1/dump", dumpers, s.dump},
+		{http.MethodGet, "/v1/whoami", emitters, s.whoami},
+		{http.MethodGet, "/v1/peers", emitters, s.peers},
+		{http.MethodPost, "/v1/messages", emitters, s.send},
+		{http.MethodGet, "/v1/messages/{id}", emitters, s.messageStatus},
+		{http.MethodPost, "/v1/messages/{id}/answer", emitters, s.answer},
+		{http.MethodGet, "/v1/inbox", emitters, s.inbox},
+		{http.MethodPost, "/v1/inbox/take", emitters, s.take},
+		{http.MethodPost, "/v1/inbox/read", emitters, s.read},
+		{http.MethodPost, "/v1/sessions", emitters, s.presence},
+		{http.MethodPost, "/v1/watch", emitters, s.watch},
 	}
 }
 
@@ -122,7 +138,8 @@ var (
 func (s *Server) serve(rt route) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-		role, err := s.authenticate(r)
+		role, caller, err := s.authenticate(r)
+		r = r.WithContext(context.WithValue(r.Context(), callerKey{}, caller))
 		if err == nil && !slices.Contains(rt.roles, role) {
 			err = fmt.Errorf("%w: %s %s is for %v", errForbidden, rt.method, rt.pattern, rt.roles)
 		}
@@ -165,17 +182,26 @@ func statusFor(err error) int {
 	return http.StatusInternalServerError
 }
 
-func (s *Server) authenticate(r *http.Request) (Role, error) {
+func (s *Server) authenticate(r *http.Request) (Role, message.Caller, error) {
 	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || token == "" {
-		return "", errUnauthorized
+		return "", message.Caller{}, errUnauthorized
 	}
 	for known, role := range s.Tokens {
 		if subtle.ConstantTimeCompare([]byte(known), []byte(token)) == 1 {
-			return role, nil
+			return role, message.Caller{Owner: role == RoleOwner}, nil
 		}
 	}
-	return "", errUnauthorized
+	// A pod's own token for the dispatcher: an agent, and which one.
+	if s.Verify != nil && strings.Count(token, ".") == 2 {
+		c, err := s.Verify(r.Context(), token)
+		if err != nil {
+			s.Log.Warn("a token was refused", "error", err)
+			return "", message.Caller{}, fmt.Errorf("%w: %v", errUnauthorized, err)
+		}
+		return RoleAgent, c, nil
+	}
+	return "", message.Caller{}, errUnauthorized
 }
 
 func decode(r *http.Request, v any) error {
@@ -221,8 +247,12 @@ func (s *Server) emit(_ http.ResponseWriter, r *http.Request, role Role) (any, e
 				return nil, fmt.Errorf("%w: events of type %s* are the dispatcher's", errForbidden, p)
 			}
 		}
-		e.ID = string(role) + "/" + e.ID
-		e.Source = strings.TrimSuffix(string(role)+"/"+e.Source, "/")
+		prefix := string(role)
+		if c := callerOf(r); c.Agent != "" {
+			prefix += "/" + c.Agent
+		}
+		e.ID = prefix + "/" + e.ID
+		e.Source = strings.TrimSuffix(prefix+"/"+e.Source, "/")
 	} else if e.Source == "" {
 		e.Source = string(RoleOwner)
 	}

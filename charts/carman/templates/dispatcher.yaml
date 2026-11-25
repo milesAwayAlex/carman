@@ -37,7 +37,9 @@ rules:
     verbs: ["get", "list"]
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["list"]
+    # get: which agent's pod a caller is, and whether a session's pod is
+    # still there (ADR 0045).
+    verbs: ["list", "get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -112,6 +114,8 @@ spec:
               value: {{ .Values.dispatcher.retention | quote }}
             - name: DISPATCHER_RETENTION_UNOWNED
               value: {{ .Values.dispatcher.retentionUnowned | quote }}
+            - name: DISPATCHER_RETENTION_MESSAGES
+              value: {{ .Values.dispatcher.messages.retention | quote }}
             # What it starts by itself (ADR 0043): the schedules listed, the
             # agents it schedules, and the usage reading.
             - name: DISPATCHER_SCHEDULES

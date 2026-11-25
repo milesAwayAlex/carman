@@ -7,24 +7,116 @@
       "Bash(cmem recall *)",
       "Bash(cmem get *)",
       "Bash(cmem note *)",
-      "Bash(cmem flag *)"
+      "Bash(cmem flag *)",
+      "Bash(dispatcher peers*)",
+      "Bash(dispatcher send *)",
+      "Bash(dispatcher reply *)",
+      "Bash(dispatcher inbox*)",
+      "Bash(dispatcher read *)",
+      "Bash(dispatcher message *)",
+      "Bash(dispatcher watch *)",
+      "Bash(dispatcher whoami*)"
     ]
   },
   "hooks": {
     "SessionStart": [
-      { "hooks": [{ "type": "command", "command": "cmem hook claude-code", "timeout": 5 }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmem hook claude-code",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "dispatcher hook claude-code",
+            "timeout": 10
+          }
+        ]
+      }
     ],
     "UserPromptSubmit": [
-      { "hooks": [{ "type": "command", "command": "cmem hook claude-code", "timeout": 5 }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmem hook claude-code",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "dispatcher hook claude-code",
+            "timeout": 10
+          }
+        ]
+      }
     ],
     "PreToolUse": [
-      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "cmem hook claude-code", "timeout": 5 }] }
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmem hook claude-code",
+            "timeout": 5
+          }
+        ]
+      }
     ],
     "PostToolUseFailure": [
-      { "hooks": [{ "type": "command", "command": "cmem hook claude-code", "timeout": 5 }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmem hook claude-code",
+            "timeout": 5
+          }
+        ]
+      }
     ],
     "Stop": [
-      { "hooks": [{ "type": "command", "command": "cmem hook claude-code", "timeout": 5 }] }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmem hook claude-code",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "dispatcher hook claude-code",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "dispatcher hook claude-code --wait 23h",
+            "asyncRewake": true,
+            "timeout": 86400
+          }
+        ]
+      }
+    ],
+    "PostToolBatch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "dispatcher hook claude-code",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "dispatcher hook claude-code",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }
