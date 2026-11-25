@@ -57,3 +57,4 @@ To change a decision, add a new record and mark the old one superseded.
 | [0044](0044-what-memory-is-not-for-what-adds-to-an-entry-and-what-the-dreamer-may-read.md) | What memory is not for; a note that adds to an entry; what the dreamer may read and check | Accepted |
 | [0045](0045-messages-between-sessions-agents-and-the-owner.md) | Messages between sessions, agents and the owner are events in the dispatcher's log | Proposed |
 | [0046](0046-a-restricted-routine-may-run-named-commands-that-only-read.md) | A restricted routine may run named commands that only read | Proposed |
+| [0047](0047-who-may-write-to-an-agent.md) | Who may write to an agent: the owner, its own sessions, an answer, and the agents it lists | Proposed |

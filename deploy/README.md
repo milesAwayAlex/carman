@@ -553,6 +553,23 @@ minutes, thirty minutes where there is none, and records its cost
 (`run.usage`, routine `message`). Messages are kept
 `dispatcher.messages.retention` (30 days).
 
+Who may write to an agent (ADR 0047): the owner, the agent's own sessions,
+and a session answering a message it was sent; another agent only if the
+agent's entry lists it:
+
+```yaml
+agents:
+  - name: builder
+    writtenBy: [desk]      # desk may write to builder and its sessions
+```
+
+**Since 2026-11-25 this is the default for every agent**: with no
+`writtenBy`, one agent can no longer start a run of another or write to its
+sessions; such a message is refused at sending, with who may write to that
+agent, and recorded as `message.refused`. `dispatcher peers` marks what the
+caller may not write to. A `writtenBy` that names no agent of the values
+fails the render.
+
 A standing agent's pod has messages after it is restarted on an image that
 carries them (`scripts/deploy.sh CONTEXT agent restart NAME`); the dreamer
 has none yet.

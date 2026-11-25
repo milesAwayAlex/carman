@@ -101,7 +101,9 @@ Built so far:
   agent it is with a token the cluster makes for the dispatcher; the
   harness's hooks carry a message into a running session (between tool
   calls, at the end of a turn, or waking an idle one), and a message for a
-  session that is not running starts it again as its agent.
+  session that is not running starts it again as its agent. Who may write
+  to an agent (ADR 0047, proposed): the owner, its own sessions, an
+  answer, and the agents its `writtenBy` lists.
 
 Not built yet: the way in from a laptop to a service on a shared cluster,
 messages to and from the laptop's own sessions, a message that starts an

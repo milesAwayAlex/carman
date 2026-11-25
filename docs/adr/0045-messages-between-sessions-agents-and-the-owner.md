@@ -220,7 +220,7 @@ In the `dispatcher` binary, for an agent's shell (as `DISPATCHER_SESSION`,
 with the pod's own token) and for the owner through the deploy script:
 
 ```
-dispatcher peers                 who can be written to: the owner, agents by name, sessions busy, idle or not running, and where
+dispatcher peers                 who can be written to: the owner, agents by name, sessions busy, idle or not running, and where; those the caller may not write to are marked (ADR 0047)
 dispatcher send TO 'TEXT'        delivered, waiting (and for what), or refused (exit 4)
 dispatcher reply ID 'TEXT'       to whoever sent ID
 dispatcher inbox [--read]        what is unread for me, delivered or not
@@ -318,6 +318,11 @@ restarted to have any of this):
 - A message to an agent by name, or to a session that is not running, costs
   a run of that agent's model; the run has the agent's own budget. Nothing
   limits how many messages a session sends but the running limit.
+- Added 2026-11-25: who may write to an agent and its sessions is limited
+  by ADR 0047: the owner, the agent's own sessions, an answer to a message
+  the sender was sent, and the agents its `writtenBy` lists. With none
+  listed, another agent may not write to it at all, which is narrower than
+  "Addresses" above says.
 - The trial's messages and sessions are in the local cluster's log until
   retention removes them.
 - There is no requirement in `REQUIREMENTS.md` for messaging between

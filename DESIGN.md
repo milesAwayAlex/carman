@@ -98,6 +98,13 @@ notice. The owner writes with `scripts/deploy.sh CONTEXT dispatch send`.
 plus ten minutes; thirty minutes where there is none) and records its cost
 as `run.usage`, as a routine's run does.
 
+Who may write to an agent and its sessions (ADR 0047, proposed): the
+owner, the agent's own sessions, a session answering a message it was
+sent, and the agents its `writtenBy` lists; nobody else. With no list,
+only the owner and those cases. A message that is not allowed is refused
+at sending, with who may, and recorded as `message.refused`; `peers` marks
+what the caller may not write to.
+
 ### Worker details (proposed)
 
 - **Permissions.** `dontAsk` mode with an allowlist is the documented headless
