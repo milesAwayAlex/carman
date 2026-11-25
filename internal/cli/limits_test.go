@@ -137,7 +137,8 @@ func TestARestrictedRoutineGetsExactlyWhatItIsAllowedAndIsToldSo(t *testing.T) {
 
 	// An agent with every tool is not told of limits it does not have.
 	flags = flagsFor(map[string]string{"CMEM_ROUTINE_TOOLS": "all", "CMEM_ROUTINE_MCP_CONFIG": "/etc/agent/mcp/mcp.json"})
-	if !slices.Equal(after(flags, "--permission-mode"), []string{"bypassPermissions"}) || slices.Contains(flags, "--append-system-prompt") {
+	if !slices.Equal(after(flags, "--permission-mode"), []string{"bypassPermissions"}) || slices.Contains(flags, "--append-system-prompt") ||
+		!slices.Equal(after(flags, "--mcp-config"), []string{"/etc/agent/mcp/mcp.json"}) || slices.Contains(flags, "--strict-mcp-config") {
 		t.Errorf("every tool: %q", flags)
 	}
 }

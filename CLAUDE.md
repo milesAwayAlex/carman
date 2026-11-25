@@ -35,6 +35,13 @@ Built so far:
   it puts on a cluster carries the project's name, and
   `scripts/chart-export.sh NAME DIR` writes it out under another (ADR 0032). `.github/workflows/images.yml` publishes
   the two images.
+- What memory is not for (ADR 0044, proposed): one job's instructions, the
+  present state of a system, the reasons for a design. Sessions are told so;
+  the dreamer reads the installation's definitions (`agents.yaml` and its
+  routines) to retire a job's instruction its definition holds, and may be
+  given read-only MCP tools to check a claim. `cmem note --adds-to` adds to
+  an entry without marking it corrected; `cmem relabel` turns a correction
+  into an addition, in a run. A restricted routine is told its limits.
 - The dreamer: the first agent. `routines/consolidate.md` and
   `routines/distill.md` run nightly as a CronJob in the agent image
   (`deploy/agent`), through `cmem routine`, which retries what the memory
@@ -110,6 +117,9 @@ order is in DESIGN.md, section 11.
 - When work needs a decision that no document covers, write an ADR with status
   Proposed and ask. Do not choose silently.
 - When a change alters the design, update `DESIGN.md` in the same change.
+- An instruction about one agent's behaviour (what it does, how it reports,
+  its model, its schedule) changes that agent's definition, and is not noted
+  in memory (ADR 0044).
 - Every test that checks a requirement names its ID (for example `M2`) so
   coverage of `REQUIREMENTS.md` can be listed.
 - Work in thin slices, each ending with a check that can be run. Slice work

@@ -145,7 +145,12 @@ func (c *command) harnessFlags() []string {
 		flags = append(flags, "--append-system-prompt", limitsText(read, tools))
 	}
 	if config := c.getenv("CMEM_ROUTINE_MCP_CONFIG"); config != "" {
-		flags = append(flags, "--mcp-config", config, "--strict-mcp-config")
+		flags = append(flags, "--mcp-config", config)
+		// A restricted agent has these servers and no others. An agent with
+		// every tool keeps the ones its plugins bring.
+		if c.getenv("CMEM_ROUTINE_TOOLS") != "all" {
+			flags = append(flags, "--strict-mcp-config")
+		}
 	}
 	return flags
 }

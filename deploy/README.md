@@ -229,6 +229,29 @@ still undone when the session ends is tried again with the refusal in hand,
 by the next model in `CMEM_ROUTINE_MODELS`, until that ladder or `CMEM_ROUTINE_BUDGET_USD`
 ends (ADR 0029). Both are set on the CronJob.
 
+Beside memory, the dreamer reads the installation's definitions, so that an
+entry that is one job's instruction can be told from what the job's own
+definition says (ADR 0044): `agents.yaml`, each agent's routines, schedule,
+models, tools and what it may reach (no environment, no credential), and the
+installation's routines as `NAME.md`, in one read-only directory,
+`/etc/agent/definitions`. `dreamer.definitions: false` leaves them out.
+
+It can also be given MCP servers, as agents are, and the tools of theirs it
+may call: read-only ones, for checking what an entry says about a ticket or
+a document. It may call no other tool of theirs and no other server:
+
+    dreamer:
+      mcp: {tracker: "https://mcp.example.com/mcp"}
+      mcpTools: {tracker: [get_issue, list_comments, list_issues]}
+
+The proxy puts its credential on the dreamer's requests as on any agent's,
+and that credential may be able to write: the list is what stops the
+dreamer. Name only tools that read.
+
+The dreamer is told its limits at its start: what it may run, read and
+call, that a shell call holds memory commands only, and that a refused call
+takes nothing else away.
+
 Every run is in memory's own log and can be undone whole:
 `cmem consolidate log`, then `cmem consolidate revert RUN REASON` with the
 consolidation role's token (`.local/cmem-dreamer.env`).
@@ -567,7 +590,9 @@ the directory the conversation was held in, and attaches your terminal
 (ADR 0040). The agent goes on with its job's rights: an agent with every
 tool runs without asking, as its job did; the dreamer may run the memory
 command and nothing else, and what else it tries is refused rather than put
-to you. The model is the one that last answered in the conversation.
+to you. The model is the one that last answered in the conversation. A
+resumed dreamer reads and calls what its job could, and is told so, with
+the same flags (`cmem routine --flags`).
 
 Detach with tmux's prefix and `d`; the pod stays, and the same command
 attaches to it again. Leave the harness (`/exit`) and then the shell, and

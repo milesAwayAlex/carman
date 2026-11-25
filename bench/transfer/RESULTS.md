@@ -7,6 +7,29 @@ Each case teaches a lesson by a correction in repository A, then probes it in a
 fresh session in repository A and in repository B. "Wrote" means the lesson was
 in memory after the teach session.
 
+## 2026-11-24, consolidation that reads job definitions, runs restricted (Sonnet 5.5, one run)
+
+`scripts/bench-transfer.sh consolidate --no-probes`, after ADR 0044. The messy
+library gained three cases: an instruction for one job that its definition
+already holds, one that its definition contradicts, and a note that adds to
+an entry (`--adds-to`). The routine could read three definition files
+(`agents.yaml`, two routines), and for the first time ran with the limits a
+restricted routine gets in the cluster (`cmem routine --flags`: `dontAsk`,
+Bash, Read, Glob and Grep, `Bash(cmem *)`, the definitions directory, and
+the appended system prompt) instead of every tool.
+
+- All 22 checks passed, and reverting the run restored the library.
+- It found the definitions with Glob and read all three. It retired the
+  covered instruction with the reason "it is an instruction for one job, and
+  the definition holds it", quoting `price-review.md`; it kept the
+  contradicted one and asked in one line which schedule is right, saying
+  what it would do with each answer.
+- It merged the entry and the note that added to it, with both specifics
+  and nothing dropped ("the second only added detail").
+- No call was refused. It joined many `cmem` writes into a few Bash calls,
+  so the session took 8 turns; estimated $0.094.
+- Probes were not run (`--no-probes`), to save cost.
+
 ## 2026-11-19, distilling finished documents, three models (one run each)
 
 `run.py distill`. Four documents are in memory: the notes of a finished

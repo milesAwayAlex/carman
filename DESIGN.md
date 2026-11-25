@@ -201,6 +201,7 @@ repository a session is in.
 | Remember one thing mid-task | `cmem note --kind K (--human NAME \| --evidence E) TEXT` | laptop, worker |
 | Correct or update an entry | `cmem note ... --replaces ID TEXT` | laptop, worker |
 | Correct one thing in a long entry, keeping the entry | `cmem note ... --amends ID TEXT` | laptop, worker |
+| Add detail to an entry, correcting nothing | `cmem note ... --adds-to ID TEXT` | laptop, worker |
 | Report an entry as wrong | `cmem flag ID REASON` | laptop, worker |
 | Record a finished task | `cmem record --outcome O < body` | laptop, worker |
 | The list for a session's start | `cmem index` | laptop, worker |
@@ -210,6 +211,7 @@ repository a session is in.
 | Add a curated entry | `cmem add --run RUN ...` | dreamer |
 | Replace or merge entries, whatever backs them | `cmem supersede ID --run RUN [--absorb ID] [--from ID] ...` | dreamer |
 | Withdraw an entry | `cmem retire ID --run RUN REASON` | dreamer |
+| Mark a correction as an addition, on the owner's word | `cmem relabel ID --run RUN [--note NOTE] REASON` | dreamer |
 | Read what runs changed | `cmem consolidate log [RUN]` | all |
 | Undo a whole run | `cmem consolidate revert RUN REASON` | dreamer |
 | Check the library for hand edits | `cmem check` | run on the service's machine |
@@ -231,14 +233,22 @@ Rules the service enforces:
 - A note that amends an entry is stored beside it, and the entry is flagged
   with a pointer to the note. A note shorter than three quarters of a long
   entry may not replace it unless it says it stands for the whole (ADR 0025).
+- A note that adds to an entry is stored beside it the same way, and the
+  entry is marked "added to": not corrected, not disputed. The pointer says
+  which it is (`relation: amends|adds`). A run can read an amendment as an
+  addition; the relabel is a note of its own, undone with the run (ADR 0044).
+- Memory is for what another agent on another task would use. One job's
+  instructions belong in its definition, the present state of a system in
+  that system, the reason for a design in the project's decision records;
+  sessions are told so at their start (ADR 0044).
 - A replacement by a working agent is for whoever the old entry was for.
   `--global` widens it and `--scope` narrows it; `--here` does neither (ADRs
   0021 and 0026).
 - A search made in a session looks at what applies there. When another
   repository's entry matches better than anything found, the answer names
   that repository and how to search it, and shows none of its text.
-- The consolidation role can add, supersede (which includes merging) and
-  retire, and nothing else. Every change names a run. A run is capped at 20
+- The consolidation role can add, supersede (which includes merging),
+  retire and relabel, and nothing else. Every change names a run. A run is capped at 20
   changed entries, its changes can be read back, and one revert undoes all of
   them (M4, ADR 0018).
 - The consolidation role cannot cite a person. A rewritten or merged entry
@@ -499,6 +509,8 @@ Decisions are recorded one per file in `docs/adr/`. The index,
    routine in a container, on a schedule, beside the memory (ADR 0027). Built: the agent image, the routine runner, the CronJob, and
    the commands that switch it on and run it once, and its model credential
    as a secret in the cluster (ADR 0028). It has run once on a real library.
+   It reads the installation's definitions and may be given read-only MCP
+   tools to check a claim; it is told its limits (ADR 0044).
    Not yet: distilling long documents, a comparison of models, a check on
    unattended runs.
 8. Walking skeleton of the task path: one trigger, one worker, one verifier,
