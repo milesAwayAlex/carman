@@ -70,6 +70,14 @@ Remember:
         --amends ID     your note stands beside that entry, which is kept and
                     marked as corrected in part, pointing at your note. The
                     note is for whoever the entry is for; no --here or --global.
+        To add detail to an entry, correcting nothing in it:
+        --adds-to ID    your note stands beside that entry, which is kept and
+                    marked as added to, pointing at your note. It is not
+                    marked as corrected. No --here or --global.
+        Memory is for what would help another agent on another task. Not
+        for it: an instruction for one job or agent (change that job's
+        definition), the present state of a system (ask the system), why
+        something was built as it is (the project's decision records).
   cmem flag ID REASON...
         An entry is wrong or out of date and you do not know what is right.
 
@@ -128,6 +136,10 @@ capped, and can be reverted as a unit:
         which. --drops 'SPECIFIC: why' leaves one out on purpose, on record.
   cmem retire ID --run RUN REASON...
         Withdraw an entry with nothing in its place.
+  cmem relabel ID --run RUN [--note NOTE] REASON...
+        Entry ID is marked as corrected in part by note NOTE, and the note
+        corrects nothing: it adds detail. Mark it as added to instead. Name
+        the note when more than one is marked as correcting the entry.
   cmem consolidate log [RUN]
         What runs changed, and what they were refused and have not done.
   cmem backup FILE
@@ -218,7 +230,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdin i
 		"flag": c.flag, "record": c.record, "add": c.add, "supersede": c.supersede,
 		"index": c.index, "flashback": c.flashback, "hook": c.hook, "check": c.check,
 		"retire": c.retire, "consolidate": c.consolidate, "import": c.importMemory, "scope": c.scope,
-		"routine": c.routine, "backup": c.backup, "restore": c.restore,
+		"routine": c.routine, "relabel": c.relabel, "backup": c.backup, "restore": c.restore,
 	}
 	run, ok := commands[args[0]]
 	if !ok {
@@ -509,10 +521,6 @@ func entryHeading(e memory.Entry) string {
 	return line + "  recorded " + e.CreatedAt.Format("2006-01-02")
 }
 
-// amendment is how the reason of a flag begins when the flag was raised by a
-// note that corrects part of the entry (`cmem note --amends`).
-const amendment = "Corrected in part by "
-
 // clipWords is the opening paragraph of a text on one line, cut between
 // words when it is longer than limit.
 func clipWords(text string, limit int) string {
@@ -542,22 +550,22 @@ func whose(origin memory.Origin) string {
 }
 
 // standing is what the flags against an entry come to, in a word or two: it
-// is said to be wrong, or one thing in it has been corrected and the note
-// that corrects it is named.
+// is said to be wrong, or one thing in it has been corrected, or a note adds
+// to it. The pointers themselves are shown with the entry (printFlags).
 func standing(e memory.Entry) string {
-	amended := 0
+	marks := map[string]bool{}
 	for _, f := range e.Flags {
-		if strings.HasPrefix(f.Reason, amendment) {
-			amended++
-		}
+		marks[f.Relation] = true
 	}
 	switch {
-	case e.Contradictions == 0:
-		return ""
-	case amended == len(e.Flags) && amended > 0:
+	case marks[""]:
+		return "disputed"
+	case marks[memory.RelationAmends]:
 		return "corrected in part"
+	case marks[memory.RelationAdds]:
+		return "added to"
 	}
-	return "disputed"
+	return ""
 }
 
 // printFlags says what has been reported against an entry. It comes before
@@ -566,10 +574,14 @@ func standing(e memory.Entry) string {
 func printFlags(w io.Writer, e memory.Entry) {
 	for _, f := range e.Flags {
 		reason := strings.Join(strings.Fields(f.Reason), " ")
-		if !strings.HasPrefix(reason, amendment) {
+		if f.Relation == "" {
 			reason = "Flagged as wrong: " + reason
 		}
-		fmt.Fprintf(w, "    %s (from %s, %s)\n", reason, whose(f.Origin), f.CreatedAt.Format("2006-01-02"))
+		relabelled := ""
+		if r := f.Relabelled; r != nil {
+			relabelled = fmt.Sprintf("; consolidation run %s found that it corrects nothing", r.Run)
+		}
+		fmt.Fprintf(w, "    %s (from %s, %s%s)\n", reason, whose(f.Origin), f.CreatedAt.Format("2006-01-02"), relabelled)
 	}
 }
 
@@ -694,6 +706,7 @@ func (c *command) note(args []string) error {
 	c.flags.BoolVar(&req.Global, "global", false, "it applies everywhere; with --replaces, whatever scope the old entry had")
 	here := c.flags.Bool("here", false, "it is about the repository you are in, and is shown only there")
 	amends := c.flags.String("amends", "", "ID of an entry this note corrects in part; that entry is kept and flagged with a pointer to the note")
+	addsTo := c.flags.String("adds-to", "", "ID of an entry this note adds to and corrects nothing in; that entry is kept and points at the note")
 	whole := c.flags.Bool("whole", false, "with --replaces: the note stands for all of a long entry, not one part of it")
 	c.flags.StringVar(&req.TaskID, "task-id", c.getenv("CMEM_TASK_ID"), "the task this belongs to")
 	c.flags.StringVar(&req.SessionID, "session-id", c.getenv("CMEM_SESSION_ID"), "the session this belongs to")
@@ -723,16 +736,24 @@ func (c *command) note(args []string) error {
 			}
 		}
 	}
-	if *amends != "" && req.Replaces != "" {
-		return errors.New("--replaces puts the note in place of the entry; --amends keeps the entry and corrects part of it. Choose one")
+	if *amends != "" && *addsTo != "" {
+		return errors.New("--amends says your note corrects part of the entry; --adds-to says it corrects nothing and adds detail. Choose one")
 	}
-	if *amends != "" {
+	// The note stands beside an entry: what it is to that entry.
+	beside, relation, prefix := *amends, memory.RelationAmends, memory.AmendedBy
+	if *addsTo != "" {
+		beside, relation, prefix = *addsTo, memory.RelationAdds, memory.AddedBy
+	}
+	if beside != "" && req.Replaces != "" {
+		return errors.New("--replaces puts the note in place of the entry; --amends and --adds-to keep the entry beside it. Choose one")
+	}
+	if beside != "" {
 		// A correction to part of an entry stands beside it by definition,
 		// and is for whoever the entry is for unless the note says otherwise.
 		req.Separate = true
 		if !*here && !req.Global && len(req.Scope) == 0 {
 			var amended memory.Entry
-			if err := c.call(http.MethodGet, "/v1/entries/"+url.PathEscape(*amends)+"?from=0&limit=1", nil, &amended); err != nil {
+			if err := c.call(http.MethodGet, "/v1/entries/"+url.PathEscape(beside)+"?from=0&limit=1", nil, &amended); err != nil {
 				return err
 			}
 			req.Scope, req.Global = amended.Scope, len(amended.Scope) == 0
@@ -775,23 +796,25 @@ func (c *command) note(args []string) error {
 			"--replaces ID. The old entry stays in history, yours becomes the current one, and it keeps the old one's "+
 			"scope.\nIf it says a different thing, or adds a rule to one of these without replacing it, run the "+
 			"same command again with --separate.\nIf it corrects one thing in a long entry whose rest still holds, run "+
-			"it again with --amends ID: the entry is kept and points at your note.\n`cmem get ID` shows an entry in full.")
-		return errors.New("not recorded: say --replaces ID, --amends ID or --separate")
+			"it again with --amends ID: the entry is kept and points at your note.\nIf it adds detail to one of these and "+
+			"corrects nothing in it, run it again with --adds-to ID: the entry is kept, points at your note, and is not "+
+			"marked as corrected.\n`cmem get ID` shows an entry in full.")
+		return errors.New("not recorded: say --replaces ID, --amends ID, --adds-to ID or --separate")
 	case isStatus(err, http.StatusConflict) && strings.Contains(err.Error(), "cannot replace a trusted entry"):
 		return fmt.Errorf("%w. Entry %s rests on what a person said or a verified task showed, and this note on "+
 			"your own observation. If you believe it is wrong, run: cmem flag %s REASON", err, req.Replaces, req.Replaces)
 	case err != nil:
 		return err
 	}
-	// A partial correction: the entry it corrects stays, and says so.
+	// A partial correction, or an addition: the entry stays, and says so.
 	amended := ""
-	if *amends != "" {
+	if beside != "" {
 		var flagged memory.Entry
-		reason := fmt.Sprintf("Corrected in part by %s: %s", entry.ID, clipWords(entry.Text, 200))
-		if err := c.call(http.MethodPost, "/v1/entries/"+url.PathEscape(*amends)+"/flag", server.FlagRequest{Reason: reason}, &flagged); err != nil {
-			return fmt.Errorf("the note is stored as %s, but %s could not be marked as corrected: %w", entry.ID, *amends, err)
+		point := server.FlagRequest{Reason: prefix + entry.ID + ": " + clipWords(entry.Text, 200), Relation: relation, Note: entry.ID}
+		if err := c.call(http.MethodPost, "/v1/entries/"+url.PathEscape(beside)+"/flag", point, &flagged); err != nil {
+			return fmt.Errorf("the note is stored as %s, but %s could not be given a pointer to it: %w", entry.ID, beside, err)
 		}
-		amended = *amends
+		amended = beside
 	}
 	// What was replaced, in a line, so that a wrong ID is seen at once.
 	replaced := ""
@@ -817,7 +840,10 @@ func (c *command) note(args []string) error {
 			fmt.Fprintf(c.stdout, "It applies %s, as the entry it replaces did; --here does not change who a replacement is for. "+
 				"If it now holds only in this repository, say so with --scope %s.\n", was, strings.Join(hereScope, " --scope "))
 		}
-		if amended != "" {
+		switch {
+		case amended != "" && relation == memory.RelationAdds:
+			fmt.Fprintf(c.stdout, "%s is now marked as added to, with a pointer to this note. It is not marked as corrected.\n", amended)
+		case amended != "":
 			fmt.Fprintf(c.stdout, "%s is now marked as corrected in part, with a pointer to this note.\n", amended)
 		}
 	})
@@ -936,6 +962,32 @@ func (c *command) retire(args []string) error {
 	})
 }
 
+// relabel says that a note marked as correcting part of an entry adds to it
+// and corrects nothing, as part of a run (ADR 0044).
+func (c *command) relabel(args []string) error {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return errors.New("give the ID of the entry marked as corrected in part, then --run RUN and the reason")
+	}
+	id := args[0]
+	req := server.RelabelRequest{}
+	c.flags.StringVar(&req.Run, "run", c.getenv("CMEM_RUN"), "the consolidation run this belongs to")
+	c.flags.StringVar(&req.Note, "note", "", "the note that adds to the entry, when more than one note is marked as correcting it")
+	reason, err := c.parse(args[1:])
+	if err != nil {
+		return err
+	}
+	req.Reason = reason
+	var entry memory.Entry
+	if err := c.call(http.MethodPost, "/v1/entries/"+url.PathEscape(id)+"/relabel", req, &entry); err != nil {
+		return err
+	}
+	return c.print(entry, func() {
+		fmt.Fprintln(c.stdout, "Relabelled:")
+		fmt.Fprintln(c.stdout, entryHeading(entry))
+		printFlags(c.stdout, entry)
+	})
+}
+
 // consolidate holds what the consolidation role does around its changes:
 // opening a run, reading what is there, and reading or undoing what runs did.
 func (c *command) consolidate(args []string) error {
@@ -1021,6 +1073,8 @@ func printRun(w io.Writer, run memory.Run) {
 			}
 		case "retire":
 			fmt.Fprintf(w, "    - retired %s: %s\n", change.Entry, text)
+		case "relabel":
+			fmt.Fprintf(w, "    - marked %s as added to, not corrected: %s\n", change.Entry, text)
 		default:
 			fmt.Fprintf(w, "    - added %s: %s\n", change.Entry, text)
 		}
@@ -1157,12 +1211,21 @@ const indexHelpAsk = "then who it is for: `--here` when it is true of this repos
 const indexHelpCorrect = "If an entry is out of date or wrong and you know what is right, record that in its place: " +
 	"add `--replaces ID` to the note."
 
+// indexHelpNotFor says what memory is not for (ADR 0044). Sessions are told
+// to record what they are told, and so they recorded one scheduled job's
+// instructions, which then disagreed with the job's own definition. The test
+// for memory is whether another agent, doing another task, would use it.
+const indexHelpNotFor = "Memory is for what would help another agent on another task. Not for it: an instruction " +
+	"for one job or agent (change that job's definition), the present state of a system (ask the system), why " +
+	"something was built as it is (the project's decision records). "
+
 const indexHelpWhere = "then where it came from, then the text: `--human NAME` when the user told you or corrected you "
 
 const indexHelp = "Search the rest with `cmem recall WORDS`. `cmem get ID` shows an entry's sources. " +
 	"When you learn something worth keeping, record it with `cmem note --kind fact|procedure|pitfall|preference`, " +
 	indexHelpWhere +
 	"(use `user` if you do not know their name), or `--evidence \"what you saw\"` when you found it out yourself. " +
+	indexHelpNotFor +
 	indexHelpCorrect +
 	" If you only know it is wrong, run `cmem flag ID REASON`. An entry marked unverified is an agent's own observation " +
 	"that nothing has checked yet: use it, and check it first when being wrong would be costly.\n"

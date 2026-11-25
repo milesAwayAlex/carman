@@ -35,6 +35,9 @@ const (
 	typeRetirement = "retirement"
 	typeRun        = "run"
 	typeRevert     = "revert"
+	// A relabel reads a flag anew, as part of a run: a note that was taken
+	// for a correction is an addition (ADR 0044).
+	typeRelabel = "relabel"
 
 	// linksMarker starts a generated footer of [[links]] for people reading
 	// the note in an editor. The header above it is what the service reads.
@@ -44,6 +47,7 @@ const (
 var noteDirs = map[string]string{
 	typeEntry: "entries", typeEpisode: "episodes", typeFlag: "flags",
 	typeRetirement: "retirements", typeRun: "runs", typeRevert: "reverts",
+	typeRelabel: "relabels",
 }
 
 // header is the YAML block at the top of a note. One shape serves every note
@@ -73,8 +77,13 @@ type header struct {
 	SessionID string   `yaml:"session_id,omitempty"`
 	CostUSD   *float64 `yaml:"cost_usd,omitempty"`
 
-	// flag, retirement
+	// flag, retirement, relabel
 	Entry string `yaml:"entry,omitempty"`
+
+	// flag: what the note it comes from is to the entry (amends, adds) and
+	// that note; relabel: what the flag it names in supersedes now reads as
+	Relation string `yaml:"relation,omitempty"`
+	Note     string `yaml:"note,omitempty"`
 }
 
 type sourceHeader struct {
@@ -106,6 +115,9 @@ func (n note) links() []string {
 	}
 	if n.Entry != "" {
 		ids = append(ids, n.Entry)
+	}
+	if n.Note != "" {
+		ids = append(ids, n.Note)
 	}
 	if n.Run != "" {
 		ids = append(ids, n.Run)

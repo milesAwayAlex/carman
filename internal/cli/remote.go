@@ -207,7 +207,7 @@ func unreachableText(cause error, hint string) string {
 var remotelyRunnable = map[string]bool{
 	"help": true, "-h": true, "--help": true,
 	"recall": true, "get": true, "note": true, "flag": true, "record": true, "index": true, "flashback": true,
-	"hook": true, "add": true, "supersede": true, "retire": true, "consolidate": true,
+	"hook": true, "add": true, "supersede": true, "retire": true, "relabel": true, "consolidate": true,
 }
 
 // RemoteHandler serves POST /v1/cli. Every request the command makes goes to

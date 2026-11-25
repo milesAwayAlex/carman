@@ -91,6 +91,7 @@ func (s *Server) Routes() []Route {
 		{http.MethodPost, "/v1/entries", dreamer, true, s.addEntry},
 		{http.MethodPost, "/v1/entries/{id}/supersede", dreamer, true, s.supersede},
 		{http.MethodPost, "/v1/entries/{id}/retire", dreamer, true, s.retire},
+		{http.MethodPost, "/v1/entries/{id}/relabel", dreamer, true, s.relabel},
 		{http.MethodPost, "/v1/runs", dreamer, true, s.startRun},
 		{http.MethodGet, "/v1/runs", everyone, false, s.listRuns},
 		// Every role can already read every note; this is all of them at once.
@@ -506,9 +507,13 @@ func (s *Server) brief(r *http.Request, _ Role) (any, error) {
 	return parts(s.store.Unshown(req.SessionID, req.Scope), listedText), nil
 }
 
-// FlagRequest is the body of POST /v1/entries/{id}/flag.
+// FlagRequest is the body of POST /v1/entries/{id}/flag. With Relation and
+// Note it is a pointer from that note, which corrects part of the entry
+// (amends) or adds to it (adds); without, a report that the entry is wrong.
 type FlagRequest struct {
-	Reason string `json:"reason"`
+	Reason   string `json:"reason"`
+	Relation string `json:"relation,omitempty"`
+	Note     string `json:"note,omitempty"`
 }
 
 func (s *Server) flag(r *http.Request, role Role) (any, error) {
@@ -517,7 +522,7 @@ func (s *Server) flag(r *http.Request, role Role) (any, error) {
 		return nil, err
 	}
 	id := r.PathValue("id")
-	if err := s.store.Flag(id, origin(role), req.Reason); err != nil {
+	if err := s.store.Point(id, origin(role), req.Relation, req.Note, req.Reason); err != nil {
 		return nil, err
 	}
 	entry, err := s.store.Entry(id)
@@ -602,6 +607,22 @@ func (s *Server) retire(r *http.Request, _ Role) (any, error) {
 		return nil, err
 	}
 	return s.store.Retire(req.Run, r.PathValue("id"), req.Reason)
+}
+
+// RelabelRequest is the body of POST /v1/entries/{id}/relabel: the note that
+// was marked as correcting part of the entry adds to it and corrects nothing.
+type RelabelRequest struct {
+	Run    string `json:"run"`
+	Note   string `json:"note,omitempty"`
+	Reason string `json:"reason"`
+}
+
+func (s *Server) relabel(r *http.Request, _ Role) (any, error) {
+	var req RelabelRequest
+	if err := decode(r, &req); err != nil {
+		return nil, err
+	}
+	return s.store.Relabel(req.Run, r.PathValue("id"), req.Note, req.Reason)
 }
 
 // listEntries returns every current entry, oldest first, with its sources and

@@ -49,7 +49,9 @@ history, where `cmem get ID` still reads all of it.
 
    These are not lessons, and are left out: what happened on which day;
    counts and measurements of the moment; who said what in which meeting;
-   ticket and pull request numbers; the state things were in along the way.
+   ticket and pull request numbers; the state things were in along the way;
+   and an instruction for one job or agent (what it must do, how it
+   reports, which model, when), which belongs in that job's definition.
 
    Before adding a lesson, search for it (`cmem recall WORDS`). If memory
    already holds it, do not add it again.

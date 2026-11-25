@@ -73,6 +73,58 @@ If the entry is a long document, or it was told by a person and the
 correction is only an agent's unverified observation, leave both. The pointer
 already sends a reader from one to the other. List the pair in your report.
 
+**An entry added to.** It is marked "added to" and its flag reads "Added to
+by NEW_ID", where NEW_ID is a note that adds detail and corrects nothing.
+Nothing in the entry is wrong. If the entry is short and the two are equally
+backed (both told by a person, or both unverified), you may merge them into
+one entry that says everything both say:
+
+    cmem supersede ID --run RUN --kind KIND --absorb NEW_ID --from ID --from NEW_ID 'TEXT'
+
+Nothing is dropped from either, so there is no `--drops`. Otherwise leave
+both: the pointer already joins them.
+
+**A correction that corrected nothing.** When the owner has said that a note
+marked as correcting an entry only adds to it, mark it so, and say in the
+reason that the owner said it:
+
+    cmem relabel ID --run RUN --note NEW_ID 'REASON'
+
+Do not decide this yourself. If a note marked as correcting an entry changes
+nothing the entry says, ask the owner whether it is a correction.
+
+## What memory is not for
+
+Memory is for what a different agent, doing a different task, would use:
+how the person likes to work, lessons and pitfalls, and knowledge of a
+domain that any agent working there would want. Two kinds of entry belong
+elsewhere.
+
+**An instruction for one job or agent**: what it must do, how it reports,
+which model it uses, when it runs. That belongs in the job's definition,
+which is what the job reads; a copy in memory goes stale beside it. You may
+have been given the installation's definitions to read (your instructions
+name the directory). There, `agents.yaml` says what each agent is: its
+routines, schedule, models, tools and what it may reach; and `NAME.md` is
+the prompt of the routine NAME. Look the job up:
+
+- The definition already says what the entry says: retire the entry, and
+  name the file and quote the line that says it:
+
+      cmem retire ID --run RUN 'An instruction for one job, which its definition holds: FILE says "QUOTE"'
+
+- The definition does not say it, or says something else: leave the entry,
+  and ask the owner, in one line, which it is: an instruction to put in the
+  definition, or one that is out of date. Never retire it.
+- You were given no definitions, or the job is not among them: leave the
+  entry, and list it in your report.
+
+**The state of a system on a date**: what is deployed, which tickets are
+open, how many of something there are. The system itself knows, and the
+entry is out of date as soon as the system changes. When a later entry
+replaces it, retire it as above ("An entry that a newer entry has
+replaced"). Otherwise list it in your report for the owner.
+
 ## Scope: who sees an entry
 
 An entry with a scope such as `[repo:api]` is shown only to sessions in that
@@ -118,7 +170,8 @@ If the scoped one adds a detail the other lacks, it is not a repeat; leave it.
 ## What to leave alone
 
 - **Never change what an entry means.** You are not a source. You know
-  nothing about the owner's systems beyond what the entries say.
+  nothing about the owner's systems beyond what the entries say, what the
+  definitions you were given say, and what the tools you were given show.
 - **Never drop a specific.** A merged entry that lost a name, a number or the
   reason is worse than two entries.
 - **Things that look alike but are different stay separate**: two clusters,
@@ -130,6 +183,13 @@ If the scoped one adds a detail the other lacks, it is not a repeat; leave it.
   in memory settles it. Put it in your report as one question a person can
   answer in a line: what the two entries say, by ID, and what you would do
   with each answer.
+- **Unless you can look.** Where an entry's claim about a ticket or a
+  document can be checked with a tool you were given, check it, and act on
+  what you saw: an entry it shows out of date is retired, or replaced by
+  the entry that is right. Say in the reason what you checked and when
+  (`'Checked ABC-12 with get_issue on DATE: closed on DATE'`). Read only:
+  never change the ticket or the document. With no such tool, it stays a
+  question for the owner.
 - **Do not reword for style**, and do not touch entries that are fine.
 - **Long documents are not merged.** An entry of more than a page (a plan, a
   write-up of an incident, a how-to) cannot be merged with another without
@@ -157,6 +217,7 @@ End with a short report:
 
 - the run's ID;
 - each change in one line, with why;
+- what you checked with a tool, and what it showed;
 - questions only a person can answer, each in a line (see "Two entries that
   disagree"), under a heading that reads exactly `Questions for the owner`.
   The owner is told of a report that has that heading, so leave the heading

@@ -207,12 +207,47 @@ func (e Entry) Part(from, limit int) Entry {
 	return e
 }
 
-// Flag is one report that an entry is wrong or out of date.
+// Flag is one report that an entry is wrong or out of date, or a pointer from
+// a note that stands beside the entry: one that corrects part of it
+// (RelationAmends, ADR 0025) or one that adds to it and corrects nothing
+// (RelationAdds, ADR 0044). An addition is not counted as a contradiction.
 type Flag struct {
 	ID        string    `json:"id"`
 	CreatedAt time.Time `json:"created_at"`
 	Origin    Origin    `json:"origin"`
 	Reason    string    `json:"reason"`
+	Relation  string    `json:"relation,omitempty"`
+	Note      string    `json:"note,omitempty"` // the note that amends or adds to the entry
+	// Relabelled is set when a consolidation run read the flag anew: it was
+	// written as a correction, and is an addition.
+	Relabelled *Relabel `json:"relabelled,omitempty"`
+}
+
+// What a note beside an entry is to it.
+const (
+	RelationAmends = "amends" // it corrects part of the entry
+	RelationAdds   = "adds"   // it adds to the entry and corrects nothing
+)
+
+// The opening of a pointer's reason, which says what it is to a reader.
+const (
+	AmendedBy = "Corrected in part by "
+	AddedBy   = "Added to by "
+)
+
+// Relabel is a run's reading of a flag anew.
+type Relabel struct {
+	ID     string    `json:"id"`
+	At     time.Time `json:"at"`
+	Run    string    `json:"run"`
+	Was    string    `json:"was"` // the relation the flag was written with
+	Reason string    `json:"reason"`
+}
+
+// relabel is a relabel note as the store keeps it.
+type relabel struct {
+	Relabel
+	relation string
 }
 
 // Run is one pass of the consolidation role. Everything it changes carries
@@ -242,7 +277,7 @@ type Refusal struct {
 // Change is one thing a run did.
 type Change struct {
 	At       time.Time `json:"at"`
-	Action   string    `json:"action"`             // add, supersede or retire
+	Action   string    `json:"action"`             // add, supersede, retire or relabel
 	Entry    string    `json:"entry"`              // the entry added, or the one retired
 	Replaced []string  `json:"replaced,omitempty"` // entries the new one took the place of
 	Text     string    `json:"text"`               // the new entry's text, or the reason for retiring
@@ -363,6 +398,7 @@ type Store struct {
 	supersededBy map[string][]string // entry ID -> the entries written in its place, oldest first
 	retirements  map[string][]retirement
 	flags        map[string][]Flag
+	relabels     map[string][]relabel // flag ID -> the runs' readings of it, oldest first
 	runs         map[string]*Run
 	// RunCap is the most entries one consolidation run may change.
 	RunCap   int
@@ -386,7 +422,7 @@ func Open(dir string) (*Store, error) {
 	s := &Store{
 		lib: lib, episodes: map[string]Episode{}, entries: map[string]Entry{},
 		supersededBy: map[string][]string{}, retirements: map[string][]retirement{}, flags: map[string][]Flag{},
-		runs: map[string]*Run{}, RunCap: DefaultRunCap, corpus: newCorpus(),
+		relabels: map[string][]relabel{}, runs: map[string]*Run{}, RunCap: DefaultRunCap, corpus: newCorpus(),
 		shown: map[string]map[string]bool{}, lessons: map[string]map[string]int{},
 	}
 	notes, problems, err := lib.load()
@@ -476,7 +512,18 @@ func (s *Store) apply(n note) {
 		}
 		s.logChange(n.Run, Change{At: n.Created, Action: action, Entry: n.ID, Replaced: replaced, Text: n.body, Drops: n.Drops}, max(1, len(replaced)))
 	case typeFlag:
-		s.flags[n.Entry] = append(s.flags[n.Entry], Flag{ID: n.ID, CreatedAt: n.Created, Origin: n.Origin, Reason: n.body})
+		f := Flag{ID: n.ID, CreatedAt: n.Created, Origin: n.Origin, Reason: n.body, Relation: n.Relation, Note: n.Note}
+		// Written before pointers said what they were: an amendment is
+		// known by how its reason begins.
+		if rest, ok := strings.CutPrefix(n.body, AmendedBy); ok && f.Relation == "" {
+			f.Relation = RelationAmends
+			f.Note, _, _ = strings.Cut(rest, ":")
+		}
+		s.flags[n.Entry] = append(s.flags[n.Entry], f)
+	case typeRelabel:
+		s.relabels[n.Supersedes] = append(s.relabels[n.Supersedes], relabel{
+			Relabel: Relabel{ID: n.ID, At: n.Created, Run: n.Run, Reason: n.body}, relation: n.Relation})
+		s.logChange(n.Run, Change{At: n.Created, Action: "relabel", Entry: n.Entry, Text: n.body}, 1)
 	case typeRetirement:
 		s.retirements[n.Entry] = append(s.retirements[n.Entry], retirement{at: n.Created, run: n.Run})
 		s.logChange(n.Run, Change{At: n.Created, Action: "retire", Entry: n.Entry, Text: n.body}, 1)
@@ -1103,6 +1150,51 @@ func (s *Store) Retire(run, entryID, reason string) (Entry, error) {
 	return s.view(s.entries[entryID]), nil
 }
 
+// Relabel reads a note that was written as correcting part of an entry as one
+// that adds to it, as part of a run: for when nothing was corrected and the
+// entry should not be shown as corrected. Neither note is touched; the
+// relabel is a note of its own, and reverting the run undoes it. noteID may
+// be empty when only one note is marked as correcting the entry.
+func (s *Store) Relabel(run, entryID, noteID, reason string) (Entry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fail := func(err error) (Entry, error) { return Entry{}, fmt.Errorf("memory: relabel: %w", err) }
+	if strings.TrimSpace(reason) == "" {
+		return fail(fmt.Errorf("%w: say why the note adds to the entry and corrects nothing", ErrInvalid))
+	}
+	if err := checkSecrets(reason); err != nil {
+		return fail(err)
+	}
+	if err := s.room(run, 1); err != nil {
+		return fail(err)
+	}
+	if err := s.mustBeCurrent(entryID); err != nil {
+		return fail(err)
+	}
+	var found []Flag
+	var notes []string
+	for _, f := range s.flagsOf(entryID, time.Time{}) {
+		if f.Relation == RelationAmends && (noteID == "" || f.Note == noteID) {
+			found = append(found, f)
+			notes = append(notes, f.Note)
+		}
+	}
+	switch {
+	case len(found) == 0 && noteID != "":
+		return fail(fmt.Errorf("%w: entry %s is not marked as corrected in part by %s", ErrInvalid, entryID, noteID))
+	case len(found) == 0:
+		return fail(fmt.Errorf("%w: entry %s is not marked as corrected in part", ErrInvalid, entryID))
+	case len(found) > 1:
+		return fail(fmt.Errorf("%w: entry %s is corrected in part by %s; say which note with --note", ErrInvalid, entryID, strings.Join(notes, " and ")))
+	}
+	n := s.newNote(typeRelabel)
+	n.Entry, n.Run, n.Supersedes, n.Relation, n.body = entryID, run, found[0].ID, RelationAdds, strings.TrimSpace(reason)
+	if err := s.write(fmt.Sprintf("Relabel %s: %s adds to it: %s", entryID, found[0].Note, summary(n.body)), n); err != nil {
+		return fail(err)
+	}
+	return s.view(s.entries[entryID]), nil
+}
+
 // Revert undoes a whole run: the entries it added stop being current, and the
 // entries it replaced or retired are current again unless something outside
 // the run has since replaced them. Nothing is deleted; the revert is a note.
@@ -1133,6 +1225,14 @@ func (s *Store) Revert(run, reason string) (Run, error) {
 // Flag records that an agent found an entry wrong or stale. The entry's note
 // is not touched; the flag is a note of its own that points at it.
 func (s *Store) Flag(entryID string, origin Origin, reason string) error {
+	return s.Point(entryID, origin, "", "", reason)
+}
+
+// Point records a flag against an entry. With a relation it is a pointer from
+// the note named, which stands beside the entry: one that corrects part of it
+// (RelationAmends) or one that adds to it (RelationAdds). With none it is a
+// report that the entry is wrong.
+func (s *Store) Point(entryID string, origin Origin, relation, noteID, reason string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.entries[entryID]; !ok {
@@ -1141,11 +1241,23 @@ func (s *Store) Flag(entryID string, origin Origin, reason string) error {
 	if strings.TrimSpace(reason) == "" {
 		return fmt.Errorf("memory: flag: %w: a flag needs a reason", ErrInvalid)
 	}
+	switch {
+	case relation != "" && relation != RelationAmends && relation != RelationAdds:
+		return fmt.Errorf("memory: flag: %w: a note %s or %s an entry; %q is neither", ErrInvalid, RelationAmends, RelationAdds, relation)
+	case (relation == "") != (noteID == ""):
+		return fmt.Errorf("memory: flag: %w: a pointer names both the note and what it is to the entry", ErrInvalid)
+	case noteID == entryID:
+		return fmt.Errorf("memory: flag: %w: an entry does not point at itself", ErrInvalid)
+	}
+	if _, ok := s.entries[noteID]; noteID != "" && !ok {
+		return fmt.Errorf("memory: flag: note %q: %w", noteID, ErrNotFound)
+	}
 	if err := checkSecrets(reason); err != nil {
 		return fmt.Errorf("memory: flag: %w", err)
 	}
 	n := s.newNote(typeFlag)
 	n.Entry, n.Origin, n.body = entryID, origin, strings.TrimSpace(reason)
+	n.Relation, n.Note = relation, noteID
 	if err := s.write(fmt.Sprintf("Flag %s: %s", entryID, summary(n.body)), n); err != nil {
 		return fmt.Errorf("memory: flag: %w", err)
 	}
@@ -1181,9 +1293,33 @@ func (s *Store) view(e Entry) Entry {
 	if end, over := s.ended(e, time.Time{}); over {
 		e.ValidTo = &end
 	}
-	e.Flags = slices.Clone(s.flags[e.ID])
-	e.Contradictions = len(e.Flags)
+	e.Flags, e.Contradictions = s.flagsOf(e.ID, time.Time{}), 0
+	for _, f := range e.Flags {
+		if f.Relation != RelationAdds {
+			e.Contradictions++
+		}
+	}
 	return e
+}
+
+// flagsOf are the flags against an entry as they read at the given time (zero
+// means now): a flag a run relabelled reads as the run said, unless the run
+// was reverted.
+func (s *Store) flagsOf(entryID string, at time.Time) []Flag {
+	var flags []Flag
+	for _, f := range s.flags[entryID] {
+		for _, r := range s.relabels[f.ID] {
+			if (at.IsZero() || !r.At.After(at)) && s.inEffect(r.Run, at) {
+				r.Was = f.Relation
+				f.Relabelled, f.Relation = &r.Relabel, r.relation
+				if rest, ok := strings.CutPrefix(f.Reason, AmendedBy); ok && r.relation == RelationAdds {
+					f.Reason = AddedBy + rest
+				}
+			}
+		}
+		flags = append(flags, f)
+	}
+	return flags
 }
 
 // current reports whether the entry was current at asOf; a zero asOf means now.
