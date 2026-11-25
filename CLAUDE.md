@@ -60,6 +60,12 @@ Built so far:
   proposed). The dreamer's too: a report of its with questions for the
   owner sends one notice.
 
+- The warm image (ADR 0041, proposed): agents' jobs start from the agent
+  image with the harness already in it, made in the cluster by a job
+  (`agent.warm`, `deploy/agent/warm-harness`, `scripts/deploy.sh CONTEXT
+  warm run|log`) and kept in the installation's registry. On the local
+  cluster it waits on the node's registry being reachable from a pod.
+
 - Services on the cluster (ADR 0037): agents reach the namespaces the
   installation names (`agent.namespaces`), and have a namespace of their
   own to run what a task needs (`agent.sandbox`, kubectl context `sandbox`).

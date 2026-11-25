@@ -77,6 +77,7 @@ esac
 base_digest="$("${crane[@]}" digest "$base" 2>/dev/null)" || fail "the agent image $base could not be read from its registry"
 # What the tag holds now. A tag that does not exist, or that a deploy has
 # pointed at the agent image itself, has no version.
+current="$("${crane[@]}" digest "$repo:$tag" 2>/dev/null)" || current=""
 config="$("${crane[@]}" config "$repo:$tag" 2>/dev/null)" || config='{}'
 had="$(jq -r '.config.Labels["harness.version"] // empty' <<<"$config" 2>/dev/null)"
 had_base="$(jq -r '.config.Labels["harness.base"] // empty' <<<"$config" 2>/dev/null)"
@@ -86,10 +87,11 @@ if [ "$had" = "$version" ] && [ "$had_base" = "$base_digest" ]; then
     exit 0
 fi
 
-# Built on another agent image, the tag would start pods with that image's
-# scripts and tools: until the new one is made, pods start from the agent
-# image itself, and install the harness as they did before.
-if [ -n "$had_base" ] && [ "$had_base" != "$base_digest" ]; then
+# A tag that does not exist stops pods from starting, and one built on
+# another agent image starts them with that image's scripts and tools:
+# until the new one is made, pods start from the agent image itself, and
+# install the harness as they did before.
+if [ "$current" != "$base_digest" ] && [ "$had_base" != "$base_digest" ]; then
     "${crane[@]}" copy "$base" "$repo:$tag" >/dev/null 2>&1 || fail "could not point $repo:$tag at $base"
     note="tag=base-until-built"
 fi

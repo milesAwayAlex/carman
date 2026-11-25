@@ -118,6 +118,28 @@ setting in the values:
   its stable channel (`HARNESS_CHANNEL` in an agent's `env` names another),
   and the published agent image carries no copy of it, which is not this
   project's to hand out.
+- **The warm image in a cloud registry** (ADR 0041). The job pushes to a
+  repository of the cloud's private artifact registry with the pod's own
+  identity, through the proxy, and the nodes pull from it with theirs. For
+  Artifact Registry:
+
+      agent:
+        warm:
+          enabled: true
+          repository: REGION-docker.pkg.dev/PROJECT/REPOSITORY/agent
+          credential: gcloud
+          google: true          # the installation's identity (cloud.google), or:
+          serviceAccountAnnotations: {}   # e.g. iam.gke.io/gcp-service-account: SA@PROJECT.iam.gserviceaccount.com
+
+  The identity needs `roles/artifactregistry.writer` on the repository and
+  the nodes' account `roles/artifactregistry.reader`. Give the repository a
+  cleanup policy that deletes `warm-*` tags older than a week; the job also
+  deletes builds beyond the newest three. The repository must be private:
+  the warm image carries the vendor's harness. The tag has to exist before
+  the pods name it, and must follow `agent.image`: where the deploy script
+  is not used, copy `agent.image` to `REPOSITORY:warm` once (`crane copy`),
+  and after each change of `agent.image` point the tag at it and run the
+  job.
 - **Placement and labels.** `nodeSelector` and `tolerations` place every
   pod; `podLabels` go on every pod and on the library's volume.
 - **Isolation.** `isolated: true`, the default, lets only pods of the
@@ -302,6 +324,36 @@ reach the internet only with `agent.sandbox.internet: true`, and then
 directly, without the proxy's credentials. Nothing cleans it up for you.
 
 `egress.enabled: false` in the values takes the proxy and the policy out.
+
+## The warm image
+
+An agent's job used to spend half a minute or more installing the harness,
+because its home is new each time. With `agent.warm.enabled`, a job of the
+installation's own makes a warm image instead: the agent image with the
+harness added as one layer, outside the home, in the installation's own
+registry (ADR 0041). Agents' jobs, the dreamer and resumed conversations
+start from its tag, and link that copy where the installer would have put it
+in well under a second. A copy that is missing or does not run is installed
+as before; an interactive agent keeps the copy in its home.
+
+    scripts/deploy.sh CONTEXT warm run     # make it now, if the channel or the agent image changed
+    scripts/deploy.sh CONTEXT warm log     # one line from each kept run: when, the version, rebuilt or not, how long
+
+The job runs every twelve hours (`agent.warm.schedule`) and at the end of a
+deploy, which first points the tag at the agent image it built. A run
+asks the channel for its version (`HARNESS_CHANNEL`, stable by default) and
+rebuilds only when that or the agent image changed. It adds the layer with
+`crane`, under the same pod security as every agent, and deletes builds
+beyond the newest three where the registry lets it.
+
+The registry is the one the agent image is in, unless
+`agent.warm.repository` names another. Where the job reaches it otherwise
+than the nodes do, `agent.warm.pushRegistry` is its host as the job sees it,
+`registryCIDR` and `registryPort` open it in the job's network policy, and
+`insecure` allows plain HTTP. A registry on a node's own loopback, as on the
+local cluster, needs to answer on an address of the node's that pods reach
+too; until it does, the job fails, says so, and agents start from the agent
+image and install the harness.
 
 ## Agents beyond the dreamer
 

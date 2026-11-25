@@ -427,6 +427,8 @@ EOF
         fi
     fi
     printf '%s\n' "$rendered" | kubectl --context "$context" apply -f -   # every object names its namespace; one is not this one
+    # Applying does not remove what the values no longer ask for.
+    [ -n "$warm_ref" ] || "${kube[@]}" delete cronjob/agent-warm networkpolicy/warm-job-reaches-the-registry serviceaccount/agent-warm --ignore-not-found >/dev/null
     "${kube[@]}" rollout status statefulset/cmem --timeout=120s
     if "${kube[@]}" get deployment egress >/dev/null 2>&1; then
         "${kube[@]}" annotate deployment egress "renewal-source=$renewal_source" --overwrite >/dev/null

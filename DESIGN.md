@@ -354,6 +354,15 @@ which are the weakest parts. Three things are meant to keep that manageable:
   this leads: a session (a conversation, a working directory and a
   profile) is what lasts, and a pod is where it runs for a while; a
   dispatcher will start one where a message arrives and end it when idle.
+- A job's pod, and so a resumed conversation's, finds the harness already
+  there (ADR 0041, proposed): it starts from a warm image, the agent image
+  with the harness added as one layer outside the home, which a job of the
+  installation's own makes in the cluster and keeps in the installation's
+  private registry. The job checks the harness's channel twice a day and
+  rebuilds only when its version or the agent image changed; pods name a
+  tag it moves. Its start links that copy where the installer would have put
+  it, and installs as before when the copy is missing or does not run. An
+  interactive agent keeps its own copy.
 - Beside the proxy and the memory, agents reach the namespaces the
   installation names for its own services, and have one namespace where
   they may run what a task needs, bounded by a quota and closed to the
