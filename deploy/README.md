@@ -181,6 +181,17 @@ setting in the values:
   `scripts/deploy.sh CONTEXT copies` lists what is kept and
   `scripts/deploy.sh CONTEXT restore --from-store` puts the latest library
   back (`deploy/RECOVERY.md`).
+- **The installation's own definition.** Which agents run, on what
+  schedule and models, what each is told to do, and the installation's
+  commands are not in this repository: they are the values, routines and
+  tools the deploy script reads (`.local/`, or the directory
+  `CARMAN_INSTALLATION` names). Keep that directory as a git repository of
+  its own, so that a change to what an agent is told is a commit with a
+  reason. When it is one, each deploy puts a bundle of it, history included,
+  in the cluster and the nightly job copies it as `installation`:
+  `scripts/deploy.sh CONTEXT copy installation > definition.bundle`, then
+  `git clone definition.bundle`, gets it back. What is not committed is
+  deployed and is not in the copy. No credential belongs in it.
 
 Every pod meets the restricted pod security standard and has its own
 service account.

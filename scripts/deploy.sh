@@ -464,6 +464,27 @@ EOF
         running="$("${kube[@]}" get deployment egress -o 'jsonpath={.spec.template.spec.containers[?(@.name!="envoy")].image}' 2>/dev/null | cut -d' ' -f1)"
         [ -z "$running" ] || renewal_image="$running"
     fi
+    # The installation's definition (its values, routines and commands),
+    # where it is kept as a git repository of its own: a bundle of it,
+    # history included, goes into the cluster, and the nightly backup keeps
+    # it with the rest. CARMAN_INSTALLATION names the directory; .local
+    # unless set. What is not committed is deployed all the same, and is
+    # not in the copy.
+    installation="${CARMAN_INSTALLATION:-.local}"
+    if [ -e "$installation/.git" ] && git -C "$installation" rev-parse HEAD >/dev/null 2>&1; then
+        bundle="$(mktemp)"
+        if git -C "$installation" bundle create "$bundle" --all >/dev/null 2>&1 && [ "$(wc -c < "$bundle")" -lt 900000 ] &&
+            "${kube[@]}" create configmap installation "--from-file=definition.bundle=$bundle" --dry-run=client -o json |
+            "${kube[@]}" replace --force -f - >/dev/null 2>&1; then
+            chart_values+=(--set backup.installation=true)
+            echo "the cluster holds a copy of the installation's definition, as of $(git -C "$installation" log -1 --format='%h %s' | cut -c1-70)"
+            [ -z "$(git -C "$installation" status --porcelain)" ] ||
+                echo "deploy: the installation's definition has changes that are not committed; they are deployed, and the copy kept is of the last commit" >&2
+        else
+            echo "deploy: no copy of the installation's definition was put in the cluster (a bundle over 900 kB does not fit a config map, or the cluster refused it); the backup goes on without it" >&2
+        fi
+        rm -f "$bundle"
+    fi
     rendered="$(helm template carman charts/carman --namespace "$namespace" "${chart_values[@]}" \
         --set "memory.image=$CARMAN_IMAGE" --set "agent.image=$CARMAN_AGENT_IMAGE" --set "dispatcher.image=$DISPATCHER_IMAGE" --set "egress.renewalImage=$renewal_image" --set "dreamer.suspend=${dreaming:-true}" \
         --set "dispatcher.notices.context=$context")" ||

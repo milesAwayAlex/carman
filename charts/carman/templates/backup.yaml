@@ -97,6 +97,11 @@ spec:
                       name: {{ .Values.dispatcher.tokensSecret }}
                       key: backup
                 {{- end }}
+                {{- if .Values.backup.installation }}
+                # The installation's own definition, as a git bundle the
+                # deploy put in the cluster.
+                {{- $also = append $also (dict "name" "installation" "command" (list "cat" "/etc/installation/definition.bundle")) }}
+                {{- end }}
                 - name: BACKUP_ALSO
                   value: {{ $also | toJson | quote }}
                 {{- range $name, $value := .Values.backup.env }}
@@ -124,6 +129,11 @@ spec:
                   mountPath: /etc/agent/egress
                   readOnly: true
                 {{- end }}
+                {{- if .Values.backup.installation }}
+                - name: installation
+                  mountPath: /etc/installation
+                  readOnly: true
+                {{- end }}
               resources:
                 {{- toYaml .Values.backup.resources | nindent 16 }}
               securityContext:
@@ -143,6 +153,11 @@ spec:
               configMap:
                 name: egress-ca
                 optional: true
+            {{- end }}
+            {{- if .Values.backup.installation }}
+            - name: installation
+              configMap:
+                name: installation
             {{- end }}
 {{- if .Values.egress.enabled }}
 ---

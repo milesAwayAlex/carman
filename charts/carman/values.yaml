@@ -290,6 +290,12 @@ backup:
   #   - name: database
   #     command: [pg_dumpall, --host, db.services]
   also: []
+  # The installation's own definition (its values, its agents' routines, its
+  # commands), where that is kept as a git repository: the deploy script
+  # puts a bundle of it, history included, in the config map `installation`
+  # and switches this on, and the job copies it with the rest. Whoever
+  # deploys another way makes that config map (key definition.bundle).
+  installation: false
   # More of the job's environment, such as a store's region.
   env: {}
   # A store on the installation's own network is reached directly and not
