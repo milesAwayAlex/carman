@@ -76,8 +76,7 @@ the log: what happened before notices existed is not told.
 annotation `dispatcher/notifies-owner: "true"` on its job template. Its
 Job's failure is then not told again, if the program ended on its own
 (there is an exit code and its deadline did not stop it): a program that
-was killed could not tell anyone. Not yet set on the backup: the backup's
-CronJob is not changed by this work.
+was killed could not tell anyone. The backup's job template carries it.
 
 **Readings of the account's usage**, as events that belong to no task (kept
 for `retentionUnowned`):

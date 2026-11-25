@@ -19,6 +19,11 @@ spec:
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 7
   jobTemplate:
+    metadata:
+      annotations:
+        # It tells the owner of its own failure (backup-state): the
+        # dispatcher does not tell them again, unless it was killed (ADR 0043).
+        dispatcher/notifies-owner: "true"
     spec:
       # One try a night: a failure tells the owner, once.
       backoffLimit: 0
