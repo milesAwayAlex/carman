@@ -414,9 +414,10 @@ EOF
     # that image's scripts: point the tag at the new image first, so the
     # first pods after a deploy start from it (and install the harness), and
     # make the warm one at the end.
-    warm_ref="$(printf '%s\n' "$rendered" | awk '$1 == "image:" {image = $2} $1 == "imagePullPolicy:" && $2 == "Always" {print image; exit}')"
+    # (awk reads to the end: one that stops early fails the pipe.)
+    warm_ref="$(printf '%s\n' "$rendered" | awk '$1 == "image:" {image = $2} $1 == "imagePullPolicy:" && $2 == "Always" && found == "" {found = image} END {print found}')"
     if [ -n "$warm_ref" ]; then
-        warm_base="$(printf '%s\n' "$rendered" | awk '$2 == "WARM_BASE" {getline; print $2; exit}' | tr -d '"')"
+        warm_base="$(printf '%s\n' "$rendered" | awk '$3 == "WARM_BASE" {getline; base = $2} END {print base}' | tr -d '"')"
         if [ "$("${kube[@]}" get cronjob agent-warm -o 'jsonpath={.spec.jobTemplate.spec.template.spec.containers[0].env[?(@.name=="WARM_BASE")].value}' 2>/dev/null || true)" != "$warm_base" ]; then
             docker image inspect "$CARMAN_AGENT_IMAGE" >/dev/null 2>&1 || docker pull -q "$CARMAN_AGENT_IMAGE" >/dev/null ||
                 die "could not get $CARMAN_AGENT_IMAGE to point $warm_ref at it"
