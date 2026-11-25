@@ -13,7 +13,7 @@ import (
 // entry shows where more is without being marked corrected or disputed.
 func TestANoteCanAddToAnEntryWithoutCorrectingIt(t *testing.T) {
 	laptop, worker, dreamer := newService(t)
-	restore := strings.Fields(laptop.ok("", "note", "--kind", "fact", "--human", "alex", "--global",
+	restore := strings.Fields(laptop.ok("", "note", "--kind", "fact", "--human", "user", "--global",
 		"The staging database is restored from the nightly snapshot every Sunday at 03:00 UTC."))[1]
 	out := worker.ok("", "note", "--kind", "fact", "--evidence", "read the restore job's script", "--adds-to", restore,
 		"After the Sunday staging restore, scripts/anonymise.sh runs on the restored data.")
@@ -40,7 +40,7 @@ func TestANoteCanAddToAnEntryWithoutCorrectingIt(t *testing.T) {
 	}
 
 	// A note held as close to an entry is offered the addition as well.
-	stdout, _, _ := laptop.run("", "note", "--kind", "fact", "--human", "alex", "--global",
+	stdout, _, _ := laptop.run("", "note", "--kind", "fact", "--human", "user", "--global",
 		"The staging database is restored from the nightly snapshot every Sunday at 03:00 UTC, by the restore job.")
 	expectContains(t, stdout, "--adds-to ID")
 
@@ -146,7 +146,7 @@ func TestARestrictedRoutineGetsExactlyWhatItIsAllowedAndIsToldSo(t *testing.T) {
 // ADR 0044: every session is told what memory is not for, and so is the help.
 func TestSessionsAreToldWhatMemoryIsNotFor(t *testing.T) {
 	laptop, _, _ := newService(t)
-	laptop.ok("", "note", "--kind", "preference", "--human", "alex", "--global", "Answers open with the conclusion.")
+	laptop.ok("", "note", "--kind", "preference", "--human", "user", "--global", "Answers open with the conclusion.")
 	for _, text := range []string{
 		hookContext(t, laptop, map[string]any{"hook_event_name": "SessionStart", "session_id": "s1", "cwd": t.TempDir()}),
 		laptop.ok("", "help"),
