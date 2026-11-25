@@ -134,7 +134,7 @@ func (c *command) harnessFlags() []string {
 		// refuses what is not allowed here, and asks nobody.
 		allowed := []string{"Bash(cmem *)"}
 		// Messages (ADR 0045): the dispatcher's client, where there is one.
-		messages := c.getenv("DISPATCHER_URL") != ""
+		messages := c.getenv("DISPATCHER_URL") != "" && hasIdentity(c.getenv("DISPATCHER_IDENTITY"))
 		if messages {
 			allowed = append(allowed, "Bash(dispatcher *)")
 		}
@@ -158,6 +158,16 @@ func (c *command) harnessFlags() []string {
 		}
 	}
 	return flags
+}
+
+// hasIdentity says whether the pod has its own token for the dispatcher,
+// without which it cannot message (ADR 0045).
+func hasIdentity(file string) bool {
+	if file == "" {
+		file = "/var/run/secrets/dispatcher/token"
+	}
+	_, err := os.Stat(file)
+	return err == nil
 }
 
 // routineReads are the directories a restricted routine may read.

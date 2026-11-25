@@ -273,11 +273,17 @@ func hook(ctx context.Context, flags map[string][]string) error {
 	if err := json.NewDecoder(io.LimitReader(os.Stdin, 4<<20)).Decode(&in); err != nil || in.SessionID == "" {
 		return nil
 	}
+	// Only a pod with its own token for the dispatcher has messages; the
+	// shared agent token would be refused at every call.
+	if _, err := os.Stat(identityFile()); err != nil {
+		return nil
+	}
 	c, err := client()
 	if err != nil {
 		return nil
 	}
-	c.HTTP = &http.Client{Timeout: 8 * time.Second}
+	// A dispatcher that does not answer costs a tool call no more than this.
+	c.HTTP = &http.Client{Timeout: 3 * time.Second}
 	kind := or(os.Getenv("DISPATCHER_SESSION_KIND"), "headless")
 	if os.Getenv("AGENT_INTERACTIVE") != "" && os.Getenv("DISPATCHER_SESSION_KIND") == "" {
 		kind = "interactive"
