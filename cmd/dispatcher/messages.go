@@ -266,6 +266,11 @@ const intro = "You can be written to, and can write to other sessions, to agents
 	"A message reaches its addressee whether it is running or not. Messages for you arrive in this conversation as <message> blocks, " +
 	"between your tool calls or when you are idle; each says who it is from. You are %s."
 
+// hooksOff says whether this harness runs without the image's hooks.
+func hooksOff() bool {
+	return os.Getenv("CMEM_HOOK") == "off" || os.Getenv("DISPATCHER_HOOK") == "off"
+}
+
 // hook carries messages into a running session (ADR 0045), as a hook of
 // the harness: Claude Code's events SessionStart, UserPromptSubmit,
 // PostToolBatch, Stop and SessionEnd. With --wait it is the idle waiter, run
@@ -273,6 +278,11 @@ const intro = "You can be written to, and can write to other sessions, to agents
 // session with it (exit 2, the message on stderr). It never fails the
 // harness: without a dispatcher, it says nothing.
 func hook(ctx context.Context, flags map[string][]string) error {
+	// A harness started for a trial or a side job (CMEM_HOOK=off switches
+	// off every hook the agent image installs) is not a session to message.
+	if hooksOff() {
+		return nil
+	}
 	var in hookInput
 	if err := json.NewDecoder(io.LimitReader(os.Stdin, 4<<20)).Decode(&in); err != nil || in.SessionID == "" {
 		return nil

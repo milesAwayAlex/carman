@@ -570,8 +570,31 @@ agent, and recorded as `message.refused`. `dispatcher peers` marks what the
 caller may not write to. A `writtenBy` that names no agent of the values
 fails the render.
 
-A standing agent's pod has messages after it is restarted on an image that
-carries them (`scripts/deploy.sh CONTEXT agent restart NAME`); the dreamer
+### A harness an agent starts itself
+
+An agent that starts a harness of its own, to try something, gets the
+image's hooks in it too: they are in the harness's user settings
+(`~/.claude/settings.json`, written by `agent-env`). The memory hook would
+read and write the installation's memory, or call a stand-in `cmem` on the
+trial's `PATH`; the dispatcher's would register the child as a session of
+the agent. Start it with the hooks off:
+
+```
+CMEM_HOOK=off claude -p 'PROMPT'                       # every hook the image installs: memory and messages
+DISPATCHER_HOOK=off claude -p 'PROMPT'                 # only the dispatcher's
+claude --setting-sources project,local -p 'PROMPT'     # none of the user settings: no hooks, no permissions, no env
+```
+
+Such a harness has **no model credential**: the pod has one
+(`CLAUDE_CODE_OAUTH_TOKEN`, from `agent.modelSecret`), and the harness
+removes it, with the other model credentials it knows, from the
+environment of every command it runs. A trial that needs a model does not
+run from inside a run yet. The way that keeps the credential out of every
+process would be the one the other services have (ADR 0031): the egress
+proxy adds the model credential to requests for the model's API, and the
+pods hold none, so a child harness needs only a placeholder.
+
+ (`scripts/deploy.sh CONTEXT agent restart NAME`); the dreamer
 has none yet.
 
 ## Agents beyond the dreamer

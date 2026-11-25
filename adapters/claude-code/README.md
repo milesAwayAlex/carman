@@ -55,7 +55,9 @@ Optional settings:
   input and answers with entry IDs, normally by asking a small model. When
   set, each new prompt has it choose from the entries the session has not
   seen. Raise the `UserPromptSubmit` hook's timeout to cover it.
-- **Off for one session.** `CMEM_HOOK=off`.
+- **Off for one session.** `CMEM_HOOK=off`. In the agent image it also
+  switches off the dispatcher's hooks, so a harness an agent starts for a
+  trial is not a session that messages reach.
 - **What to do when memory is down.** `CMEM_UNREACHABLE_HINT` is a sentence
   added to what a starting session is told when the service cannot be
   reached: the command that diagnoses it on this machine, for instance.

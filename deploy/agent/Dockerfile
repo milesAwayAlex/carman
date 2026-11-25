@@ -62,8 +62,9 @@ COPY agent-env /usr/local/lib/agent-env
 COPY attention.md /usr/local/lib/agent-attention.md
 # The memory hook, which agent-env puts in the harness's settings when an
 # agent starts. The same as adapters/claude-code/settings.example.json;
-# change one, change the other. An agent that is not doing ordinary work
-# sets CMEM_HOOK=off.
+# change one, change the other. An agent that is not doing ordinary work,
+# or a harness an agent starts for a trial, sets CMEM_HOOK=off, which
+# switches off the dispatcher's hooks too (DISPATCHER_HOOK=off: only those).
 COPY settings.json /usr/local/lib/agent-settings.json
 # A login shell, such as the one in a tmux window, starts from /etc/profile,
 # which sets PATH anew: give it the agent's environment again.
