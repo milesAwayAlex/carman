@@ -1,0 +1,42 @@
+{{- if .Values.dispatcher.enabled }}
+{{- /* Templates the dispatcher starts (ADR 0043). Their CronJobs never run
+on their own: they are suspended, with a schedule that is never used. */ -}}
+{{- $templates := list }}
+{{- /* A notice to the owner: the installation's notify-owner, with the words
+the dispatcher put in the task's payload. */ -}}
+{{- $templates = append $templates (dict "name" "notify" "cronjob" "notify" "deadlineSeconds" 300
+    "command" (list "sh" "-c" "exec notify-owner --urgency \"$TASK_URGENCY\" --importance \"$TASK_IMPORTANCE\" \"$TASK_TITLE\" \"$TASK_TEXT\"")
+    "resources" (dict "requests" (dict "cpu" "20m" "memory" "64Mi") "limits" (dict "memory" "256Mi"))) }}
+{{- if .Values.usage.enabled }}
+{{- $templates = append $templates (dict "name" "usage" "cronjob" "agent-usage" "deadlineSeconds" .Values.usage.deadlineSeconds
+    "command" (list "usage-reading") "env" (dict "USAGE_MODEL" .Values.usage.model) "resources" .Values.usage.resources) }}
+{{- end }}
+{{- range $templates }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .cronjob }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  schedule: "0 0 1 1 *"
+  timeZone: "Etc/UTC"
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ .deadlineSeconds }}
+      ttlSecondsAfterFinished: {{ $.Values.agent.keepFinishedSeconds }}
+      template:
+        metadata:
+          labels:
+            app: {{ .cronjob }}
+            app.kubernetes.io/component: agent
+            {{- with (include "pod.labels" $) }}{{ . | trim | nindent 12 }}{{- end }}
+        spec:
+          {{- include "agent.podspec" (dict "root" $ "agent" .) | nindent 10 }}
+{{- end }}
+{{- end }}

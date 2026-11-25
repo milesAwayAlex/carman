@@ -68,3 +68,24 @@ addresses a node-local cache answers on. */ -}}
 - ipBlock: {cidr: {{ . }}/32}
 {{- end }}
 {{- end -}}
+
+{{- /* The schedules the dispatcher keeps, as JSON: those listed under
+dispatcher.schedules, each agent with dispatched: true, and the usage
+reading. An agent's run may start up to its catch-up late before it counts
+as not started, and is given ten minutes beyond its Job's own deadline, so
+that the Job's failure, not an overrun, is what is told. */ -}}
+{{- define "dispatcher.schedules" -}}
+{{- $out := list }}
+{{- range .Values.dispatcher.schedules }}{{ $out = append $out . }}{{ end }}
+{{- range .Values.agents }}
+{{- if and .dispatched (not .interactive) }}
+{{- $out = append $out (dict "name" (printf "agent-%s" .name) "class" (printf "agent-%s" .name) "cron" .schedule "timeZone" "UTC" "startWithin" (printf "%ds" (int (.catchUpSeconds | default 86400))) "timeout" (printf "%ds" (add (int (.deadlineSeconds | default 3600)) 600)) "priority" (int (.priority | default 0))) }}
+{{- end }}
+{{- end }}
+{{- if .Values.usage.enabled }}
+{{- with .Values.usage }}
+{{- $out = append $out (dict "name" "usage" "class" "agent-usage" "cron" .schedule "timeZone" "UTC" "startWithin" "30m" "timeout" (printf "%ds" (add (int .deadlineSeconds) 600)) "priority" (int .priority)) }}
+{{- end }}
+{{- end }}
+{{- toJson $out }}
+{{- end -}}

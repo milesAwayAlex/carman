@@ -67,6 +67,18 @@ spec:
                   value: {{ join "," .Values.dreamer.models | quote }}
                 - name: CMEM_ROUTINE_BUDGET_USD
                   value: {{ .Values.dreamer.budgetUSD | quote }}
+                {{- if .Values.dispatcher.enabled }}
+                # Where each routine's run records what it used (ADR 0043).
+                - name: AGENT_NAME
+                  value: dreamer
+                - name: DISPATCHER_URL
+                  value: http://dispatcher.{{ .Release.Namespace }}.svc:{{ .Values.dispatcher.service.port }}
+                - name: DISPATCHER_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.dispatcher.tokensSecret }}
+                      key: agent
+                {{- end }}
                 {{- if .Values.egress.enabled }}
                 # Everything outside the cluster is reached through the
                 # proxy; the memory service is beside it and reached directly.

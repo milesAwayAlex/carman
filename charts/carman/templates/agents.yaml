@@ -52,7 +52,11 @@ containers:
     command: ["agent-session"]
     workingDir: /home/agent
     {{- else }}
+    {{- with .command }}
+    command: {{ toJson . }}
+    {{- else }}
     args: {{ toJson .routines }}
+    {{- end }}
     workingDir: /work
     {{- end }}
     env:
@@ -91,6 +95,17 @@ containers:
         value: {{ .budgetUSD | default 2 | quote }}
       - name: CMEM_ROUTINE_TOOLS
         value: {{ .tools | default "memory" | quote }}
+      {{- if $root.Values.dispatcher.enabled }}
+      # Where a run records what it used (ADR 0043), as the agent role,
+      # which may add events to the dispatcher's log and nothing more.
+      - name: DISPATCHER_URL
+        value: http://dispatcher.{{ $root.Release.Namespace }}.svc:{{ $root.Values.dispatcher.service.port }}
+      - name: DISPATCHER_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: {{ $root.Values.dispatcher.tokensSecret }}
+            key: agent
+      {{- end }}
       {{- with .waitForLimitMinutes }}
       # How long a run may wait for the plan's usage limit to reset
       # before it gives up. The deadline above has to allow for it.
@@ -391,7 +406,12 @@ spec:
   # only when a Job is made from it.
   schedule: {{ .schedule | default "0 0 1 1 *" | quote }}
   timeZone: "Etc/UTC"
-  suspend: {{ if .schedule }}{{ .suspend | default false }}{{ else }}true{{ end }}
+  #
+  # An agent the dispatcher schedules (dispatched: true) keeps its CronJob
+  # as a template only, always suspended, so that the cluster does not start
+  # it too; the dispatcher refuses to start one whose CronJob is not.
+  {{- if and .dispatched (not .schedule) }}{{ fail (printf "agent %s: dispatched needs a schedule" .name) }}{{ end }}
+  suspend: {{ if .dispatched }}true{{ else if .schedule }}{{ .suspend | default false }}{{ else }}true{{ end }}
   # A cluster that was not running at the scheduled time (a laptop asleep)
   # starts the run when it is back, if that is within this long.
   startingDeadlineSeconds: {{ .catchUpSeconds | default 86400 }}

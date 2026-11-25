@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,5 +56,22 @@ func TestR7BudgetRule(t *testing.T) {
 	have = false
 	if ok, _ := rule.admit(ctx, backlog, nil); !ok {
 		t.Error("no reading held work")
+	}
+}
+
+func TestR7ReadStream(t *testing.T) {
+	stream := `{"type":"system"}
+{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.1,"resetsAt":1764000000}}}}
+not json
+{"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.25,"resetsAt":1764000000},"seven_day":{"utilization":0.5,"resetsAt":1764500000}}}}
+{"type":"result","total_cost_usd":0.0031}`
+	info, cost, err := readStream(strings.NewReader(stream))
+	var rd reading
+	json.Unmarshal([]byte(`{"rate_limit_info":`+string(info)+`}`), &rd)
+	if err != nil || cost != 0.0031 || rd.Info.Windows["five_hour"].Utilization != 0.25 || rd.Info.Windows["seven_day"].resets().Unix() != 1764500000 {
+		t.Errorf("read %s, %v, %v", info, cost, err)
+	}
+	if _, _, err := readStream(strings.NewReader(`{"type":"result"}`)); err == nil {
+		t.Error("a stream without a reading was taken")
 	}
 }

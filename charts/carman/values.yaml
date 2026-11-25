@@ -52,6 +52,48 @@ dispatcher:
   # runs shows what did not.
   retention: 720h
   retentionUnowned: 4320h
+  # Schedules the dispatcher keeps (ADR 0043), beside the agents with
+  # `dispatched: true` and the usage reading. Each runs the job template of
+  # the CronJob its class names, which must be suspended: the dispatcher
+  # refuses to start one that is not, so that the cluster does not start it
+  # as well.
+  #   - name: example
+  #     class: agent-example      # the CronJob whose job template is run
+  #     cron: "0 6 * * 1-5"       # five fields
+  #     timeZone: Europe/London   # UTC unless named
+  #     startWithin: 1h           # later than this, the start is told as not started
+  #     timeout: 1h               # how long an attempt may run
+  #     priority: 10              # higher first; the admission rule holds low ones
+  schedules: []
+  # For every CronJob it does not start, the dispatcher expects a Job at
+  # each tick of one not suspended, within the CronJob's own catch-up
+  # (startingDeadlineSeconds: a cluster asleep at the tick starts the run
+  # when it wakes, if it is within that) and this beyond it. A tick with no
+  # Job is recorded as run.missed. A CronJob may set its own whole grace
+  # with the annotation dispatcher/grace.
+  expect:
+    grace: 1h
+  # The owner is told of a Job that failed, a run that did not start, a task
+  # that did not start in time or ran too long, and ticks a schedule
+  # skipped: one notice each, as a task of this class, whose template runs
+  # the installation's notify-owner. Off, each is recorded as
+  # notice.withheld with the words it would have sent; read them
+  # (scripts/deploy.sh CONTEXT dispatch log --type notice.withheld) before
+  # switching it on.
+  notices:
+    enabled: false
+    class: notify
+    # The kubectl context the commands in a notice name; scripts/deploy.sh
+    # sets it to the one it deploys with.
+    context: CONTEXT
+  # Deferring what can wait: a task whose priority is below `below` is held
+  # while the latest usage reading has a window at `above` or more that has
+  # not reset. A reading older than maxAge is unknown, and unknown admits.
+  admission:
+    enabled: false
+    below: 50
+    above: 0.9
+    maxAge: 2h
   service:
     port: 8379
   resources:
@@ -186,6 +228,22 @@ agent:
       requests: {cpu: 250m, memory: 512Mi}
       limits: {memory: 2Gi}
 
+# The account's usage, read every hour (ADR 0043): the smallest call there
+# is, to the cheapest model, whose stream says where each of the plan's
+# windows stands, recorded as usage.observed. The dispatcher schedules it
+# (its CronJob, agent-usage, is a template only); it costs a fraction of a
+# cent a reading.
+usage:
+  enabled: true
+  schedule: "7 * * * *"
+  model: claude-haiku-5-5
+  # Above the admission rule's threshold: a reading is never held.
+  priority: 100
+  deadlineSeconds: 300
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {memory: 1Gi}
+
 dreamer:
   # Off until a model credential is in place; `scripts/deploy.sh CONTEXT
   # dreamer on` switches it and later deploys keep what the cluster has.
@@ -316,6 +374,8 @@ egress:
 #       routines: [example]           # in the image, or put in the cluster with
 #                                     # scripts/deploy.sh CONTEXT routine FILE
 #       schedule: "0 15 * * 1"        # optional; without it, runs only when asked
+#       dispatched: true              # the dispatcher starts it on that schedule, not the cluster
+#       priority: 10                  # its tasks' priority, when dispatched
 #       catchUpSeconds: 172800        # how late a missed run may still start (a day, unless said)
 #       waitForLimitMinutes: 600      # wait this long for the plan's usage limit to reset; needs deadlineSeconds to match
 #       models: [claude-sonnet-5-5]   # the ladder

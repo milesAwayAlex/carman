@@ -136,6 +136,9 @@ linux_cmem() {
     # The same source gives the same file, and so the same image: without
     # this the commit is written into it, and every commit restarts the pods.
     CGO_ENABLED=0 GOOS=linux GOARCH="$arch" "${build[@]}" -buildvcs=false -trimpath -o "$1/cmem-$arch" ./cmd/cmem
+    # The agent image carries the dispatcher's client as well.
+    [ "${2:-}" != with-dispatcher ] ||
+        CGO_ENABLED=0 GOOS=linux GOARCH="$arch" "${build[@]}" -buildvcs=false -trimpath -o "$1/dispatcher-$arch" ./cmd/dispatcher
 }
 
 # The dispatcher's image (deploy/dispatcher). Sets DISPATCHER_IMAGE unless
@@ -204,8 +207,8 @@ build_agent() {
     [ -z "${CARMAN_AGENT_IMAGE:-}" ] || return 0
     local root="$build_root/agent"
     rm -rf "$root" && mkdir -p "$root"
-    linux_cmem "$root"
-    cp deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/backup-state deploy/agent/warm-harness deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/agent-open deploy/agent/oauth-credential deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json "$root/"
+    linux_cmem "$root" with-dispatcher
+    cp deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/usage-reading deploy/agent/backup-state deploy/agent/warm-harness deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/agent-open deploy/agent/oauth-credential deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json "$root/"
     cp -R routines "$root/routines"
     # A new tag whenever anything in it changes.
     # CARMAN_AGENT_BASE names an image to build on in place of the plain one:
@@ -462,7 +465,8 @@ EOF
         [ -z "$running" ] || renewal_image="$running"
     fi
     rendered="$(helm template carman charts/carman --namespace "$namespace" "${chart_values[@]}" \
-        --set "memory.image=$CARMAN_IMAGE" --set "agent.image=$CARMAN_AGENT_IMAGE" --set "dispatcher.image=$DISPATCHER_IMAGE" --set "egress.renewalImage=$renewal_image" --set "dreamer.suspend=${dreaming:-true}")" ||
+        --set "memory.image=$CARMAN_IMAGE" --set "agent.image=$CARMAN_AGENT_IMAGE" --set "dispatcher.image=$DISPATCHER_IMAGE" --set "egress.renewalImage=$renewal_image" --set "dreamer.suspend=${dreaming:-true}" \
+        --set "dispatcher.notices.context=$context")" ||
         die "the chart did not render"
     # With a warm image, agents' jobs start from a tag the warm job moves.
     # One made on the agent image this deploy replaces would start them with

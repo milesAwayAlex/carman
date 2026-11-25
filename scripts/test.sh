@@ -21,7 +21,7 @@ if [ -n "$named" ]; then
 fi
 # The agent image is built from a list of files in two places, the deploy
 # script and the images workflow: what the Dockerfile copies must be in both.
-for file in $(sed -n 's/^COPY \(.*\) [^ ]*$/\1/p' deploy/agent/Dockerfile | tr ' ' '\n' | grep -v -e '^cmem-' -e '^routines$'); do
+for file in $(sed -n 's/^COPY \(.*\) [^ ]*$/\1/p' deploy/agent/Dockerfile | tr ' ' '\n' | grep -v -e '^cmem-' -e '^dispatcher-' -e '^routines$'); do
     for list in scripts/deploy.sh .github/workflows/images.yml; do
         grep -q -E "deploy/agent/$file( |\$)" "$list" || { echo "$list does not copy deploy/agent/$file, which the agent image needs" >&2; exit 1; }
     done

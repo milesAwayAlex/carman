@@ -1,0 +1,14 @@
+#!/bin/sh
+# One reading of the account's standing against its plan's limits: the
+# smallest call there is, to the cheapest model, and the harness's last word
+# on the limits, recorded in the dispatcher's log as usage.observed through
+# the agent role. It costs a fraction of a cent.
+#
+# From the environment: the harness's model credential, DISPATCHER_URL and
+# DISPATCHER_TOKEN, and USAGE_MODEL (the model asked).
+set -eu
+. /usr/local/lib/agent-env
+agent_setup || exit 1
+model="${USAGE_MODEL:-claude-haiku-5-5}"
+claude -p "Reply with the single word ok." --model "$model" --output-format stream-json --verbose |
+    dispatcher reading --model "$model"

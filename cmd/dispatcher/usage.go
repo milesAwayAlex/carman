@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"math"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -167,5 +171,57 @@ func standing(ctx context.Context, c *api.Client) error {
 		}
 		fmt.Printf("  runs, %s: $%.2f: %s\n", p.name, total, strings.Join(parts, ", "))
 	}
+	return nil
+}
+
+// readStream reads a harness's stream-json output: the last
+// rate_limit_event's rate_limit_info, and the result's cost.
+func readStream(r io.Reader) (info json.RawMessage, cost float64, err error) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 1<<20), 16<<20)
+	for sc.Scan() {
+		var l struct {
+			Type string          `json:"type"`
+			Info json.RawMessage `json:"rate_limit_info"`
+			Cost float64         `json:"total_cost_usd"`
+		}
+		if json.Unmarshal(sc.Bytes(), &l) != nil {
+			continue
+		}
+		switch l.Type {
+		case "rate_limit_event":
+			info = l.Info
+		case "result":
+			cost = l.Cost
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return nil, 0, err
+	}
+	if info == nil {
+		return nil, cost, errors.New("the harness's stream has no rate_limit_event")
+	}
+	return info, cost, nil
+}
+
+// observe records one reading: the harness's stream on stdin, emitted as
+// usage.observed through the client's role (the agent's).
+func observe(ctx context.Context, c *api.Client, flags map[string][]string) error {
+	info, cost, err := readStream(os.Stdin)
+	if err != nil {
+		return err
+	}
+	data, _ := json.Marshal(map[string]any{"model": one(flags, "model", ""), "rate_limit_info": info, "cost_usd": cost})
+	if err := c.Do(ctx, http.MethodPost, "/v1/events", nil, api.EmitRequest{Type: TypeUsageObserved, Source: "usage-reading", Data: data}, nil); err != nil {
+		return err
+	}
+	var rd reading
+	_ = json.Unmarshal(data, &rd)
+	var parts []string
+	for _, n := range sortedWindows(rd.Info.Windows) {
+		w := rd.Info.Windows[n]
+		parts = append(parts, fmt.Sprintf("%s %.0f%% (resets %s)", n, w.Utilization*100, w.resets().Format("2006-01-02 15:04 UTC")))
+	}
+	fmt.Printf("recorded usage.observed: %s; the reading cost $%.4f\n", strings.Join(parts, ", "), cost)
 	return nil
 }

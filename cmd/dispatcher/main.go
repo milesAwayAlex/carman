@@ -7,6 +7,7 @@
 //	dispatcher status [ID]                what runs, what waits and why, the last runs
 //	dispatcher log [--after N] [--type T] [--limit N] [--last N]
 //	dispatcher dump > FILE                the database, as SQL that psql restores
+//	HARNESS | dispatcher reading [--model M]   record the account's usage from a harness's stream-json
 //
 // The client reads DISPATCHER_URL and DISPATCHER_TOKEN. The service reads
 // DISPATCHER_TOKENS (role=token,...), DISPATCHER_LISTEN (:8379), the
@@ -63,7 +64,8 @@ dispatcher submit CLASS [ID] [--priority N] [--timeout 1h] [--start-within D] [-
 dispatcher emit TYPE [--subject S] [--id ID] [--source S] [--data JSON]
 dispatcher status [ID]
 dispatcher log [--after N] [--type T] [--limit N] [--last N]
-dispatcher dump > FILE`
+dispatcher dump > FILE
+HARNESS --output-format stream-json --verbose | dispatcher reading [--model M]`
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
@@ -93,6 +95,8 @@ func run(ctx context.Context, args []string) error {
 		return status(ctx, c, pos)
 	case "log":
 		return logCmd(ctx, c, flags)
+	case "reading":
+		return observe(ctx, c, flags)
 	case "dump":
 		resp, err := c.Raw(ctx, http.MethodGet, "/v1/dump", nil, nil)
 		if err != nil {

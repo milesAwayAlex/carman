@@ -19,8 +19,9 @@ spec:
 {{ include "pod.account" (dict "name" "dispatcher" "root" .) }}
 ---
 # What the dispatcher may do in its namespace, and nothing more: make Jobs
-# from the CronJobs' templates, follow every Job to its end, and read a
-# Job's pods for the exit code. It deletes nothing and changes nothing it
+# from the CronJobs' templates, follow every Job to its end, read every
+# CronJob's schedule to know what runs to expect, and read a Job's pods for
+# the exit code. It deletes nothing and changes nothing it
 # did not make.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -33,7 +34,7 @@ rules:
     verbs: ["get", "list", "watch", "create"]
   - apiGroups: ["batch"]
     resources: ["cronjobs"]
-    verbs: ["get"]
+    verbs: ["get", "list"]
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["list"]
@@ -111,6 +112,30 @@ spec:
               value: {{ .Values.dispatcher.retention | quote }}
             - name: DISPATCHER_RETENTION_UNOWNED
               value: {{ .Values.dispatcher.retentionUnowned | quote }}
+            # What it starts by itself (ADR 0043): the schedules listed, the
+            # agents it schedules, and the usage reading.
+            - name: DISPATCHER_SCHEDULES
+              value: {{ include "dispatcher.schedules" . | quote }}
+            - name: DISPATCHER_EXPECT_GRACE
+              value: {{ .Values.dispatcher.expect.grace | quote }}
+            - name: DISPATCHER_NOTICES
+              value: {{ ternary "on" "off" .Values.dispatcher.notices.enabled | quote }}
+            - name: DISPATCHER_NOTICE_CLASS
+              value: {{ .Values.dispatcher.notices.class | quote }}
+            - name: DISPATCHER_CONTEXT_NAME
+              value: {{ .Values.dispatcher.notices.context | quote }}
+            {{- with .Values.dispatcher.admission }}
+            {{- if .enabled }}
+            - name: DISPATCHER_ADMISSION
+              value: "on"
+            - name: DISPATCHER_ADMISSION_BELOW
+              value: {{ .below | quote }}
+            - name: DISPATCHER_ADMISSION_ABOVE
+              value: {{ .above | quote }}
+            - name: DISPATCHER_ADMISSION_MAX_AGE
+              value: {{ .maxAge | quote }}
+            {{- end }}
+            {{- end }}
             # The database, as libpq's variables: the service and pg_dump
             # both read them, and the password is in no address.
             - name: PGHOST
