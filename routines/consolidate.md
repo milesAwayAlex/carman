@@ -17,19 +17,30 @@ it with one command, so make changes they would agree with on sight.
    whole of it with `cmem get ID` before you merge or retire it. An entry
    shown without that line is already whole. "Disputed" beside an entry's
    kind means it has been flagged as wrong; the flags are listed with it.
-2. Decide what to change, using the rules below. If nothing needs changing,
+2. Look before you ask. Your instructions say whether you were given the
+   installation's definitions to read, or tools that read a ticket or a
+   document. If you were, use them now, before deciding anything:
+   - for every entry that says what state a ticket is in (open, in progress,
+     closed, merged), where another entry says otherwise or the state would
+     decide what you do with the entry, read the ticket;
+   - for every entry that reads as an instruction for one job or agent, read
+     that job's definition.
+   What you find settles the matter; see "What memory is not for" and
+   "Unless you can look" below. A question to the owner that a look would
+   have answered is a failure of this step.
+3. Decide what to change, using the rules below. If nothing needs changing,
    say so and stop without opening a run.
-3. Run `cmem consolidate start PURPOSE`, where PURPOSE is one line saying what
+4. Run `cmem consolidate start PURPOSE`, where PURPOSE is one line saying what
    this run is for. It prints the run's ID and how many entries the run may
    change.
-4. Make the changes, passing `--run RUN` each time. Put every text and reason
+5. Make the changes, passing `--run RUN` each time. Put every text and reason
    in single quotes: an unquoted semicolon or bracket ends the command early
    and stores half a sentence.
-5. Run `cmem consolidate log RUN` and check, entry by entry, that it shows
+6. Run `cmem consolidate log RUN` and check, entry by entry, that it shows
    the whole text you intended. If anything is cut short or wrong, undo the
    run with `cmem consolidate revert RUN 'REASON'`, start a new run, and do it
    again.
-6. Report (see the end).
+7. Report (see the end).
 
 ## What to change
 
@@ -186,7 +197,10 @@ If the scoped one adds a detail the other lacks, it is not a repeat; leave it.
 - **Unless you can look.** Where an entry's claim about a ticket or a
   document can be checked with a tool you were given, check it, and act on
   what you saw: an entry it shows out of date is retired, or replaced by
-  the entry that is right. Say in the reason what you checked and when
+  the entry that is right. When one line of an otherwise good entry is what
+  the look shows out of date, write the entry again without that line
+  (`cmem supersede ID --run RUN --kind KIND --from ID --drops 'THE LINE: what you saw' 'TEXT'`)
+  and keep the rest. Say in the reason what you checked and when
   (`'Checked ABC-12 with get_issue on DATE: closed on DATE'`). Read only:
   never change the ticket or the document. With no such tool, it stays a
   question for the owner.
