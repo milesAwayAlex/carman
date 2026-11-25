@@ -70,6 +70,10 @@ type Options struct {
 	// is kept however old. A task or event submitted again with an ID that
 	// retention removed is new: "one ID, one effect" holds within the period.
 	Retention time.Duration
+	// RetentionUnowned, when positive, replaces Retention for events that
+	// belong to no task and whose type has no period in RetentionByType:
+	// the record of what ran is worth keeping longer than task history.
+	RetentionUnowned time.Duration
 	// RetentionByType replaces Retention for events of a type that belong
 	// to no task; zero keeps them for ever.
 	RetentionByType map[string]time.Duration

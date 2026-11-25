@@ -13,6 +13,9 @@ const (
 // pruneEvery is how often the leader looks for what retention removes.
 func (o Options) pruneEvery() time.Duration {
 	shortest := o.Retention
+	if o.RetentionUnowned > 0 && (shortest == 0 || o.RetentionUnowned < shortest) {
+		shortest = o.RetentionUnowned
+	}
 	for _, p := range o.RetentionByType {
 		if p > 0 && (shortest == 0 || p < shortest) {
 			shortest = p
@@ -22,7 +25,7 @@ func (o Options) pruneEvery() time.Duration {
 }
 
 func (o Options) prunes() bool {
-	if o.Retention > 0 {
+	if o.Retention > 0 || o.RetentionUnowned > 0 {
 		return true
 	}
 	for _, p := range o.RetentionByType {
@@ -82,8 +85,12 @@ func (d *Dispatcher) prune(ctx context.Context) error {
 			}
 		}
 	}
-	if d.opts.Retention > 0 {
-		return d.pruneEvents(ctx, d.opts.Retention, `type <> ALL($3)`, listed)
+	unowned := d.opts.Retention
+	if d.opts.RetentionUnowned > 0 {
+		unowned = d.opts.RetentionUnowned
+	}
+	if unowned > 0 {
+		return d.pruneEvents(ctx, unowned, `type <> ALL($3)`, listed)
 	}
 	return nil
 }
