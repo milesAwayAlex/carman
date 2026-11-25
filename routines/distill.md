@@ -36,7 +36,11 @@ history, where `cmem get ID` still reads all of it.
    is over, which a look would have answered, is a failure of this step.
 3. Take at most three finished documents in one run, shortest first. For each,
    read the whole of it before writing anything: its outline, then every part
-   with `cmem get --from START --to NEXT-START ID`.
+   with `cmem get --from START --to NEXT-START ID`. A document is distilled
+   whole or not at all: a run may change a limited number of entries (the
+   start of the run says how many), and each lesson and each pointer is one.
+   When the lessons of the next document would not all fit, stop before it
+   and list it as more than this run could take.
 4. Run `cmem consolidate start 'Distil: WHAT'` once, and use that run for
    everything.
 5. Write the document's lessons, each as an entry of its own:

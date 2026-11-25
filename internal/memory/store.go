@@ -1052,7 +1052,14 @@ func (s *Store) Curate(c Curation) (Entry, error) {
 		if !slices.Contains(c.From, c.Supersedes) {
 			c.From = append(c.From, c.Supersedes)
 		}
-		if err := sourced(c.Entry.Text); err != nil {
+		// A pointer says how the document is still read. That command is
+		// the pointer's own: the document does not have to contain it.
+		text := c.Entry.Text
+		for _, own := range []string{"cmem get --outline " + c.Supersedes, "cmem get " + c.Supersedes} {
+			text = strings.ReplaceAll(text, "`"+own+"`", "")
+			text = strings.ReplaceAll(text, own, "")
+		}
+		if err := sourced(text); err != nil {
 			return fail(err)
 		}
 	case c.Supersedes == "" && len(c.From) > 0:

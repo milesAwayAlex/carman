@@ -981,7 +981,7 @@ func TestM4_ADocumentIsDistilledIntoLessonsAndAPointer(t *testing.T) {
 	}
 	run, _ := s.StartRun("Distil the queue notes.")
 	pointer := Curation{Run: run.ID, Supersedes: document.ID, Distilled: true,
-		Entry: NewEntry{CreatedBy: AuthorDreamer, Kind: KindFact, Text: "Working notes on the queue move, closed 2026-08-30. Kept in history."}}
+		Entry: NewEntry{CreatedBy: AuthorDreamer, Kind: KindFact, Text: "Working notes on the queue move, closed 2026-08-30. Kept in history: `cmem get --outline " + document.ID + "` reads all of it."}}
 	// The pointer comes after the lessons, not in place of them.
 	if _, err := s.Curate(pointer); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "lessons first") {
 		t.Fatalf("a pointer with no lesson written: %v", err)
