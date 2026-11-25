@@ -303,3 +303,33 @@ func TestR2MessageWakes(t *testing.T) {
 		t.Fatal("the waiter did not give up when its session became busy")
 	}
 }
+
+// TestR2MessageExchangeEnds: two sessions answering each other's answers
+// are stopped after MaxDepth answers; the owner's word is not.
+func TestR2MessageExchangeEnds(t *testing.T) {
+	s, cl, _ := messaging(t)
+	ctx := context.Background()
+	a, b := pod("trial", "pod-a"), pod("trial", "pod-b")
+	start(t, s, cl, a, "sess-a", "alpha", message.Busy)
+	start(t, s, cl, b, "sess-b", "beta", message.Busy)
+	res, err := s.Send(ctx, a, "sess-a", "trial/beta", "ping", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	who := []message.Caller{b, a}
+	sess := []string{"sess-b", "sess-a"}
+	for i := 1; ; i++ {
+		next, err := s.Send(ctx, who[i%2], sess[i%2], "", "pong", res.ID)
+		if i <= message.MaxDepth {
+			if err != nil {
+				t.Fatalf("answer %d: %v", i, err)
+			}
+			res = next
+			continue
+		}
+		if !errors.Is(err, message.ErrInvalid) {
+			t.Fatalf("answer %d was not refused: %+v, %v", i, next, err)
+		}
+		break
+	}
+}
