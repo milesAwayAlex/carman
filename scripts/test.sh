@@ -26,6 +26,20 @@ for file in $(sed -n 's/^COPY \(.*\) [^ ]*$/\1/p' deploy/agent/Dockerfile | tr '
         grep -q -E "deploy/agent/$file( |\$)" "$list" || { echo "$list does not copy deploy/agent/$file, which the agent image needs" >&2; exit 1; }
     done
 done
+# The chart hands the dispatcher who may write to each agent (ADR 0047), and
+# refuses a list that names an agent there is not. Checked where helm is.
+if command -v helm >/dev/null; then
+    render=(helm template t charts/carman --set memory.image=m:0 --set agent.image=a:0
+        --set dispatcher.image=d:0 --set backup.repository=r --show-only templates/dispatcher.yaml)
+    "${render[@]}" --set-json 'agents=[{"name":"a","routines":["x"]},{"name":"b","routines":["x"],"writtenBy":["a"]}]' |
+        grep -qF 'value: "{\"b\":[\"a\"]}"' || { echo "the chart does not hand the dispatcher agent b's writtenBy" >&2; exit 1; }
+    if "${render[@]}" --set-json 'agents=[{"name":"b","routines":["x"],"writtenBy":["nobody"]}]' >/dev/null 2>&1; then
+        echo "the chart renders a writtenBy that names no agent" >&2
+        exit 1
+    fi
+else
+    echo "helm is not here: the chart's checks are skipped" >&2
+fi
 # Nothing here needs a C compiler, and not every place that runs this has one.
 export CGO_ENABLED="${CGO_ENABLED:-0}"
 go vet ./...

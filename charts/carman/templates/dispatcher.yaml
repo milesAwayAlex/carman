@@ -120,6 +120,9 @@ spec:
             # agents it schedules, and the usage reading.
             - name: DISPATCHER_SCHEDULES
               value: {{ include "dispatcher.schedules" . | quote }}
+            # Who may write to each agent besides the owner (ADR 0047).
+            - name: DISPATCHER_WRITERS
+              value: {{ include "dispatcher.writers" . | quote }}
             - name: DISPATCHER_EXPECT_GRACE
               value: {{ .Values.dispatcher.expect.grace | quote }}
             - name: DISPATCHER_NOTICES

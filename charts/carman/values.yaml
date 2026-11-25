@@ -418,6 +418,9 @@ egress:
 #       dispatched: true              # the dispatcher starts it on that schedule, not the cluster
 #       takesMessages: true           # no routine of its own: a message to it by name starts a
 #                                     # run whose work is what the message asks (ADR 0045)
+#       writtenBy: [desk]             # the other agents that may write to it and its sessions;
+#                                     # the owner always may, its own sessions may, and any session
+#                                     # may answer a message it was sent. None listed: nobody else (ADR 0047)
 #       priority: 10                  # its tasks' priority, when dispatched
 #       catchUpSeconds: 172800        # how late a missed run may still start (a day, unless said)
 #       waitForLimitMinutes: 600      # wait this long for the plan's usage limit to reset; needs deadlineSeconds to match

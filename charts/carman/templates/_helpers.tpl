@@ -89,3 +89,22 @@ that the Job's failure, not an overrun, is what is told. */ -}}
 {{- end }}
 {{- toJson $out }}
 {{- end -}}
+
+{{- /* Who may write to each agent and its sessions besides the owner, its
+own sessions and an answer (ADR 0047), as JSON: each agent's writtenBy.
+A name there that is not an agent of the installation fails the render. */ -}}
+{{- define "dispatcher.writers" -}}
+{{- $names := list }}
+{{- range .Values.agents }}{{ $names = append $names .name }}{{ end }}
+{{- $out := dict }}
+{{- range .Values.agents }}
+{{- $agent := .name }}
+{{- range (.writtenBy | default list) }}
+{{- if not (has . $names) }}
+{{- fail (printf "agents: %s: writtenBy names %q, which is not an agent here (the agents are %s)" $agent . (join ", " $names)) }}
+{{- end }}
+{{- end }}
+{{- with .writtenBy }}{{ $_ := set $out $agent . }}{{ end }}
+{{- end }}
+{{- toJson $out }}
+{{- end -}}
