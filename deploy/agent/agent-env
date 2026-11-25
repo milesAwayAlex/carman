@@ -3,7 +3,8 @@
 #
 #   . agent-env        the environment: trust in the proxy, where tools are
 #   agent_setup        what takes a moment: the cloud identity, the harness
-#                      if the image left it out, the plugins the agent was given
+#                      (linked from a warm image, or installed), the plugins
+#                      the agent was given
 
 # The harness's own memory is off: there is one memory, and the hook that
 # agent_setup puts in the harness's settings is how it reaches the agent.
@@ -54,6 +55,26 @@ agent_setup() {
     # is new each time, so a job gets the channel's current version; a home
     # that outlives the pod keeps its copy, which updates itself. If the
     # installer cannot be reached, an image that carries a copy uses that.
+    #
+    # A warm image (ADR 0041) carries what the installer left in a home when
+    # the image was made, outside the home, since the home is a volume over
+    # it: a job's home gets the links the installer makes, in a moment, if
+    # that copy runs. An interactive agent's home keeps the copy it has.
+    harness_from_image=""
+    warm=/usr/local/lib/agent-harness
+    if [ ! -x "$HOME/.local/bin/claude" ] && [ -z "${AGENT_INTERACTIVE:-}" ] && [ -x "$warm/claude" ] && [ -r "$warm/version" ]; then
+        v="$(cat "$warm/version")"
+        mkdir -p "$HOME/.local/bin" "$HOME/.local/share/claude/versions"
+        ln -sfn "$warm/claude" "$HOME/.local/share/claude/versions/$v"
+        ln -sfn "$HOME/.local/share/claude/versions/$v" "$HOME/.local/bin/claude"
+        if [ "$("$HOME/.local/bin/claude" --version 2>/dev/null | cut -d' ' -f1)" = "$v" ]; then
+            harness_from_image=1
+            echo "agent: harness $v, $(cat "$warm/channel" 2>/dev/null || echo "${HARNESS_CHANNEL:-stable}") channel, from the image"
+        else
+            rm -f "$HOME/.local/bin/claude" "$HOME/.local/share/claude/versions/$v"
+            echo "agent: the image's harness $v does not run; installing it" >&2
+        fi
+    fi
     if [ ! -x "$HOME/.local/bin/claude" ]; then
         if curl -fsSL https://claude.ai/install.sh | bash -s "${HARNESS_CHANNEL:-stable}" >/tmp/harness-install.log 2>&1; then
             echo "agent: harness $("$HOME/.local/bin/claude" --version 2>/dev/null | cut -d' ' -f1), ${HARNESS_CHANNEL:-stable} channel"
@@ -75,8 +96,19 @@ agent_setup() {
     if [ -d /var/lib/agent/conversations ] && [ ! -e "$HOME/.claude/projects" ]; then
         ln -s /var/lib/agent/conversations "$HOME/.claude/projects"
     fi
-    python3 - <<'PY' || echo "agent: the harness's settings could not be written; it starts without the memory hook" >&2
+    AGENT_HARNESS_FROM_IMAGE="$harness_from_image" python3 - <<'PY' || echo "agent: the harness's settings could not be written; it starts without the memory hook" >&2
 import json, os
+# A harness linked from the image: what its installer records about how it
+# was installed, which the installer would have written here.
+if os.environ.get("AGENT_HARNESS_FROM_IMAGE"):
+    state_path = os.path.expanduser("~/.claude.json")
+    try:
+        state = json.load(open(state_path))
+    except Exception:
+        state = {}
+    for key, value in (("installMethod", "native"), ("autoUpdates", False), ("autoUpdatesProtectedForNative", True)):
+        state.setdefault(key, value)
+    json.dump(state, open(state_path, "w"), indent=2)
 path = os.path.expanduser("~/.claude/settings.json")
 try:
     settings = json.load(open(path))

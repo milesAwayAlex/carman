@@ -1,0 +1,158 @@
+#!/bin/bash
+# Makes the warm agent image (ADR 0041): the agent image the installation
+# runs, with one layer more, the harness as its vendor's installer leaves it
+# in a home today, kept outside the home in /usr/local/lib/agent-harness,
+# where agent-env finds it when a pod starts. Run by a job of the
+# installation's own on a schedule, and once at the end of a deploy.
+#
+# It asks the channel for its version first, which is one small request,
+# and rebuilds only when that or the agent image under the warm one has
+# changed. Each run ends with one line, for collecting later:
+#
+#   warm: at=2026-11-24T12:00:00Z channel=stable version=2.1.325 had=2.1.323 rebuilt=yes seconds=74 image=...
+#
+# What it needs from the environment (the chart sets it):
+#   WARM_BASE        the agent image, by the name this job reaches it by
+#   WARM_REPOSITORY  where the warm images go, by the same kind of name
+#   WARM_TAG         the tag pods start from, which this moves (warm)
+#   WARM_INSECURE    1 where the registry speaks plain HTTP
+#   WARM_CREDENTIAL  how this proves itself to the registry: nothing, or
+#                    gcloud, the pod's cloud identity through gcloud's
+#                    helper for container tools (no key)
+#   WARM_KEEP        builds kept beside the current one; older ones are
+#                    deleted where the registry allows it
+#   HARNESS_CHANNEL  the channel agents install from (stable)
+#
+# No build daemon and no privilege: crane (go-containerregistry) adds the
+# layer to the image in the registry, uploading only the layer and a new
+# manifest. The base's layers are not downloaded.
+set -uo pipefail
+
+started="$(date +%s)"
+at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+channel="${HARNESS_CHANNEL:-stable}"
+base="${WARM_BASE:?WARM_BASE names the agent image}"
+repo="${WARM_REPOSITORY:?WARM_REPOSITORY names where warm images go}"
+tag="${WARM_TAG:-warm}"
+keep="${WARM_KEEP:-3}"
+releases=https://downloads.claude.ai/claude-code-releases
+version="" had="" note=""
+
+line() {
+    echo "warm: at=$at channel=$channel version=${version:-unknown} had=${had:-none} rebuilt=$1 seconds=$(($(date +%s) - started))${2:+ $2}${note:+ $note}"
+}
+fail() {
+    echo "warm: $*" >&2
+    line failed
+    exit 1
+}
+
+# The proxy's trust, where an agent's pod has it, and the PATH.
+# shellcheck disable=SC1091
+. /usr/local/lib/agent-env
+
+# The warm image is for the architecture of the node this runs on: the
+# installer fetches the harness for it, and a base that names several takes
+# its image for it.
+case "$(uname -m)" in x86_64 | amd64) arch=amd64 ;; aarch64 | arm64) arch=arm64 ;; *) arch="$(uname -m)" ;; esac
+crane=(crane --platform "linux/$arch")
+[ "${WARM_INSECURE:-}" != 1 ] || crane+=(--insecure)
+
+if [ "${WARM_CREDENTIAL:-}" = gcloud ]; then
+    if [ -f "${GOOGLE_APPLICATION_CREDENTIALS:-/nonexistent}" ]; then
+        gcloud auth login --quiet --cred-file="$GOOGLE_APPLICATION_CREDENTIALS" >/dev/null 2>&1 ||
+            fail "the cloud identity could not be set up"
+    fi
+    gcloud auth configure-docker "${repo%%/*}" --quiet >/dev/null 2>&1 ||
+        fail "gcloud could not be made the credential helper for ${repo%%/*}"
+fi
+
+# What the channel has now: the file its installer reads.
+case "$channel" in
+stable | latest) version="$(curl -fsS --max-time 30 "$releases/$channel" 2>/dev/null)" ;;
+*) version="$channel" ;;
+esac
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]] || { version=""; fail "the $channel channel's version could not be read from $releases"; }
+
+base_digest="$("${crane[@]}" digest "$base" 2>/dev/null)" || fail "the agent image $base could not be read from its registry"
+# What the tag holds now. A tag that does not exist, or that a deploy has
+# pointed at the agent image itself, has no version.
+config="$("${crane[@]}" config "$repo:$tag" 2>/dev/null)" || config='{}'
+had="$(jq -r '.config.Labels["harness.version"] // empty' <<<"$config" 2>/dev/null)"
+had_base="$(jq -r '.config.Labels["harness.base"] // empty' <<<"$config" 2>/dev/null)"
+
+if [ "$had" = "$version" ] && [ "$had_base" = "$base_digest" ]; then
+    line no
+    exit 0
+fi
+
+# Built on another agent image, the tag would start pods with that image's
+# scripts and tools: until the new one is made, pods start from the agent
+# image itself, and install the harness as they did before.
+if [ -n "$had_base" ] && [ "$had_base" != "$base_digest" ]; then
+    "${crane[@]}" copy "$base" "$repo:$tag" >/dev/null 2>&1 || fail "could not point $repo:$tag at $base"
+    note="tag=base-until-built"
+fi
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+# What a pod's start runs, in a home of its own.
+mkdir -p "$work/home"
+if ! curl -fsSL --max-time 120 https://claude.ai/install.sh 2>"$work/install.log" |
+    HOME="$work/home" bash -s "$channel" >>"$work/install.log" 2>&1; then
+    fail "the harness's installer did not finish: $(tail -c 300 "$work/install.log" | tr '\n' ' ')"
+fi
+bin="$(readlink -f "$work/home/.local/bin/claude" 2>/dev/null)"
+got="$(HOME="$work/home" "$bin" --version 2>/dev/null | cut -d' ' -f1)"
+[[ "$got" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]] || fail "the harness the installer left does not run"
+# The channel may have moved between the question and the install.
+version="$got"
+
+# The layer: the harness and what it is, owned by root and readable by all,
+# with fixed times, so that the same harness makes the same layer.
+dir="$work/layer/usr/local/lib/agent-harness"
+mkdir -p "$dir"
+mv "$bin" "$dir/claude"
+rm -rf "$work/home"
+chmod 0755 "$work/layer/usr" "$work/layer/usr/local" "$work/layer/usr/local/lib" "$dir" "$dir/claude"
+printf '%s\n' "$version" >"$dir/version"
+printf '%s\n' "$channel" >"$dir/channel"
+chmod 0644 "$dir/version" "$dir/channel"
+tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -C "$work/layer" -cf "$work/layer.tar" usr ||
+    fail "could not make the layer"
+rm -rf "$work/layer"
+
+build="$repo:warm-$(date -u +%Y%m%d%H%M)-$version"
+"${crane[@]}" append -b "$base@$base_digest" -f "$work/layer.tar" -t "$build" >/dev/null 2>"$work/push.log" ||
+    fail "could not push $build: $(tail -c 300 "$work/push.log" | tr '\n' ' ')"
+"${crane[@]}" mutate "$build" -t "$build" \
+    -l "harness.version=$version" -l "harness.channel=$channel" -l "harness.base=$base_digest" \
+    >/dev/null 2>"$work/push.log" || fail "could not label $build: $(tail -c 300 "$work/push.log" | tr '\n' ' ')"
+"${crane[@]}" tag "$build" "$tag" >/dev/null 2>"$work/push.log" ||
+    fail "could not move $repo:$tag to $build: $(tail -c 300 "$work/push.log" | tr '\n' ' ')"
+note=""
+
+# Builds older than the newest few go, unless something else names the
+# same image: the tag pods start from, or any tag that is not a build.
+# A registry that does not delete keeps them for its own pruning.
+prune() {
+    local tags current t d builds protected=" "
+    tags="$("${crane[@]}" ls "$repo" 2>/dev/null)" || return 0
+    current="$("${crane[@]}" digest "$repo:$tag" 2>/dev/null)" || return 0
+    protected+="$current "
+    builds="$(grep -E '^warm-[0-9]{12}-' <<<"$tags" | sort -r)"
+    for t in $(grep -v -E '^warm-[0-9]{12}-' <<<"$tags") $(head -n "$keep" <<<"$builds"); do
+        d="$("${crane[@]}" digest "$repo:$t" 2>/dev/null)" && protected+="$d "
+    done
+    for t in $(tail -n +"$((keep + 1))" <<<"$builds"); do
+        d="$("${crane[@]}" digest "$repo:$t" 2>/dev/null)" || continue
+        [ "${protected#* $d }" = "$protected" ] || continue
+        if ! "${crane[@]}" delete "$repo@$d" >/dev/null 2>&1; then
+            note="pruned=refused"
+            return 0
+        fi
+        protected+="$d "
+    done
+}
+prune
+line yes "image=$build"

@@ -93,6 +93,53 @@ agent:
   interactiveResources:
     requests: {cpu: 250m, memory: 1Gi}
     limits: {memory: 4Gi}
+  # The warm image (ADR 0041): agent.image with the harness already in it,
+  # made in the cluster by a job of the installation's own and kept in its
+  # private registry, so that a pod does not wait half a minute for the
+  # harness's installer. Agents' jobs, the dreamer and resumed conversations
+  # start from REPOSITORY:TAG, pulled at each start; the job moves the tag
+  # when the channel's version or agent.image changes. A pod whose image has
+  # no harness, or one that does not run, installs it as before. An
+  # interactive agent keeps agent.image and the copy in its home. Off: every
+  # pod starts from agent.image.
+  warm:
+    enabled: false
+    # Where the warm images are kept, and pulled from: a repository in a
+    # registry the nodes pull from, without a tag. Empty: agent.image's own
+    # repository, beside it.
+    repository: ""
+    # The tag pods start from, which the job moves.
+    tag: warm
+    # How often the job asks the channel what its version is. It rebuilds
+    # only on a difference; each run prints one line saying what it did.
+    schedule: "41 */12 * * *"
+    catchUpSeconds: 43200
+    # The registry's host as the job reaches it, where that is not how a
+    # node does: a registry on a node's own loopback is reached from a pod
+    # at an address of the node's. Put in place of the host in agent.image
+    # and repository, for the job only.
+    pushRegistry: ""
+    # Where that registry is inside the cluster's network, and so reached
+    # directly rather than through the egress proxy: its addresses (CIDR)
+    # and port, for the job's network policy. Empty: through the proxy.
+    registryCIDR: ""
+    registryPort: 5000
+    # The registry speaks plain HTTP.
+    insecure: false
+    # How the job proves itself to the registry: "" for nothing, or
+    # "gcloud": its cloud identity, through gcloud's helper for container
+    # tools. The identity is the pod's own (workload identity): either the
+    # installation's (google, as an agent's google: true) or one the
+    # platform gives the job's account by annotation.
+    credential: ""
+    google: false
+    serviceAccountAnnotations: {}
+    # Builds kept beside the current one; older ones are deleted where the
+    # registry allows it.
+    keep: 3
+    resources:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {memory: 2Gi}
 
 dreamer:
   # Off until a model credential is in place; `scripts/deploy.sh CONTEXT

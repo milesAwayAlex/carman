@@ -17,6 +17,30 @@ tolerations:
 {{- end }}
 {{- end -}}
 
+{{- /* Where warm images are kept (ADR 0041): agent.warm.repository, or
+agent.image's own repository. */ -}}
+{{- define "warm.repository" -}}
+{{- $image := required "agent.image is required" .Values.agent.image }}
+{{- $repository := .Values.agent.warm.repository | default (regexReplaceAll ":[^:/]+$" (regexReplaceAll "@.*$" $image "") "") }}
+{{- $host := index (splitList "/" $repository) 0 }}
+{{- if not (or (contains "." $host) (contains ":" $host) (eq $host "localhost")) }}
+{{- fail (printf "agent.warm needs a registry: %s names none (set agent.warm.repository)" $repository) }}
+{{- end }}
+{{- $repository }}
+{{- end -}}
+
+{{- /* The image an agent's job starts from, and when it is pulled: the warm
+image, asked for at each start since its tag moves, or agent.image. */ -}}
+{{- define "agent.jobImage" -}}
+{{- if .Values.agent.warm.enabled -}}
+image: {{ include "warm.repository" . }}:{{ .Values.agent.warm.tag }}
+imagePullPolicy: Always
+{{- else -}}
+image: {{ required "agent.image is required" .Values.agent.image }}
+imagePullPolicy: IfNotPresent
+{{- end }}
+{{- end -}}
+
 {{- /* A pod's own account, which is nothing to the cluster's API. */ -}}
 {{- define "pod.account" -}}
 apiVersion: v1

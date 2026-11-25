@@ -43,8 +43,7 @@ spec:
             seccompProfile: {type: RuntimeDefault}
           containers:
             - name: dreamer
-              image: {{ required "agent.image is required" .Values.agent.image }}
-              imagePullPolicy: IfNotPresent
+              {{- include "agent.jobImage" . | nindent 14 }}
               args: {{ toJson .Values.dreamer.routines }}
               env:
                 - name: CMEM_URL

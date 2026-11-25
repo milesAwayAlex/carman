@@ -40,8 +40,12 @@ securityContext:
   seccompProfile: {type: RuntimeDefault}
 containers:
   - name: agent
+    {{- if .interactive }}
     image: {{ required "agent.image is required" $root.Values.agent.image }}
     imagePullPolicy: IfNotPresent
+    {{- else }}
+    {{- include "agent.jobImage" $root | nindent 4 }}
+    {{- end }}
     {{- if .interactive }}
     # A standing pod a person attaches to: the session lives in tmux and
     # goes on when they detach.

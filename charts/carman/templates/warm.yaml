@@ -1,0 +1,164 @@
+{{- /*
+The warm image (ADR 0041): a job of the installation's own asks the
+harness's channel for its version on a schedule and, when that or
+agent.image has changed, adds the harness to agent.image as one layer in the
+registry (deploy/agent/warm-harness), and moves the tag agents' jobs start
+from. Under the same pod security as every agent; nothing is built on the
+node.
+*/ -}}
+{{- with .Values.agent.warm }}
+{{- if .enabled }}
+{{- $repository := include "warm.repository" $ }}
+{{- $push := .pushRegistry }}
+{{- $google := and .google $.Values.cloud.google.audience $.Values.cloud.google.serviceAccount }}
+{{ include "pod.account" (dict "name" "agent-warm" "root" $ "annotations" .serviceAccountAnnotations) }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: agent-warm
+  namespace: {{ $.Release.Namespace }}
+spec:
+  schedule: {{ .schedule | quote }}
+  timeZone: "Etc/UTC"
+  startingDeadlineSeconds: {{ .catchUpSeconds }}
+  concurrencyPolicy: Forbid
+  # Each run's last line says what it found; these are what is kept of them
+  # here (a managed cluster's logging keeps them longer).
+  successfulJobsHistoryLimit: 30
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 1800
+      ttlSecondsAfterFinished: 1209600
+      template:
+        metadata:
+          labels:
+            app: agent-warm
+            app.kubernetes.io/component: agent
+            {{- with (include "pod.labels" $) }}{{ . | trim | nindent 12 }}{{- end }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: agent-warm
+          automountServiceAccountToken: false
+          {{- with (include "pod.placement" $) }}{{ . | trim | nindent 10 }}{{- end }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: warm
+              image: {{ required "agent.image is required" $.Values.agent.image }}
+              imagePullPolicy: IfNotPresent
+              command: ["warm-harness"]
+              workingDir: /home/agent
+              env:
+                {{- range $name, $value := ($.Values.agent.env | default dict) }}
+                - name: {{ $name }}
+                  value: {{ $value | quote }}
+                {{- end }}
+                - name: WARM_BASE
+                  value: {{ ternary (printf "%s/%s" $push (regexReplaceAll "^[^/]+/" $.Values.agent.image "")) $.Values.agent.image (ne $push "") | quote }}
+                - name: WARM_REPOSITORY
+                  value: {{ ternary (printf "%s/%s" $push (regexReplaceAll "^[^/]+/" $repository "")) $repository (ne $push "") | quote }}
+                - name: WARM_TAG
+                  value: {{ .tag | quote }}
+                - name: WARM_KEEP
+                  value: {{ .keep | quote }}
+                {{- if .insecure }}
+                - name: WARM_INSECURE
+                  value: "1"
+                {{- end }}
+                {{- with .credential }}
+                - name: WARM_CREDENTIAL
+                  value: {{ . | quote }}
+                {{- end }}
+                {{- if $.Values.egress.enabled }}
+                - name: HTTPS_PROXY
+                  value: http://egress:3128
+                - name: NO_PROXY
+                  value: localhost,127.0.0.1,.svc,.svc.cluster.local{{ if .registryCIDR }},{{ regexReplaceAll ":[0-9]+$" ($push | default (index (splitList "/" $repository) 0)) "" }}{{ end }}
+                - name: EGRESS_CA
+                  value: /etc/agent/egress/ca.crt
+                {{- end }}
+                {{- if $google }}
+                - name: GOOGLE_APPLICATION_CREDENTIALS
+                  value: /etc/agent/google/credentials.json
+                {{- end }}
+              volumeMounts:
+                - name: home
+                  mountPath: /home/agent
+                - name: tmp
+                  mountPath: /tmp
+                {{- if $.Values.egress.enabled }}
+                - name: egress-ca
+                  mountPath: /etc/agent/egress
+                  readOnly: true
+                {{- end }}
+                {{- if $google }}
+                - name: google
+                  mountPath: /etc/agent/google
+                  readOnly: true
+                - name: identity
+                  mountPath: /var/run/secrets/agent/identity
+                  readOnly: true
+                {{- end }}
+              resources:
+                {{- toYaml .resources | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: home
+              emptyDir: {}
+            # The harness twice over while the layer is made: the binary,
+            # then the layer.
+            - name: tmp
+              emptyDir:
+                sizeLimit: 3Gi
+            {{- if $.Values.egress.enabled }}
+            - name: egress-ca
+              configMap:
+                name: egress-ca
+                optional: true
+            {{- end }}
+            {{- if $google }}
+            - name: google
+              configMap:
+                name: google-identity
+            - name: identity
+              projected:
+                sources:
+                  - serviceAccountToken:
+                      audience: {{ $.Values.cloud.google.audience | quote }}
+                      expirationSeconds: 3600
+                      path: token
+            {{- end }}
+{{- if .registryCIDR }}
+---
+# The warm job reaches its registry directly where the registry is inside
+# the cluster's network, which the proxy does not reach. Only that address
+# and port, beside what every agent's pod may reach.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: warm-job-reaches-the-registry
+  namespace: {{ $.Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: agent-warm
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: {{ .registryCIDR }}
+      ports:
+        - {protocol: TCP, port: {{ .registryPort }}}
+{{- end }}
+{{- end }}
+{{- end }}

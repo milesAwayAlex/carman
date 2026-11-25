@@ -22,6 +22,8 @@
 #   scripts/deploy.sh CONTEXT dreamer run       run it once now and show what it reported
 #   scripts/deploy.sh CONTEXT dreamer log       the report of the latest run
 #   scripts/deploy.sh CONTEXT agent-image       build the agent image and print its name
+#   scripts/deploy.sh CONTEXT warm run|log      make the warm image now, if it needs making;
+#                                       or each kept run's line (ADR 0041)
 #   scripts/deploy.sh CONTEXT routine FILE      put a routine of this installation's own in the cluster
 #   scripts/deploy.sh CONTEXT tool FILE         put a command of this installation's own on agents' PATH
 #   scripts/deploy.sh CONTEXT signin KEY URL    sign in, in a browser, to a service a renewal keeps a sign-in for
@@ -172,7 +174,7 @@ build_agent() {
     local root="$build_root/agent"
     rm -rf "$root" && mkdir -p "$root"
     linux_cmem "$root"
-    cp deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/backup-state deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/agent-open deploy/agent/oauth-credential deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json "$root/"
+    cp deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/backup-state deploy/agent/warm-harness deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/agent-open deploy/agent/oauth-credential deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json "$root/"
     cp -R routines "$root/routines"
     # A new tag whenever anything in it changes.
     # CARMAN_AGENT_BASE names an image to build on in place of the plain one:
@@ -317,6 +319,22 @@ resume() {
     attach "$pod"
 }
 
+# The warm image (ADR 0041): runs its job once now, and says what it did in
+# its own line. What it makes is for the next pods; a failure stops nothing.
+warm_run() {
+    "${kube[@]}" get cronjob agent-warm >/dev/null 2>&1 || die "this installation makes no warm image (agent.warm.enabled)"
+    local job="agent-warm-now-$(date -u +%Y%m%d%H%M%S)"
+    "${kube[@]}" create job "$job" --from=cronjob/agent-warm >/dev/null || die "could not start the warm image's job"
+    echo "the warm image's job is running ($job); it takes a minute or two when it rebuilds"
+    if finished "$job" 900; then
+        "${kube[@]}" logs "job/$job" 2>/dev/null | grep '^warm: ' | tail -1
+    else
+        "${kube[@]}" logs "job/$job" --tail=5 2>/dev/null || true
+        echo "the warm image was not made; agents start from the image they had, and install the harness if it has none" >&2
+        return 1
+    fi
+}
+
 # Wraps an object's data, as kubectl prints it, into a patch that changes
 # only the data.
 only_data() { printf '{"data":'; cat; printf '}'; }
@@ -388,9 +406,26 @@ EOF
         running="$("${kube[@]}" get deployment egress -o 'jsonpath={.spec.template.spec.containers[?(@.name!="envoy")].image}' 2>/dev/null | cut -d' ' -f1)"
         [ -z "$running" ] || renewal_image="$running"
     fi
-    helm template carman charts/carman --namespace "$namespace" "${chart_values[@]}" \
-        --set "memory.image=$CARMAN_IMAGE" --set "agent.image=$CARMAN_AGENT_IMAGE" --set "egress.renewalImage=$renewal_image" --set "dreamer.suspend=${dreaming:-true}" |
-        kubectl --context "$context" apply -f -   # every object names its namespace; one is not this one
+    rendered="$(helm template carman charts/carman --namespace "$namespace" "${chart_values[@]}" \
+        --set "memory.image=$CARMAN_IMAGE" --set "agent.image=$CARMAN_AGENT_IMAGE" --set "egress.renewalImage=$renewal_image" --set "dreamer.suspend=${dreaming:-true}")" ||
+        die "the chart did not render"
+    # With a warm image, agents' jobs start from a tag the warm job moves.
+    # One made on the agent image this deploy replaces would start them with
+    # that image's scripts: point the tag at the new image first, so the
+    # first pods after a deploy start from it (and install the harness), and
+    # make the warm one at the end.
+    warm_ref="$(printf '%s\n' "$rendered" | awk '$1 == "image:" {image = $2} $1 == "imagePullPolicy:" && $2 == "Always" {print image; exit}')"
+    if [ -n "$warm_ref" ]; then
+        warm_base="$(printf '%s\n' "$rendered" | awk '$2 == "WARM_BASE" {getline; print $2; exit}' | tr -d '"')"
+        if [ "$("${kube[@]}" get cronjob agent-warm -o 'jsonpath={.spec.jobTemplate.spec.template.spec.containers[0].env[?(@.name=="WARM_BASE")].value}' 2>/dev/null || true)" != "$warm_base" ]; then
+            docker image inspect "$CARMAN_AGENT_IMAGE" >/dev/null 2>&1 || docker pull -q "$CARMAN_AGENT_IMAGE" >/dev/null ||
+                die "could not get $CARMAN_AGENT_IMAGE to point $warm_ref at it"
+            docker tag "$CARMAN_AGENT_IMAGE" "$warm_ref" && docker push -q "$warm_ref" >/dev/null 2>&1 ||
+                die "could not point $warm_ref at $CARMAN_AGENT_IMAGE"
+            echo "pointed $warm_ref at $CARMAN_AGENT_IMAGE until the warm image is made"
+        fi
+    fi
+    printf '%s\n' "$rendered" | kubectl --context "$context" apply -f -   # every object names its namespace; one is not this one
     "${kube[@]}" rollout status statefulset/cmem --timeout=120s
     if "${kube[@]}" get deployment egress >/dev/null 2>&1; then
         "${kube[@]}" annotate deployment egress "renewal-source=$renewal_source" --overwrite >/dev/null
@@ -422,6 +457,20 @@ EOF
         [ "$(docker image inspect "$old" --format '{{index .Config.Labels "built-by"}}' 2>/dev/null | tail -1)" = deploy ] || continue
         docker rmi "$old" >/dev/null 2>&1 || true
     done
+    [ -z "$warm_ref" ] || warm_run || true
+    ;;
+warm)
+    case "${3:-}" in
+    run) warm_run ;;
+    log)
+        # One line from each run the cluster still keeps: the data for how
+        # often the image needs making.
+        for pod in $("${kube[@]}" get pods -l app=agent-warm --sort-by=.metadata.creationTimestamp -o 'jsonpath={.items[*].metadata.name}'); do
+            "${kube[@]}" logs "$pod" 2>/dev/null | grep '^warm: ' | tail -1
+        done
+        ;;
+    *) die "say: warm run, or warm log" ;;
+    esac
     ;;
 status)
     "${kube[@]}" get statefulset,pod,pvc,service -o wide
