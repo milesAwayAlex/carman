@@ -36,6 +36,9 @@ import (
 // No ClusterRole is needed: a TokenReview would ask for one, which a
 // shared cluster may not grant.
 
+// jwksPath is where the cluster's API gives its issuer's public keys.
+const jwksPath = "/openid/v1/jwks"
+
 // Audience is what a token for the dispatcher is made for.
 const Audience = "dispatcher"
 
@@ -211,7 +214,7 @@ func (v *Verifier) key(ctx context.Context, kid string) (crypto.PublicKey, error
 	var set struct {
 		Keys []jwk `json:"keys"`
 	}
-	if err := v.Client.do(ctx, http.MethodGet, "/openid/v1/jwks", nil, &set); err != nil {
+	if err := v.Client.do(ctx, http.MethodGet, jwksPath, nil, &set); err != nil {
 		return nil, fmt.Errorf("reading the cluster's keys: %w", err)
 	}
 	keys := map[string]crypto.PublicKey{}

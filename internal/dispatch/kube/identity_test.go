@@ -22,6 +22,8 @@ func identityCluster(t *testing.T, key *rsa.PrivateKey, pods map[string]string) 
 	b64 := func(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/openid/v1/jwks" && r.Header.Get("Accept") != "application/jwk-set+json":
+			w.WriteHeader(http.StatusNotAcceptable) // as the cluster's API answers
 		case r.URL.Path == "/openid/v1/jwks":
 			json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{{
 				"kty": "RSA", "kid": "k1", "n": b64(key.N.Bytes()), "e": b64(big.NewInt(int64(key.E)).Bytes())}}})

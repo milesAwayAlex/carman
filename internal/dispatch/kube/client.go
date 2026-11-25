@@ -96,6 +96,10 @@ func (c *Client) request(ctx context.Context, method, path string, body any) (*h
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
+	if path == jwksPath {
+		// The issuer's keys come only as what they are.
+		req.Header.Set("Accept", "application/jwk-set+json")
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

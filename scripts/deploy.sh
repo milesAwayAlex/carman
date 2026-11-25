@@ -39,6 +39,9 @@
 #   scripts/deploy.sh CONTEXT dispatch log [--type T] [--after N] [--last N]   its log
 #   scripts/deploy.sh CONTEXT dispatch submit CLASS [ID] [--priority N] ...   start a run of the CronJob CLASS
 #                                       through the dispatcher (ADR 0042)
+#   scripts/deploy.sh CONTEXT dispatch peers|send|reply|inbox|read|message|watch ...   messages,
+#                                       as the owner (ADR 0045): who can be written to, a message
+#                                       to a session, an agent or the owner, the owner's inbox
 #   scripts/deploy.sh CONTEXT dispatch dump > FILE      its database, as SQL
 #   scripts/deploy.sh CONTEXT dispatch restore FILE     put a dump in place of its database, which is kept aside
 #
@@ -765,7 +768,8 @@ dreamer)
     ;;
 dispatch)
     case "${3:-}" in
-    status | log | submit)
+    status | log | submit | peers | send | reply | inbox | read | message | watch)
+        # Messages (ADR 0045) are sent and read as the owner.
         dispatch_client "${@:3}"
         ;;
     dump)
@@ -796,7 +800,7 @@ dispatch)
         sleep 3
         dispatch_client status
         ;;
-    *) die "say: dispatch status [ID], dispatch log, dispatch submit CLASS [ID], dispatch dump > FILE or dispatch restore FILE" ;;
+    *) die "say: dispatch status [ID], dispatch log, dispatch submit CLASS [ID], dispatch dump > FILE, dispatch restore FILE, or for messages: dispatch peers, send TO 'TEXT', reply ID 'TEXT', inbox [--read], read ID, message ID, watch SESSION" ;;
     esac
     ;;
 *)
