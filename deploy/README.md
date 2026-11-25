@@ -415,9 +415,60 @@ and starts the service on it. Drop the old one when the restored one has
 been looked at: `kubectl --context CONTEXT -n carman exec dispatcher-db-0 --
 psql -U dispatcher -d postgres -c 'DROP DATABASE "dispatcher_replaced_TIME"'`.
 
-What it does not do yet: schedules of its own, tell the owner about a run
-that failed or did not happen, cancel or delete a Job, or give agents its
-`agent` token.
+**Schedules** (ADR 0043). The dispatcher starts on time what the values
+list: `dispatcher.schedules` (name, class, a five-field cron expression,
+`timeZone`, `startWithin`, `timeout`, `priority`), every agent with
+`dispatched: true` (on its `schedule`, in UTC), and the hourly usage
+reading. A class it schedules must be a suspended CronJob, used as a
+template only; `dispatched: true` renders the agent's CronJob suspended
+whatever else its entry says, and the dispatcher refuses to start one that
+someone has unsuspended. A schedule taken out of the values is removed when
+the service starts. The scheduled agents of this chart (dreamer, backup,
+warm image, any agent without `dispatched`) stay on their CronJobs.
+
+**What did not happen.** For every CronJob it does not start, the service
+expects a Job at each tick, if the CronJob was not suspended when it last
+looked, within the CronJob's own catch-up (`startingDeadlineSeconds`) and
+`dispatcher.expect.grace` (an hour) beyond it; the annotation
+`dispatcher/grace` on a CronJob gives its own. A tick with no Job for it,
+or for a later tick within that time, is recorded once as `run.missed`.
+
+**Notices.** A failed Job, a `run.missed`, a task that did not start in
+time (`task.not-started`) or ran too long (`task.overran`), and a schedule
+that skipped ticks (`schedule.missed`) each give one notice: a task of
+class `notify` (the CronJob `notify`, which runs the installation's
+`notify-owner` with the words from the task), saying what, when, and the
+command to look with. They are off until `dispatcher.notices.enabled` is
+set; until then each is recorded as `notice.withheld` with its words:
+
+```sh
+scripts/deploy.sh devvm dispatch log --type notice.withheld
+```
+
+A program that tells the owner of its own failure says so with the
+annotation `dispatcher/notifies-owner: "true"` on its job template; its
+failure is then told only if it was killed before it could tell. A notice
+that fails is in the service's log, and is not itself told.
+
+**Usage.** `agent-usage`, every hour at :07, asks the cheapest model
+(`usage.model`) for one word and records the plan's windows as the harness
+reports them (`usage.observed`); every routine run records its cost, models,
+attempts and tokens (`run.usage`). `dispatch status` begins with them:
+
+```text
+usage, as read 12m ago (2026-11-25 10:07 UTC):
+  the five-hour window    23%, resets 2026-11-25 13:00 UTC (in 2h41m)
+  the seven-day window    41%, resets 2026-11-28 09:00 UTC (in 70h41m)
+  runs, last five hours: $0.00: no runs
+  runs, last seven days: $1.84: dreamer $1.84 (6 runs)
+```
+
+**Deferring what can wait** (`dispatcher.admission`, off): a task below
+`below` in priority is held while a window is at `above` or more and has not
+reset; `status` says why. A reading older than `maxAge` admits.
+
+What it does not do yet: cancel or delete a Job, hold the agents still on
+their CronJobs, or let the owner answer a notice where it arrives.
 
 ## Agents beyond the dreamer
 

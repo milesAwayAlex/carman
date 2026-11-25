@@ -128,6 +128,12 @@ once; work submitted through one is visible and finished through the other.
 - **Schedule ticks are multiples of the interval since the Unix epoch**, so
   every instance computes the same ticks with no stored anchor; the first
   tick fired is the first after declaration; intervals are whole seconds.
+  **A cron schedule's ticks** are the instants its zone's wall clock reads a
+  matching time (`internal/dispatch/cron`); `Schedule.Due` gives both forms
+  the same catch-up. The suite uses the six-field form (seconds first) to
+  watch one fire in seconds. Re-declaring with a different timing starts
+  the new timing from the declaration: its ticks before it were never due.
+  `Undeclare` removes a schedule; declared again, it is new.
   The scheduled task's ID is `name@tick` (RFC 3339), which makes firing the
   same tick twice a duplicate submission. Re-declaring replaces the interval
   and template and keeps what has fired. Schedules are durable: a restarted

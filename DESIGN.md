@@ -72,7 +72,7 @@ clock ─────────────┘       │                      
 | Component | Responsibility | State |
 |---|---|---|
 | **Memory service** | Section 6 | Built |
-| **Dispatcher** | Keeps a durable log of events; turns events into tasks; starts work, routes later events to the task waiting for them, and records what did not happen (an overrun, a missed deadline or tick); decides what runs now. Its state is in tables of its own in a Postgres database it owns (ADR 0039). It runs as a service on the cluster: it starts a task as a Job made from the job template of the CronJob its class names, and records the end of every Job in its namespace, whoever started it (ADR 0042) | Built and running on the local cluster (`cmd/dispatcher`, `internal/dispatch`); started by hand (`scripts/deploy.sh CONTEXT dispatch submit`); no schedules, notices or pacing yet |
+| **Dispatcher** | Keeps a durable log of events; turns events into tasks; starts work, routes later events to the task waiting for them, and records what did not happen (an overrun, a missed deadline or tick); decides what runs now. Its state is in tables of its own in a Postgres database it owns (ADR 0039). It runs as a service on the cluster: it starts a task as a Job made from the job template of the CronJob its class names, and records the end of every Job in its namespace, whoever started it (ADR 0042). It starts work on schedules by time of day from the values, expects a Job at each tick of the CronJobs it does not start and records a tick without one, tells the owner of what failed or did not happen through a task of class `notify` (withheld until switched on), and keeps hourly readings of the account's usage and each routine run's cost (ADR 0043) | Built and running on the local cluster (`cmd/dispatcher`, `internal/dispatch`); schedules only the usage reading so far; notices withheld; admission rule built, off |
 | **Task ledger** | One row per task: trigger, state, what it is waiting for, session ID, branch, cost, verifier result, handoff note. State, waits and attempts are the dispatcher's tasks table; the rest is to come | Partly built, in the dispatcher |
 | **Worker** | One pod per task. Runs the agent, then the verifier, then records the episode | Proposed |
 | **Verifier** | A check separate from the agent's own claim. On failure the task continues with the result | Proposed |
@@ -103,14 +103,17 @@ expired by then.
 
 - The service draws from the same usage windows as the owner's interactive
   Claude Code. The dispatcher reserves headroom for the owner.
-- Signal: the SDK's rate-limit events carry utilization, window type and reset
-  time. Confirmed for the Python SDK only. Readings are to be events in the
-  dispatcher's log, kept for a period of their own (ADR 0039), and read back
-  by type and time.
+- Signal: the harness's stream carries rate-limit events with each window's
+  utilization and reset time. Built (ADR 0043): an hourly reading
+  (`usage.observed`, the cheapest model asked for one word) and each
+  routine run's cost and last reading (`run.usage`), as events in the
+  dispatcher's log kept for the period of events that belong to no task.
 - Where the policy acts: the dispatcher's admission, asked before each start
   with what is running; a task it holds says why.
 - Policy: urgent tasks always run. Backlog tasks run only while utilization is
-  under a curve that reaches full at reset. The dreamer and benchmark runs are
+  under a curve that reaches full at reset. Built first as a threshold, off
+  by default (ADR 0043): below a priority, a task is held while a window is
+  above a utilization and has not reset; a reading too old admits. The dreamer and benchmark runs are
   backlog jobs.
 - Per run: `maxBudgetUsd` and `maxTurns` are hard stops.
 
@@ -506,8 +509,11 @@ Decisions are recorded one per file in `docs/adr/`. The index,
    deadlines on calls out (ADR 0039); and the service on the cluster, with
    roles, Jobs from CronJob templates, a watcher that records every Job's
    end, its own Postgres and its dump in the nightly backup (ADR 0042).
-   Next: schedules by time of day, notices to the owner about what did not
-   happen, readings of the account's usage, and pacing as its admission.
+   Then (ADR 0043): schedules by time of day from the values, expectations
+   of the CronJobs it does not start, notices to the owner as tasks
+   (withheld until switched on), hourly usage readings and each run's cost,
+   and a first admission rule. Next: move the scheduled agents onto the
+   dispatcher one by one, switch notices on, and pace by a curve to reset.
 
 ## 12. References
 

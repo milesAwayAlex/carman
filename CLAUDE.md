@@ -75,12 +75,24 @@ Built so far:
   the job template of the CronJob its class names, and records in its log
   the end of every Job in the namespace, whoever started it. Its dump is in
   the nightly backup. `scripts/deploy.sh CONTEXT dispatch
-  status|log|submit|dump|restore`. Nothing submits to it yet but the owner.
+  status|log|submit|dump|restore`.
+- Schedules, notices and usage (ADR 0043, proposed): the dispatcher starts
+  work on cron schedules from the values (`dispatcher.schedules`, or
+  `dispatched: true` on an agent, whose CronJob is then a suspended
+  template), records `run.missed` for a CronJob's tick with no Job, tells
+  the owner of failures and of what did not happen through a `notify` task
+  (withheld as `notice.withheld` until `dispatcher.notices.enabled`), and
+  keeps the account's usage: an hourly reading (`agent-usage`,
+  `usage.observed`) and each routine run's cost (`run.usage`), shown first
+  by `dispatch status`. An admission rule that holds low-priority work
+  while a usage window is high is built and off.
 
 Not built yet: the way in from a laptop to a service on a shared cluster,
 the task-stream benchmark (M7), a second harness (M8), and for agents that
 do work outside memory: triggers other than a schedule, and a way for the
-owner to answer an agent's message where it arrives. The build
+owner to answer an agent's message where it arrives. The scheduled agents
+are not yet moved onto the dispatcher, notices are not yet switched on, and
+pacing is a threshold, not yet a curve to the window's reset. The build
 order is in DESIGN.md, section 11.
 
 ## Read first
