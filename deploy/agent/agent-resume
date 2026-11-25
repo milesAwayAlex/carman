@@ -211,7 +211,13 @@ EOF
     fi
     [ -n "$model" ] || model="$(echo "${CMEM_ROUTINE_MODELS:-}" | cut -d, -f1)"
     # The message, taken: from now it is this session's, delivered at its start.
-    text="$(DISPATCHER_SESSION="$id" dispatcher take --message "$msg" --how start)" || { echo "agent-resume: message $msg could not be taken" >&2; exit 1; }
+    # A dispatcher that is restarting is waited for, a minute at most.
+    tries=0
+    until text="$(DISPATCHER_SESSION="$id" dispatcher take --message "$msg" --how start)"; do
+        tries=$((tries + 1))
+        [ $tries -lt 12 ] || { echo "agent-resume: message $msg could not be taken" >&2; exit 1; }
+        sleep 5
+    done
     [ -n "$text" ] || { echo "agent-resume: message $msg was taken already; nothing to do"; exit 0; }
     flags="$(cmem routine --flags)" || flags="--permission-mode dontAsk --allowedTools 'Bash(dispatcher *)'"
     eval "set -- $flags"
@@ -232,7 +238,12 @@ for line in reversed(open(sys.argv[1]).read().splitlines()):
 PY
 )"
     [ -n "$result" ] || result="(The run started for this message ended without an answer: $(tail -c 300 /tmp/harness.err | tr '\n' ' '))"
-    printf '%s' "$result" | DISPATCHER_SESSION="$id" dispatcher answer "$msg" - || rc=1
+    tries=0
+    until printf '%s' "$result" | DISPATCHER_SESSION="$id" dispatcher answer "$msg" -; do
+        tries=$((tries + 1))
+        [ $tries -lt 12 ] || { rc=1; break; }
+        sleep 5
+    done
     exit $rc
     ;;
 -*)
