@@ -46,12 +46,12 @@ To change a decision, add a new record and mark the old one superseded.
 | [0033](0033-on-a-shared-cluster.md) | On a shared, managed cluster: published images, secrets made in the cluster, a nightly copy to a bucket | Accepted; the nightly copy superseded by 0038; the install at each job's start, in part, by 0041 |
 | [0034](0034-an-interactive-agent.md) | An agent can be interactive: a standing pod a person attaches to | Accepted |
 | [0035](0035-credentials-that-do-not-last.md) | A credential that does not last is renewed beside the proxy | Accepted |
-| [0036](0036-the-owners-attention.md) | An agent asks for the owner's attention with one command, and the owner can pick its conversation up | Accepted |
+| [0036](0036-the-owners-attention.md) | An agent asks for the owner's attention with one command, and the owner can pick its conversation up | Accepted; resuming from an interactive agent superseded by 0040 |
 | [0037](0037-services-and-a-namespace-of-their-own.md) | Agents reach the installation's services on the cluster, and have a namespace to run their own | Accepted |
 | [0038](0038-state-is-copied-to-a-store-the-platform-gives.md) | The installation's state is copied to a store the platform gives, by a job of the chart | Accepted |
-| [0039](0039-the-dispatcher-keeps-its-state-in-tables-of-its-own.md) | The dispatcher keeps its state in tables of its own, in a Postgres database it owns | Proposed |
-| [0040](0040-a-conversation-is-resumed-as-its-agent.md) | A kept conversation is resumed as the agent that had it, in a pod of its own | Proposed |
-| [0041](0041-a-job-starts-from-a-warm-image-made-in-the-cluster.md) | An agent's job starts from a warm image, made in the cluster and kept in the installation's registry | Proposed |
-| [0042](0042-the-dispatcher-runs-as-a-service-that-starts-jobs-and-watches-every-job.md) | The dispatcher runs as a service that starts Jobs from CronJob templates and records how every Job ended | Proposed |
-| [0043](0043-the-dispatcher-keeps-time-says-what-did-not-happen-and-reads-usage.md) | The dispatcher starts work on time, says what did not happen, and reads the account's usage | Proposed |
-| [0044](0044-what-memory-is-not-for-what-adds-to-an-entry-and-what-the-dreamer-may-read.md) | What memory is not for; a note that adds to an entry; what the dreamer may read and check | Proposed |
+| [0039](0039-the-dispatcher-keeps-its-state-in-tables-of-its-own.md) | The dispatcher keeps its state in tables of its own, in a Postgres database it owns | Accepted |
+| [0040](0040-a-conversation-is-resumed-as-its-agent.md) | A kept conversation is resumed as the agent that had it, in a pod of its own | Accepted |
+| [0041](0041-a-job-starts-from-a-warm-image-made-in-the-cluster.md) | An agent's job starts from a warm image, made in the cluster and kept in the installation's registry | Accepted |
+| [0042](0042-the-dispatcher-runs-as-a-service-that-starts-jobs-and-watches-every-job.md) | The dispatcher runs as a service that starts Jobs from CronJob templates and records how every Job ended | Accepted |
+| [0043](0043-the-dispatcher-keeps-time-says-what-did-not-happen-and-reads-usage.md) | The dispatcher starts work on time, says what did not happen, and reads the account's usage | Accepted |
+| [0044](0044-what-memory-is-not-for-what-adds-to-an-entry-and-what-the-dreamer-may-read.md) | What memory is not for; a note that adds to an entry; what the dreamer may read and check | Accepted |

@@ -1,7 +1,7 @@
 # 0040: A kept conversation is resumed as the agent that had it, in a pod of its own
 
-Status: Proposed (2026-11-24). Built and tried on the local cluster. When
-accepted, it supersedes the part of ADR 0036 that has a job's conversation
+Status: Accepted (2026-11-25; proposed 2026-11-24). The owner: "i scanned them, looks okay, let's test the system in practice". Built and tried on the local cluster. It
+supersedes the part of ADR 0036 that has a job's conversation
 picked up from an interactive agent.
 
 ## Context

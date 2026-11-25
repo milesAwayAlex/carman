@@ -1,6 +1,6 @@
 # 0043: The dispatcher starts work on time, says what did not happen, and reads the account's usage
 
-Status: Proposed (2026-11-25).
+Status: Accepted (2026-11-25; proposed 2026-11-25). The owner: "i scanned them, looks okay, let's test the system in practice".
 
 ## Context
 

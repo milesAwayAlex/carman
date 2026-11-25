@@ -35,7 +35,7 @@ Built so far:
   it puts on a cluster carries the project's name, and
   `scripts/chart-export.sh NAME DIR` writes it out under another (ADR 0032). `.github/workflows/images.yml` publishes
   the two images.
-- What memory is not for (ADR 0044, proposed): one job's instructions, the
+- What memory is not for (ADR 0044): one job's instructions, the
   present state of a system, the reasons for a design. Sessions are told so;
   the dreamer reads the installation's definitions (`agents.yaml` and its
   routines) to retire a job's instruction its definition holds, and may be
@@ -63,11 +63,10 @@ Built so far:
 - The owner's attention (ADR 0036): an agent tells the owner with the
   installation's `notify-owner` command, and a job's conversation is kept
   so that the owner can resume it as the agent that had it, in a pod of
-  its own (`scripts/deploy.sh CONTEXT agent resume ID`, ADR 0040,
-  proposed). The dreamer's too: a report of its with questions for the
+  its own (`scripts/deploy.sh CONTEXT agent resume ID`, ADR 0040). The dreamer's too: a report of its with questions for the
   owner sends one notice.
 
-- The warm image (ADR 0041, proposed): agents' jobs start from the agent
+- The warm image (ADR 0041): agents' jobs start from the agent
   image with the harness already in it, made in the cluster by a job
   (`agent.warm`, `deploy/agent/warm-harness`, `scripts/deploy.sh CONTEXT
   warm run|log`) and kept in the installation's registry. On the local
@@ -77,13 +76,13 @@ Built so far:
   installation names (`agent.namespaces`), and have a namespace of their
   own to run what a task needs (`agent.sandbox`, kubectl context `sandbox`).
 
-- The dispatcher (ADR 0039, 0042, proposed): `cmd/dispatcher`, a service
+- The dispatcher (ADR 0039, 0042): `cmd/dispatcher`, a service
   on the cluster with its own Postgres. It starts a task as a Job made from
   the job template of the CronJob its class names, and records in its log
   the end of every Job in the namespace, whoever started it. Its dump is in
   the nightly backup. `scripts/deploy.sh CONTEXT dispatch
   status|log|submit|dump|restore`.
-- Schedules, notices and usage (ADR 0043, proposed): the dispatcher starts
+- Schedules, notices and usage (ADR 0043): the dispatcher starts
   work on cron schedules from the values (`dispatcher.schedules`, or
   `dispatched: true` on an agent, whose CronJob is then a suspended
   template), records `run.missed` for a CronJob's tick with no Job, tells

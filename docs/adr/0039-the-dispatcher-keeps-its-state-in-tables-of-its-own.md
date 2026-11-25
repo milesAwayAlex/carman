@@ -1,6 +1,6 @@
 # 0039: The dispatcher keeps its state in tables of its own, in a Postgres database it owns
 
-Status: Proposed (2026-11-24).
+Status: Accepted (2026-11-25; proposed 2026-11-24). The owner: "i scanned them, looks okay, let's test the system in practice".
 
 ## Context
 

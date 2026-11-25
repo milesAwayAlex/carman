@@ -1,6 +1,6 @@
 # 0044: What memory is not for; a note that adds to an entry; what the dreamer may read and check
 
-Status: Proposed (2026-11-24). Built; not yet deployed.
+Status: Accepted (2026-11-25; proposed 2026-11-24). The owner: "i scanned them, looks okay, let's test the system in practice". Built; not yet deployed.
 
 ## Context
 

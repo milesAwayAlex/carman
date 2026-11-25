@@ -1,6 +1,6 @@
 # 0041: An agent's job starts from a warm image, made in the cluster and kept in the installation's registry
 
-Status: Proposed (2026-11-24). Built in the chart, the agent image and the
+Status: Accepted (2026-11-25; proposed 2026-11-24). The owner: "i scanned them, looks okay, let's test the system in practice". Built in the chart, the agent image and the
 deploy script, and measured on the local cluster. There the warm image was
 made by the job's own script run on the node's network, because no pod can
 yet reach the node's registry (see Consequences). Not tried on a cloud

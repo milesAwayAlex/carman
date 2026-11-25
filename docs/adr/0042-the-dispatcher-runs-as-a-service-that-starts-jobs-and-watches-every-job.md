@@ -1,6 +1,6 @@
 # 0042: The dispatcher runs as a service that starts Jobs from CronJob templates and records how every Job ended
 
-Status: Proposed (2026-11-24). Built and tried on the local cluster with a
+Status: Accepted (2026-11-25; proposed 2026-11-24). The owner: "i scanned them, looks okay, let's test the system in practice". Built and tried on the local cluster with a
 template made for the trial; no real agent has been started through it.
 
 ## Context
