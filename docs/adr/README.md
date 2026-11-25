@@ -52,3 +52,4 @@ To change a decision, add a new record and mark the old one superseded.
 | [0039](0039-the-dispatcher-keeps-its-state-in-tables-of-its-own.md) | The dispatcher keeps its state in tables of its own, in a Postgres database it owns | Proposed |
 | [0040](0040-a-conversation-is-resumed-as-its-agent.md) | A kept conversation is resumed as the agent that had it, in a pod of its own | Proposed |
 | [0041](0041-a-job-starts-from-a-warm-image-made-in-the-cluster.md) | An agent's job starts from a warm image, made in the cluster and kept in the installation's registry | Proposed |
+| [0042](0042-the-dispatcher-runs-as-a-service-that-starts-jobs-and-watches-every-job.md) | The dispatcher runs as a service that starts Jobs from CronJob templates and records how every Job ended | Proposed |

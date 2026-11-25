@@ -72,7 +72,7 @@ clock ─────────────┘       │                      
 | Component | Responsibility | State |
 |---|---|---|
 | **Memory service** | Section 6 | Built |
-| **Dispatcher** | Keeps a durable log of events; turns events into tasks; starts work, routes later events to the task waiting for them, and records what did not happen (an overrun, a missed deadline or tick); decides what runs now. Its state is in tables of its own in a Postgres database it owns (ADR 0039) | Contract, acceptance suite and implementation built (`internal/dispatch`); not yet deployed or used |
+| **Dispatcher** | Keeps a durable log of events; turns events into tasks; starts work, routes later events to the task waiting for them, and records what did not happen (an overrun, a missed deadline or tick); decides what runs now. Its state is in tables of its own in a Postgres database it owns (ADR 0039). It runs as a service on the cluster: it starts a task as a Job made from the job template of the CronJob its class names, and records the end of every Job in its namespace, whoever started it (ADR 0042) | Built and running on the local cluster (`cmd/dispatcher`, `internal/dispatch`); started by hand (`scripts/deploy.sh CONTEXT dispatch submit`); no schedules, notices or pacing yet |
 | **Task ledger** | One row per task: trigger, state, what it is waiting for, session ID, branch, cost, verifier result, handoff note. State, waits and attempts are the dispatcher's tasks table; the rest is to come | Partly built, in the dispatcher |
 | **Worker** | One pod per task. Runs the agent, then the verifier, then records the episode | Proposed |
 | **Verifier** | A check separate from the agent's own claim. On failure the task continues with the result | Proposed |
@@ -503,8 +503,11 @@ Decisions are recorded one per file in `docs/adr/`. The index,
 9. Dispatcher pacing and the task ledger's wait-and-wake routing. Built: the
    dispatcher's contract, its acceptance suite, and an implementation on
    tables of its own with migrations, retention, a low idle cost and
-   deadlines on calls out (ADR 0039). Next: a binary and a chart for it,
-   its first callers, and pacing as its admission.
+   deadlines on calls out (ADR 0039); and the service on the cluster, with
+   roles, Jobs from CronJob templates, a watcher that records every Job's
+   end, its own Postgres and its dump in the nightly backup (ADR 0042).
+   Next: schedules by time of day, notices to the owner about what did not
+   happen, readings of the account's usage, and pacing as its admission.
 
 ## 12. References
 

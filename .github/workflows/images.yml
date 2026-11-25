@@ -1,6 +1,7 @@
-# Builds the two images, for the two architectures clusters run on, and puts
-# them in this repository owner's registry: the memory service as `cmem` and
-# the agent image as `cmem-agent`, each tagged with the commit. A cluster
+# Builds the three images, for the two architectures clusters run on, and puts
+# them in this repository owner's registry: the memory service as `cmem`, the
+# agent image as `cmem-agent` and the dispatcher as `cmem-dispatcher`, each
+# tagged with the commit. A cluster
 # that pulls from a registry names them in its values, best by digest.
 name: images
 on:
@@ -14,6 +15,7 @@ on:
       - routines/**
       - deploy/Dockerfile
       - deploy/agent/**
+      - deploy/dispatcher/**
       - .github/workflows/images.yml
   workflow_dispatch:
 permissions:
@@ -31,10 +33,12 @@ jobs:
       # each architecture.
       - name: Build the binary and the build contexts
         run: |
-          mkdir -p build/service build/agent
+          mkdir -p build/service build/agent build/dispatcher
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -o build/service/cmem-$arch ./cmd/cmem
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -o build/dispatcher/dispatcher-$arch ./cmd/dispatcher
           done
+          cp deploy/dispatcher/Dockerfile build/dispatcher/
           cp deploy/Dockerfile build/service/
           cp build/service/cmem-* deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/backup-state deploy/agent/warm-harness deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/agent-open deploy/agent/oauth-credential deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json build/agent/
           cp -R routines build/agent/routines
@@ -70,9 +74,21 @@ jobs:
           tags: |
             ${{ env.registry }}/cmem-agent:${{ github.sha }}
             ${{ env.registry }}/cmem-agent:latest
+      - name: The dispatcher
+        id: dispatcher
+        uses: docker/build-push-action@v6
+        with:
+          context: build/dispatcher
+          platforms: linux/amd64,linux/arm64
+          provenance: false
+          push: true
+          tags: |
+            ${{ env.registry }}/cmem-dispatcher:${{ github.sha }}
+            ${{ env.registry }}/cmem-dispatcher:latest
       - name: What to name in a values file
         run: |
           {
             echo "memory.image: ${{ env.registry }}/cmem@${{ steps.service.outputs.digest }}"
             echo "agent.image: ${{ env.registry }}/cmem-agent@${{ steps.agent.outputs.digest }}"
+            echo "dispatcher.image: ${{ env.registry }}/cmem-dispatcher@${{ steps.dispatcher.outputs.digest }}"
           } | tee -a "$GITHUB_STEP_SUMMARY"

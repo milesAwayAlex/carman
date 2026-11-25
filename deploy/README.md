@@ -24,6 +24,11 @@ In the namespace `carman` (`CARMAN_NAMESPACE` names another):
 
 - `cronjob/dreamer`, the nightly consolidation of the memory (see "The
   dreamer" below), switched off until it has a model credential.
+- `deployment/dispatcher` and `statefulset/dispatcher-db`, the dispatcher
+  and its own Postgres, with `pvc/data-dispatcher-db-0` (2 GiB),
+  `secret/dispatcher-tokens` (owner, agent and backup roles) and
+  `secret/dispatcher-db` (the database's password), both made from random
+  values on the first deploy (see "The dispatcher" below).
 
 All of it is one Helm chart, `charts/carman` (ADR 0030), with no secret in
 it. What differs between clusters is a values file: `deploy/values/local.yaml`
@@ -354,6 +359,65 @@ than the nodes do, `agent.warm.pushRegistry` is its host as the job sees it,
 local cluster, needs to answer on an address of the node's that pods reach
 too; until it does, the job fails, says so, and agents start from the agent
 image and install the harness.
+
+## The dispatcher
+
+The dispatcher (ADR 0042) starts agents' runs as Jobs and records in its log
+how every Job in the namespace ended, whoever started it: a CronJob, the
+dispatcher, or a person. Its client runs inside its pod as the owner, so
+these need no port of this machine:
+
+```sh
+scripts/deploy.sh devvm dispatch status            # running, pending and why, the last runs
+scripts/deploy.sh devvm dispatch status TASK       # one task
+scripts/deploy.sh devvm dispatch log               # the last 50 records of the log
+scripts/deploy.sh devvm dispatch log --type job.ended --last 20
+scripts/deploy.sh devvm dispatch log --after 120   # what came after record 120
+scripts/deploy.sh devvm dispatch submit dreamer    # a run of the CronJob `dreamer`, now
+scripts/deploy.sh devvm dispatch submit agent-NAME my-run-1 --priority 5 --timeout 2h \
+    --env TASK_NOTE=value --arg --flag
+```
+
+A task's class is the name of a CronJob in the namespace; its Job is made
+from that CronJob's job template, named for the attempt (`my-run-1-1`), with
+`TASK_ID`, `TASK_ATTEMPT` and `TASK_CLASS` in its environment. `--env` adds
+variables whose names start with `TASK_`, `--arg` arguments after the
+template's own; nothing else about the Job can be changed. The dispatcher
+runs `dispatcher.maxRunning` tasks at once (one), highest priority first;
+`status` says why a task waits. A CronJob's own schedule is untouched: the
+scheduled agents still run from their CronJobs, and their runs are in the
+log as `job.ended` events with `started_by: cronjob`.
+
+Its log keeps a finished task and its events for `dispatcher.retention`
+(30 days), and events that belong to no task, such as every Job's end, for
+`dispatcher.retentionUnowned` (180 days).
+
+**Its database** is the dispatcher's alone; only its pod can reach it. Where
+the installation has a managed Postgres, set `dispatcher.database.host` (and
+`port`, `name`, `user`, `sslmode`) and put its password in the cluster:
+`... | scripts/deploy.sh CONTEXT secret dispatcher-db password`. The chart
+then runs none, and the nightly backup does not copy it: that database's
+own backups do.
+
+**Its backup.** Where the chart runs the database and `backup.enabled` is
+set, the nightly job copies its dump as `dispatcher` beside the library;
+`scripts/deploy.sh CONTEXT copy dispatcher > dispatcher.sql` fetches the
+latest. By hand:
+
+```sh
+scripts/deploy.sh devvm dispatch dump > dispatcher.sql
+scripts/deploy.sh devvm dispatch restore dispatcher.sql
+```
+
+`restore` stops the service, renames the database in place to
+`dispatcher_replaced_TIME` (never dropped), loads the dump into a new one,
+and starts the service on it. Drop the old one when the restored one has
+been looked at: `kubectl --context CONTEXT -n carman exec dispatcher-db-0 --
+psql -U dispatcher -d postgres -c 'DROP DATABASE "dispatcher_replaced_TIME"'`.
+
+What it does not do yet: schedules of its own, tell the owner about a run
+that failed or did not happen, cancel or delete a Job, or give agents its
+`agent` token.
 
 ## Agents beyond the dreamer
 

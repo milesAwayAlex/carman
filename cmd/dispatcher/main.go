@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -236,9 +237,14 @@ func status(ctx context.Context, c *api.Client, pos []string) error {
 		return err
 	}
 	fmt.Println("last runs:")
-	for _, r := range runs {
-		var j kube.JobEnded
-		_ = json.Unmarshal(r.Data, &j)
+	ended := make([]kube.JobEnded, len(runs))
+	for i, r := range runs {
+		_ = json.Unmarshal(r.Data, &ended[i])
+	}
+	// The log has them in the order they were seen, which for Jobs found
+	// when the service started is not the order they ended in.
+	slices.SortStableFunc(ended, func(a, b kube.JobEnded) int { return a.Ended.Compare(b.Ended) })
+	for _, j := range ended {
 		took := ""
 		if j.Started != nil {
 			took = j.Ended.Sub(*j.Started).Round(time.Second).String()

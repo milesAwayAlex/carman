@@ -70,6 +70,13 @@ Built so far:
   installation names (`agent.namespaces`), and have a namespace of their
   own to run what a task needs (`agent.sandbox`, kubectl context `sandbox`).
 
+- The dispatcher (ADR 0039, 0042, proposed): `cmd/dispatcher`, a service
+  on the cluster with its own Postgres. It starts a task as a Job made from
+  the job template of the CronJob its class names, and records in its log
+  the end of every Job in the namespace, whoever started it. Its dump is in
+  the nightly backup. `scripts/deploy.sh CONTEXT dispatch
+  status|log|submit|dump|restore`. Nothing submits to it yet but the owner.
+
 Not built yet: the way in from a laptop to a service on a shared cluster,
 the task-stream benchmark (M7), a second harness (M8), and for agents that
 do work outside memory: triggers other than a schedule, and a way for the
