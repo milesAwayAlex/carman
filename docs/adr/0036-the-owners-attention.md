@@ -1,7 +1,8 @@
 # 0036: An agent asks for the owner's attention with one command, and the owner can pick its conversation up
 
 Status: Accepted (2026-11-22), to be judged by how it holds up in use. Picking a job's
-conversation up from an interactive agent is superseded by ADR 0040.
+conversation up from an interactive agent is superseded by ADR 0040. What a notice may
+say is narrowed by ADR 0048.
 Built; running on the local cluster.
 
 ## Context

@@ -1,6 +1,6 @@
 # 0045: Messages between sessions, agents and the owner are events in the dispatcher's log
 
-Status: Proposed (2026-11-25). Built and tried on the local cluster with a
+Status: Accepted (2026-11-26; proposed 2026-11-25). The owner: okay, and "sending to the host sessions (and hearing back from them) is really important, we should make sure this works". Built and tried on the local cluster with a
 throwaway agent; no real agent has been sent a message.
 
 ## Context

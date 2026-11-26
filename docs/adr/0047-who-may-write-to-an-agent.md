@@ -1,6 +1,6 @@
 # 0047: Who may write to an agent: the owner, its own sessions, an answer, and the agents it lists
 
-Status: Proposed (2026-11-25). Built and tested against the dispatcher's
+Status: Accepted (2026-11-26; proposed 2026-11-25). The owner: fine, with a question to keep in view: sessions on his own machine write to each other freely, so what does the limit win here. Built and tested against the dispatcher's
 database; not yet deployed.
 
 ## Context

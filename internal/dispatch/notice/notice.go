@@ -250,13 +250,12 @@ func (n *Notifier) Compose(ctx context.Context, r dispatch.Record) (Notice, bool
 				who += ", session " + m.Name
 			}
 		}
-		body := m.Body
-		if len(body) > 3000 {
-			body = body[:3000] + " [...] (all of it: " + n.deploy("dispatch message "+m.ID) + ")"
-		}
+		// The notice goes over a channel that is treated as open: it says
+		// that there is a message and how to read and answer it, and
+		// carries none of what the message says.
 		no.Title = "A message from " + who
-		no.Text = fmt.Sprintf("%s\n\n(%s, message %s.) To answer: %s. Read: %s.",
-			body, m.From, m.ID, n.deploy("dispatch reply "+m.ID+" 'YOUR ANSWER'"), n.deploy("dispatch inbox"))
+		no.Text = fmt.Sprintf("It is not shown here. Read it: %s. To answer: %s. (%s, message %s.)",
+			n.deploy("dispatch message "+m.ID), n.deploy("dispatch reply "+m.ID+" 'YOUR ANSWER'"), m.From, m.ID)
 	default:
 		return no, false
 	}

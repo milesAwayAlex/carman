@@ -1,6 +1,6 @@
 # 0046: A restricted routine may run named commands that only read
 
-Status: Proposed (2026-11-25).
+Status: Accepted (2026-11-26; proposed 2026-11-25). The owner: "looks fine but if it introduces friction i want to review why we want to limit the dreamer".
 
 ## Context
 

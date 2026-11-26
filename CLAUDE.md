@@ -94,7 +94,7 @@ Built so far:
   by `dispatch status`. An admission rule that holds low-priority work
   while a usage window is high is built and off.
 
-- Messages (ADR 0045, proposed): sessions, agents by name and the owner
+- Messages (ADR 0045): sessions, agents by name and the owner
   write to each other with `dispatcher peers|send|reply|inbox|message`
   (the owner: `scripts/deploy.sh CONTEXT dispatch send TO 'TEXT'`). A
   message is an event in the dispatcher's log; an agent's pod proves which
@@ -102,7 +102,7 @@ Built so far:
   harness's hooks carry a message into a running session (between tool
   calls, at the end of a turn, or waking an idle one), and a message for a
   session that is not running starts it again as its agent. Who may write
-  to an agent (ADR 0047, proposed): the owner, its own sessions, an
+  to an agent (ADR 0047): the owner, its own sessions, an
   answer, and the agents its `writtenBy` lists.
 
 Not built yet: the way in from a laptop to a service on a shared cluster,

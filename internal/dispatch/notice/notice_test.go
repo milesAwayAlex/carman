@@ -123,3 +123,24 @@ func TestR10Notices(t *testing.T) {
 		t.Errorf("payload %+v, %v", p, err)
 	}
 }
+
+// TestR10AMessageToTheOwnerIsNotCarried: the notice for a message to the
+// owner says that there is one and how to read and answer it, and has none
+// of what the message says; the notice's channel is treated as open.
+func TestR10AMessageToTheOwnerIsNotCarried(t *testing.T) {
+	n := &Notifier{}
+	data, _ := json.Marshal(map[string]string{"id": "m1", "from": "session/s1", "agent": "builder", "name": "message", "to": "owner",
+		"body": "The fleet in region nine costs 4,112 a month."})
+	no, ok := n.Compose(context.Background(), dispatch.Record{Event: dispatch.Event{Type: TypeMessage, Subject: "m1", Data: data}})
+	if !ok {
+		t.Fatal("a message to the owner is a notice")
+	}
+	if strings.Contains(no.Text, "4,112") || strings.Contains(no.Text, "region nine") || strings.Contains(no.Title, "4,112") {
+		t.Errorf("the notice carries the message: %q / %q", no.Title, no.Text)
+	}
+	for _, want := range []string{"dispatch message m1", "dispatch reply m1", "builder"} {
+		if !strings.Contains(no.Title+" "+no.Text, want) {
+			t.Errorf("the notice lacks %q: %q / %q", want, no.Title, no.Text)
+		}
+	}
+}
