@@ -514,6 +514,10 @@ EOF
     printf '%s\n' "$rendered" | kubectl --context "$context" apply -f -   # every object names its namespace; one is not this one
     # Applying does not remove what the values no longer ask for.
     [ -n "$warm_ref" ] || "${kube[@]}" delete cronjob/agent-warm networkpolicy/warm-job-reaches-the-registry serviceaccount/agent-warm --ignore-not-found >/dev/null
+    # The meter's right to read pods, where the proxy no longer holds the
+    # model's credential (agent.modelCredential pod, ADR 0050).
+    printf '%s\n' "$rendered" | grep -q '^  name: egress-meter$' ||
+        "${kube[@]}" delete rolebinding/egress-meter role/egress-meter --ignore-not-found >/dev/null
     "${kube[@]}" rollout status statefulset/cmem --timeout=120s
     if "${kube[@]}" get deployment dispatcher >/dev/null 2>&1; then
         ! "${kube[@]}" get statefulset dispatcher-db >/dev/null 2>&1 || "${kube[@]}" rollout status statefulset/dispatcher-db --timeout=180s
