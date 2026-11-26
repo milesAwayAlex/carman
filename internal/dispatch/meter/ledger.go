@@ -38,9 +38,9 @@ type Record struct {
 	ServerTools map[string]int64 `json:"server_tool_use,omitempty"`
 	// The sessions the requests named (the harness's own word, not the
 	// proxy's), at most a few.
-	Sessions []string `json:"sessions,omitempty"`
-	From        time.Time        `json:"from"`
-	To          time.Time        `json:"to"`
+	Sessions []string  `json:"sessions,omitempty"`
+	From     time.Time `json:"from"`
+	To       time.Time `json:"to"`
 	// The proxy's pod that saw it.
 	Meter string `json:"meter,omitempty"`
 }
