@@ -250,12 +250,20 @@ func (n *Notifier) Compose(ctx context.Context, r dispatch.Record) (Notice, bool
 				who += ", session " + m.Name
 			}
 		}
-		// The notice goes over a channel that is treated as open: it says
-		// that there is a message and how to read and answer it, and
-		// carries none of what the message says.
+		// The notice goes over a chat channel that is mostly trusted and not
+		// private (ADR 0048): it carries the message's first line, which the
+		// sender writes to say roughly what this is about, and how to read
+		// the rest. The body stays in the log.
+		about := strings.TrimSpace(m.Body)
+		if k := strings.IndexByte(about, '\n'); k >= 0 {
+			about = strings.TrimSpace(about[:k])
+		}
+		if r := []rune(about); len(r) > 240 {
+			about = string(r[:240]) + "…"
+		}
 		no.Title = "A message from " + who
-		no.Text = fmt.Sprintf("It is not shown here. Read it: %s. To answer: %s. (%s, message %s.)",
-			n.deploy("dispatch message "+m.ID), n.deploy("dispatch reply "+m.ID+" 'YOUR ANSWER'"), m.From, m.ID)
+		no.Text = fmt.Sprintf("%s\n\nAll of it: %s. To answer: %s. (%s, message %s.)",
+			about, n.deploy("dispatch message "+m.ID), n.deploy("dispatch reply "+m.ID+" 'YOUR ANSWER'"), m.From, m.ID)
 	default:
 		return no, false
 	}

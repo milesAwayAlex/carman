@@ -58,4 +58,4 @@ To change a decision, add a new record and mark the old one superseded.
 | [0045](0045-messages-between-sessions-agents-and-the-owner.md) | Messages between sessions, agents and the owner are events in the dispatcher's log | Accepted |
 | [0046](0046-a-restricted-routine-may-run-named-commands-that-only-read.md) | A restricted routine may run named commands that only read | Accepted |
 | [0047](0047-who-may-write-to-an-agent.md) | Who may write to an agent: the owner, its own sessions, an answer, and the agents it lists | Accepted |
-| [0048](0048-the-notice-channel-is-open.md) | The channel that carries notices to the owner is treated as open: a notice says that there is something and where, never what | Accepted |
+| [0048](0048-the-notice-channel-is-open.md) | The channel that carries notices to the owner is mostly trusted, not private: a notice says roughly what happened and how urgent, with no personal data, internal identifiers or keys | Accepted |

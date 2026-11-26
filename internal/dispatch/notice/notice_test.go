@@ -124,21 +124,22 @@ func TestR10Notices(t *testing.T) {
 	}
 }
 
-// TestR10AMessageToTheOwnerIsNotCarried: the notice for a message to the
-// owner says that there is one and how to read and answer it, and has none
-// of what the message says; the notice's channel is treated as open.
-func TestR10AMessageToTheOwnerIsNotCarried(t *testing.T) {
+// TestR10AMessageToTheOwnerSaysWhatItIsAbout: the notice for a message to
+// the owner carries the message's first line, which says roughly what it is
+// about, and how to read and answer it; the rest of the message stays in
+// the log, since the notice's channel is not private (ADR 0048).
+func TestR10AMessageToTheOwnerSaysWhatItIsAbout(t *testing.T) {
 	n := &Notifier{}
 	data, _ := json.Marshal(map[string]string{"id": "m1", "from": "session/s1", "agent": "builder", "name": "message", "to": "owner",
-		"body": "The fleet in region nine costs 4,112 a month."})
+		"body": "The weekly review is done and one pool needs a decision.\n\nThe pool behind account 4112-88 costs more than its sibling."})
 	no, ok := n.Compose(context.Background(), dispatch.Record{Event: dispatch.Event{Type: TypeMessage, Subject: "m1", Data: data}})
 	if !ok {
 		t.Fatal("a message to the owner is a notice")
 	}
-	if strings.Contains(no.Text, "4,112") || strings.Contains(no.Text, "region nine") || strings.Contains(no.Title, "4,112") {
-		t.Errorf("the notice carries the message: %q / %q", no.Title, no.Text)
+	if strings.Contains(no.Text, "4112-88") || strings.Contains(no.Title, "4112-88") {
+		t.Errorf("the notice carries more than the first line: %q / %q", no.Title, no.Text)
 	}
-	for _, want := range []string{"dispatch message m1", "dispatch reply m1", "builder"} {
+	for _, want := range []string{"The weekly review is done and one pool needs a decision.", "dispatch message m1", "dispatch reply m1", "builder"} {
 		if !strings.Contains(no.Title+" "+no.Text, want) {
 			t.Errorf("the notice lacks %q: %q / %q", want, no.Title, no.Text)
 		}
