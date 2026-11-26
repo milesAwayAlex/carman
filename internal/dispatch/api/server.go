@@ -10,6 +10,10 @@
 //     Its events' IDs and sources are marked as an agent's, so that it
 //     cannot take an ID the dispatcher will want.
 //   - backup: reads a dump of the database, and nothing else.
+//   - meter: the egress proxy's meter (ADR 0050), which emits what agents
+//     used of the model as it saw them, and nothing else. It has no token
+//     of its own: it is the proxy's pod, by the token the cluster makes
+//     for that pod, and only it may emit model.* events.
 package api
 
 import (
@@ -39,6 +43,7 @@ const (
 	RoleOwner  Role = "owner"
 	RoleAgent  Role = "agent"
 	RoleBackup Role = "backup"
+	RoleMeter  Role = "meter"
 )
 
 var roles = []Role{RoleOwner, RoleAgent, RoleBackup}
@@ -88,8 +93,12 @@ type Server struct {
 }
 
 // Reserved are the prefixes of the types only the dispatcher, its job
-// watcher and the owner write.
-var Reserved = []string{"task.", "job.", "schedule."}
+// watcher and the owner write; and, for model.*, the meter.
+var Reserved = []string{"task.", "job.", "schedule.", MeterPrefix}
+
+// MeterPrefix is the prefix of the types the meter writes, and the only
+// ones it may.
+const MeterPrefix = "model."
 
 type route struct {
 	method, pattern string
@@ -100,7 +109,7 @@ type route struct {
 func (s *Server) routes() []route {
 	owner, emitters, dumpers := []Role{RoleOwner}, []Role{RoleOwner, RoleAgent}, []Role{RoleOwner, RoleBackup}
 	return []route{
-		{http.MethodPost, "/v1/events", emitters, s.emit},
+		{http.MethodPost, "/v1/events", []Role{RoleOwner, RoleAgent, RoleMeter}, s.emit},
 		{http.MethodGet, "/v1/events", owner, s.events},
 		{http.MethodPost, "/v1/tasks", owner, s.submit},
 		{http.MethodGet, "/v1/tasks", owner, s.tasks},
@@ -199,6 +208,9 @@ func (s *Server) authenticate(r *http.Request) (Role, message.Caller, error) {
 			s.Log.Warn("a token was refused", "error", err)
 			return "", message.Caller{}, fmt.Errorf("%w: %v", errUnauthorized, err)
 		}
+		if c.Meter {
+			return RoleMeter, c, nil
+		}
 		return RoleAgent, c, nil
 	}
 	return "", message.Caller{}, errUnauthorized
@@ -241,12 +253,17 @@ func (s *Server) emit(_ http.ResponseWriter, r *http.Request, role Role) (any, e
 	if e.ID == "" {
 		e.ID = randomID()
 	}
-	if role != RoleOwner {
+	if role == RoleMeter && !strings.HasPrefix(e.Type, MeterPrefix) {
+		return nil, fmt.Errorf("%w: the meter emits only events of type %s*", errForbidden, MeterPrefix)
+	}
+	if role != RoleOwner && role != RoleMeter {
 		for _, p := range Reserved {
 			if strings.HasPrefix(e.Type, p) {
-				return nil, fmt.Errorf("%w: events of type %s* are the dispatcher's", errForbidden, p)
+				return nil, fmt.Errorf("%w: events of type %s* are not this role's to emit", errForbidden, p)
 			}
 		}
+	}
+	if role != RoleOwner {
 		prefix := string(role)
 		if c := callerOf(r); c.Agent != "" {
 			prefix += "/" + c.Agent

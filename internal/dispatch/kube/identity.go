@@ -42,6 +42,11 @@ const jwksPath = "/openid/v1/jwks"
 // Audience is what a token for the dispatcher is made for.
 const Audience = "dispatcher"
 
+// RoleLabel on a pod that is no agent's says what else it is to the
+// dispatcher: "meter" is the egress proxy's pod (ADR 0050). Like the label
+// agent, it is set by whoever made the pod, which an agent cannot be here.
+const RoleLabel = "dispatcher-role"
+
 // ErrIdentity is a token that does not say who is calling.
 var ErrIdentity = errors.New("the token does not prove a pod of this installation")
 
@@ -125,10 +130,15 @@ func (v *Verifier) Verify(ctx context.Context, token string) (message.Caller, er
 		return message.Caller{}, fmt.Errorf("%w: its pod %s has gone", ErrIdentity, cl.Kube.Pod.Name)
 	}
 	agent := pod.agent()
-	if agent == "" {
+	who := message.Caller{Agent: agent, Pod: pod.Metadata.Name, PodUID: pod.Metadata.UID}
+	switch {
+	case agent == "" && pod.Metadata.Labels[RoleLabel] == "meter":
+		// The egress proxy's pod, whose meter says what agents used of the
+		// model (ADR 0050). An agent's pod is never the meter.
+		who.Meter = true
+	case agent == "":
 		return message.Caller{}, fmt.Errorf("%w: pod %s is no agent's (no label agent, no AGENT_NAME)", ErrIdentity, pod.Metadata.Name)
 	}
-	who := message.Caller{Agent: agent, Pod: pod.Metadata.Name, PodUID: pod.Metadata.UID}
 	until := v.now().Add(time.Minute)
 	if exp := time.Unix(cl.Exp, 0); exp.Before(until) {
 		until = exp
@@ -261,7 +271,10 @@ type podObject struct {
 		DeletionTimestamp *time.Time        `json:"deletionTimestamp"`
 	} `json:"metadata"`
 	Spec struct {
-		Containers []struct {
+		// A pod on the node's network has the node's address, which is
+		// not its own.
+		HostNetwork bool `json:"hostNetwork"`
+		Containers  []struct {
 			Env []struct {
 				Name  string `json:"name"`
 				Value string `json:"value"`
@@ -269,7 +282,11 @@ type podObject struct {
 		} `json:"containers"`
 	} `json:"spec"`
 	Status struct {
-		Phase string `json:"phase"`
+		Phase  string `json:"phase"`
+		PodIP  string `json:"podIP"`
+		PodIPs []struct {
+			IP string `json:"ip"`
+		} `json:"podIPs"`
 	} `json:"status"`
 }
 
