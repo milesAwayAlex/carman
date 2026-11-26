@@ -74,7 +74,7 @@ cluster.** Three ways were weighed:
 | Pass as another | anyone who learns it, for as long as it lives; it is in the pod's environment, so it can be read and written into memory or a message | anyone handed it, until it expires (an hour) | only by having that address: the network gives it to one pod at a time, and agents drop every capability |
 | Which pod | no: an agent, not a pod | yes | yes |
 | When the pod is gone | the placeholder still works | the token stops being accepted | the address is free; the record already names the pod and its UID |
-| What it costs per request | a map read | a signature check, cached | a map read; an unknown address lists pods, at most once a second |
+| What it costs per request | a map read | a signature check, cached | a map read; an unknown address is looked for for up to five seconds, listing pods at most twice a second |
 | What the harness must do | nothing new | send a token that changes every hour, from a variable read once at start: a standing pod outlives it, and the harness's other way (a helper that prints a key) changes how it signs in | nothing new |
 | Made and kept | one per agent at deploy, and on a managed cluster by External Secrets | by the cluster | by the cluster |
 
@@ -187,11 +187,15 @@ and to `proxy` again.
   the proxy's port can ask, but only an agent's pod of this namespace gets
   the credential: stricter than the other credentials, which the proxy
   puts on any caller's request.
-- A new pod is known within a second of its address being given; a pod
+- A job's harness can ask before the cluster's API shows its pod's
+  address: the hourly reading at 21:07 on 2026-11-26 asked three seconds
+  after its pod was made, the meter found nobody at that address and
+  refused it, and the reading failed. An unknown address is now looked for
+  for up to five seconds (the watch, and a list at most twice a second)
+  before it is refused; a pod made from the reading's template that asks at
+  once then got its answer. A refusal therefore takes five seconds. A pod
   whose address is given again is the new pod from the moment the watch
-  says so. A request in between would be recorded as the earlier pod;
-  agents' pods start and ask seconds apart, and the window is that of
-  the watch.
+  says so; a request in between would be recorded as the earlier pod.
 - Counting tokens and the account's own questions are counted as requests
   with no model. The hourly reading could be read from the answers'
   headers instead; not done.
