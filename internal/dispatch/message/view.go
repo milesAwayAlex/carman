@@ -30,6 +30,11 @@ func (s *Service) Inbox(ctx context.Context, c Caller, session string) ([]InboxI
 		if session != "" {
 			to = append(to, SessionAddress(session))
 		}
+		heirs, err := s.heirs(ctx, c, session)
+		if err != nil {
+			return nil, err
+		}
+		to = append(to, heirs...)
 	}
 	recs, err := s.Store.Unmarked(ctx, to, "read", 200)
 	if err != nil {
@@ -86,7 +91,7 @@ func (s *Service) isFor(c Caller, session string, m Message) bool {
 	// A message to another session of the caller's agent is the agent's.
 	if kind, rest := Split(m.To); kind == "session" {
 		x, ok, err := s.Store.GetSession(context.Background(), rest)
-		return err == nil && ok && x.Agent == c.Agent && session == ""
+		return err == nil && ok && x.Agent == c.Agent && (session == "" || c.Host)
 	}
 	return false
 }
@@ -206,9 +211,16 @@ func (s *Service) Peers(ctx context.Context, c Caller, since time.Duration) ([]P
 		if err != nil {
 			return nil, err
 		}
-		p := Peer{Address: SessionAddress(x.ID), Kind: "session", Agent: x.Agent, Name: x.Name, Seen: x.Seen, State: "not running (kept)", Where: "last in " + x.Pod, NotWritable: s.notWritable(c, x.Agent)}
+		where := "in " + x.Pod
+		if s.isPlace(x.Agent) {
+			where = "on the owner's machine"
+		}
+		p := Peer{Address: SessionAddress(x.ID), Kind: "session", Agent: x.Agent, Name: x.Name, Seen: x.Seen, State: "not running (kept)", Where: "last " + where, NotWritable: s.notWritable(c, x.Agent)}
+		if s.isPlace(x.Agent) && !running {
+			p.State = "not running: a message waits for it, or for the next session of its name there"
+		}
 		if running {
-			p.State, p.Where = x.State, x.Kind+" in "+x.Pod
+			p.State, p.Where = x.State, x.Kind+" "+where
 			if x.State == Idle && !listening.listening(x.ID) {
 				p.State = "idle, not listening: it gets messages at its next turn"
 			}
@@ -319,6 +331,20 @@ func (r *Router) Sweep(ctx context.Context) error {
 	}
 	for _, x := range sessions {
 		if x.State == Ended {
+			continue
+		}
+		if s.isPlace(x.Agent) {
+			// No pod tells: a day without a word, or a waiter, is the end.
+			if s.hostRunning(x) {
+				continue
+			}
+			x.State = Ended
+			if _, _, err := s.Store.PutSession(ctx, x); err != nil {
+				return err
+			}
+			if err := s.ended(ctx, x, "not heard from for a day"); err != nil {
+				return err
+			}
 			continue
 		}
 		alive, err := s.Cluster.PodAlive(ctx, x.Pod, x.PodUID)

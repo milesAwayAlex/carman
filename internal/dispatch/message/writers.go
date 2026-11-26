@@ -44,7 +44,8 @@ func (s *Service) targetAgent(ctx context.Context, to string) (string, error) {
 // mayWrite says whether agent from may write to agent target, leaving
 // answers aside.
 func (s *Service) mayWrite(from, target string) bool {
-	return target == "" || from == target || slices.Contains(s.Writers[target], from)
+	// The owner's own sessions write as the owner may (ADR 0049).
+	return target == "" || from == target || s.isPlace(from) || slices.Contains(s.Writers[target], from)
 }
 
 // answering says whether a message from the caller to to answers a

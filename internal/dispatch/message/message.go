@@ -71,6 +71,7 @@ type Message struct {
 	Sent    time.Time `json:"sent"`
 	Reason  string    `json:"reason,omitempty"` // for a refused one: why
 	Depth   int       `json:"depth,omitempty"`  // how many answers deep it is
+	Host    bool      `json:"host,omitempty"`   // sent by a session on the owner's machine (ADR 0049)
 }
 
 // Delivery is how a message reached a session, or who read it.
@@ -168,10 +169,12 @@ type Cluster interface {
 	Agents(ctx context.Context) (map[string]AgentInfo, error)
 }
 
-// Caller is who is asking: the owner, or an agent's pod, as the cluster
-// vouches for it. The session a pod names is its own claim.
+// Caller is who is asking: the owner, an agent's pod, as the cluster
+// vouches for it, or the owner's own machine (Host, ADR 0049), whose Agent
+// is the place's name. The session a caller names is its own claim.
 type Caller struct {
 	Owner  bool
+	Host   bool
 	Agent  string
 	Pod    string
 	PodUID string
@@ -180,6 +183,9 @@ type Caller struct {
 func (c Caller) String() string {
 	if c.Owner {
 		return Owner
+	}
+	if c.Host {
+		return "place " + c.Agent + " (the owner's machine)"
 	}
 	return fmt.Sprintf("agent %s (pod %s)", c.Agent, c.Pod)
 }
@@ -206,8 +212,11 @@ type Service struct {
 	// Writers are, for each agent, the other agents that may write to it
 	// and its sessions (ADR 0047). An agent not here has none.
 	Writers map[string][]string
-	Log     *slog.Logger
-	Now     func() time.Time
+	// Place is the name of the owner's own machine, whose sessions run
+	// outside the cluster (ADR 0049); empty when there is none.
+	Place string
+	Log   *slog.Logger
+	Now   func() time.Time
 }
 
 func (s *Service) now() time.Time {
@@ -306,6 +315,9 @@ func (s *Service) Act(ctx context.Context, c Caller, session string) (Session, b
 	if c.Owner {
 		return Session{}, false, fmt.Errorf("%w: the owner is not a session", ErrForbidden)
 	}
+	if !c.Host && s.isPlace(c.Agent) {
+		return Session{}, false, fmt.Errorf("%w: %s is the owner's machine, and a pod is not", ErrForbidden, c.Agent)
+	}
 	if session == "" {
 		return Session{}, false, nil
 	}
@@ -368,7 +380,7 @@ func (s *Service) Send(ctx context.Context, c Caller, session, given, body, answ
 		if err != nil {
 			return Result{}, err
 		}
-		m.Agent, m.Name, m.Pod = c.Agent, me.Name, c.Pod
+		m.Agent, m.Name, m.Pod, m.Host = c.Agent, me.Name, c.Pod, c.Host
 	}
 	m.From = from(c, session)
 	if answers != "" && given == "" {
@@ -463,6 +475,9 @@ func (s *Service) message(ctx context.Context, id string) (Message, bool, error)
 // Running says whether a session is running now: its last word was not
 // that it ended, and the pod it last ran in is there.
 func (s *Service) Running(ctx context.Context, x Session) (bool, error) {
+	if s.isPlace(x.Agent) {
+		return s.hostRunning(x), nil
+	}
 	if x.State == Ended || x.Pod == "" {
 		return false, nil
 	}
@@ -492,13 +507,20 @@ func (s *Service) Route(ctx context.Context, m Message) (string, error) {
 	}
 	if running {
 		listening.tell(x.ID, "message")
+		where := "in pod " + x.Pod
+		if s.isPlace(x.Agent) {
+			where = "on the owner's machine"
+		}
 		if x.State == Idle && listening.listening(x.ID) {
-			return fmt.Sprintf("for session %s of agent %s, idle in pod %s: it is woken by it", short(x.ID), x.Agent, x.Pod), nil
+			return fmt.Sprintf("for session %s of agent %s, idle %s: it is woken by it", short(x.ID), x.Agent, where), nil
 		}
 		if x.State == Idle {
-			return fmt.Sprintf("for session %s of agent %s, idle in pod %s but not listening: it gets it at its next turn", short(x.ID), x.Agent, x.Pod), nil
+			return fmt.Sprintf("for session %s of agent %s, idle %s but not listening: it gets it at its next turn", short(x.ID), x.Agent, where), nil
 		}
-		return fmt.Sprintf("for session %s of agent %s, busy in pod %s: it gets it after its next tool call, or when its turn ends", short(x.ID), x.Agent, x.Pod), nil
+		return fmt.Sprintf("for session %s of agent %s, busy %s: it gets it after its next tool call, or when its turn ends", short(x.ID), x.Agent, where), nil
+	}
+	if s.isPlace(x.Agent) {
+		return s.waitForHost(ctx, m, x)
 	}
 	return s.start(ctx, m, x.Agent, x.ID)
 }

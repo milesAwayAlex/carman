@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -287,9 +288,11 @@ func hook(ctx context.Context, flags map[string][]string) error {
 	if err := json.NewDecoder(io.LimitReader(os.Stdin, 4<<20)).Decode(&in); err != nil || in.SessionID == "" {
 		return nil
 	}
-	// Only a pod with its own token for the dispatcher has messages; the
-	// shared agent token would be refused at every call.
-	if _, err := os.Stat(identityFile()); err != nil {
+	// Only a pod with its own token for the dispatcher has messages (the
+	// shared agent token would be refused at every call), or a session on
+	// the owner's machine, with the host role's token (ADR 0049).
+	place := os.Getenv("DISPATCHER_PLACE")
+	if _, err := os.Stat(identityFile()); err != nil && place == "" {
 		return nil
 	}
 	c, err := client()
@@ -299,12 +302,13 @@ func hook(ctx context.Context, flags map[string][]string) error {
 	// A dispatcher that does not answer costs a tool call no more than this.
 	c.HTTP = &http.Client{Timeout: 3 * time.Second}
 	kind := or(os.Getenv("DISPATCHER_SESSION_KIND"), "headless")
-	if os.Getenv("AGENT_INTERACTIVE") != "" && os.Getenv("DISPATCHER_SESSION_KIND") == "" {
+	if (os.Getenv("AGENT_INTERACTIVE") != "" || place != "") && os.Getenv("DISPATCHER_SESSION_KIND") == "" {
 		kind = "interactive"
 	}
+	name := sessionName(place, in.Cwd)
 	present := func(state string) error {
 		return c.Do(ctx, http.MethodPost, "/v1/sessions", nil, message.Presence{Session: in.SessionID, State: state,
-			Name: os.Getenv("DISPATCHER_SESSION_NAME"), Kind: kind, Cwd: in.Cwd}, nil)
+			Name: name, Kind: kind, Cwd: in.Cwd}, nil)
 	}
 	take := func(how string, wait time.Duration) (message.Taken, error) {
 		var t message.Taken
@@ -373,10 +377,13 @@ func hook(ctx context.Context, flags map[string][]string) error {
 				fh.Close()
 			}
 		}
-		agent := os.Getenv("AGENT_NAME")
+		agent := or(os.Getenv("AGENT_NAME"), place)
 		me := fmt.Sprintf("session/%s, of agent %s", in.SessionID, or(agent, "?"))
-		if n := os.Getenv("DISPATCHER_SESSION_NAME"); n != "" && agent != "" {
-			me += fmt.Sprintf(", called %s (%s/%s)", n, agent, n)
+		if place != "" && os.Getenv("AGENT_NAME") == "" {
+			me = fmt.Sprintf("session/%s, on the owner's machine (%s); you work for the owner but are not the owner, and what you send says so", in.SessionID, place)
+		}
+		if name != "" && agent != "" {
+			me += fmt.Sprintf(", called %s (%s/%s)", name, agent, name)
 		}
 		t, _ := take("start", 0)
 		say("SessionStart", strings.TrimSpace(fmt.Sprintf(intro, me)+"\n\n"+t.Text))
@@ -399,4 +406,28 @@ func hook(ctx context.Context, flags map[string][]string) error {
 		_ = present(message.Ended)
 	}
 	return nil
+}
+
+// sessionName is what a session calls itself: DISPATCHER_SESSION_NAME, or
+// on the owner's machine, the directory it runs in, so that a session
+// started again in the same project has the same name (ADR 0049).
+func sessionName(place, cwd string) string {
+	if n := os.Getenv("DISPATCHER_SESSION_NAME"); n != "" || place == "" {
+		return n
+	}
+	if cwd == "" {
+		return ""
+	}
+	return safeName(filepath.Base(cwd))
+}
+
+// safeName keeps what an address may hold: letters, digits, '.', '_' and '-'.
+func safeName(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '_' || c == '-') {
+			b[i] = '-'
+		}
+	}
+	return strings.TrimLeft(string(b), ".-_")
 }

@@ -17,7 +17,9 @@
 // DISPATCHER_NAMESPACE (the pod's own), DISPATCHER_BUILD,
 // DISPATCHER_SCHEDULES (a JSON list: name, class, cron, timeZone,
 // startWithin, timeout, priority), DISPATCHER_WRITERS (a JSON object: each
-// agent to the agents that may write to it, ADR 0047), DISPATCHER_EXPECT_GRACE (1h, beyond a
+// agent to the agents that may write to it, ADR 0047), DISPATCHER_PLACE (the
+// name of the owner's machine, whose sessions hold the host role's token,
+// ADR 0049; none when empty), DISPATCHER_EXPECT_GRACE (1h, beyond a
 // CronJob's own catch-up), DISPATCHER_NOTICES (on to send them; withheld
 // otherwise), DISPATCHER_NOTICE_CLASS (notify), DISPATCHER_CONTEXT_NAME (the
 // kubectl context a notice names) and, for the admission rule,
@@ -69,7 +71,9 @@ dispatcher log [--after N] [--type T] [--limit N] [--last N]
 dispatcher dump > FILE
 HARNESS --output-format stream-json --verbose | dispatcher reading [--model M]
 
-Messages (ADR 0045), as this session (DISPATCHER_SESSION) or as the owner:
+Messages (ADR 0045), as this session (DISPATCHER_SESSION) or as the owner;
+on the owner's machine (ADR 0049) with DISPATCHER_URL, DISPATCHER_TOKEN (the
+host role's) and DISPATCHER_PLACE:
 dispatcher peers [--since 168h]           who can be written to, and whether each is busy, idle or not running
 dispatcher send TO 'TEXT' [--answers ID]  TO: owner, an agent's name, AGENT/SESSION-NAME or session/ID; TEXT - reads stdin
 dispatcher reply ID 'TEXT'                answer a message, to whoever sent it
@@ -497,7 +501,7 @@ func serve(ctx context.Context) error {
 	var messages *message.Service
 	if cluster.Client != nil {
 		messages = &message.Service{Store: d, Cluster: cluster, Context: contextName, Namespace: namespace,
-			Priority: 50, Timeout: 30 * time.Minute, Retention: messagesKept, Writers: writers, Log: logger}
+			Priority: 50, Timeout: 30 * time.Minute, Retention: messagesKept, Writers: writers, Place: os.Getenv("DISPATCHER_PLACE"), Log: logger}
 		go (&message.Router{Service: messages, Logger: logger}).Run(work)
 	}
 

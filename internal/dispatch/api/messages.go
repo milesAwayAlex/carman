@@ -27,7 +27,7 @@ func (s *Server) messaging(r *http.Request) (*message.Service, message.Caller, e
 		return nil, message.Caller{}, fmt.Errorf("%w: this dispatcher carries no messages", errForbidden)
 	}
 	c := callerOf(r)
-	if !c.Owner && c.Pod == "" {
+	if !c.Owner && !c.Host && c.Pod == "" {
 		return nil, c, fmt.Errorf("%w: messages need the pod's own token for the dispatcher (DISPATCHER_IDENTITY), not the shared agent token", errForbidden)
 	}
 	return s.Messages, c, nil
@@ -192,7 +192,7 @@ func (s *Server) peers(_ http.ResponseWriter, r *http.Request, _ Role) (any, err
 // makes of its token.
 func (s *Server) whoami(_ http.ResponseWriter, r *http.Request, role Role) (any, error) {
 	c := callerOf(r)
-	return map[string]any{"role": role, "owner": c.Owner, "agent": c.Agent, "pod": c.Pod}, nil
+	return map[string]any{"role": role, "owner": c.Owner, "host": c.Host, "agent": c.Agent, "pod": c.Pod}, nil
 }
 
 var _ = context.Background

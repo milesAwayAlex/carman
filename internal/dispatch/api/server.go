@@ -39,9 +39,12 @@ const (
 	RoleOwner  Role = "owner"
 	RoleAgent  Role = "agent"
 	RoleBackup Role = "backup"
+	// RoleHost is the owner's own machine, whose sessions run outside the
+	// cluster (ADR 0049). It may only message.
+	RoleHost Role = "host"
 )
 
-var roles = []Role{RoleOwner, RoleAgent, RoleBackup}
+var roles = []Role{RoleOwner, RoleAgent, RoleBackup, RoleHost}
 
 // ParseTokens reads "role=token,role=token". A role may appear more than once.
 func ParseTokens(s string) (map[string]Role, error) {
@@ -53,7 +56,7 @@ func ParseTokens(s string) (map[string]Role, error) {
 		}
 		role, token, ok := strings.Cut(pair, "=")
 		if !ok || token == "" || !slices.Contains(roles, Role(role)) {
-			return nil, fmt.Errorf("token entries look like role=token with role one of owner, agent, backup; got %q", role)
+			return nil, fmt.Errorf("token entries look like role=token with role one of owner, agent, backup, host; got %q", role)
 		}
 		tokens[token] = Role(role)
 	}
@@ -99,6 +102,7 @@ type route struct {
 
 func (s *Server) routes() []route {
 	owner, emitters, dumpers := []Role{RoleOwner}, []Role{RoleOwner, RoleAgent}, []Role{RoleOwner, RoleBackup}
+	messengers := []Role{RoleOwner, RoleAgent, RoleHost}
 	return []route{
 		{http.MethodPost, "/v1/events", emitters, s.emit},
 		{http.MethodGet, "/v1/events", owner, s.events},
@@ -106,16 +110,16 @@ func (s *Server) routes() []route {
 		{http.MethodGet, "/v1/tasks", owner, s.tasks},
 		{http.MethodGet, "/v1/tasks/{id}", owner, s.task},
 		{http.MethodGet, "/v1/dump", dumpers, s.dump},
-		{http.MethodGet, "/v1/whoami", emitters, s.whoami},
-		{http.MethodGet, "/v1/peers", emitters, s.peers},
-		{http.MethodPost, "/v1/messages", emitters, s.send},
-		{http.MethodGet, "/v1/messages/{id}", emitters, s.messageStatus},
-		{http.MethodPost, "/v1/messages/{id}/answer", emitters, s.answer},
-		{http.MethodGet, "/v1/inbox", emitters, s.inbox},
-		{http.MethodPost, "/v1/inbox/take", emitters, s.take},
-		{http.MethodPost, "/v1/inbox/read", emitters, s.read},
-		{http.MethodPost, "/v1/sessions", emitters, s.presence},
-		{http.MethodPost, "/v1/watch", emitters, s.watch},
+		{http.MethodGet, "/v1/whoami", messengers, s.whoami},
+		{http.MethodGet, "/v1/peers", messengers, s.peers},
+		{http.MethodPost, "/v1/messages", messengers, s.send},
+		{http.MethodGet, "/v1/messages/{id}", messengers, s.messageStatus},
+		{http.MethodPost, "/v1/messages/{id}/answer", messengers, s.answer},
+		{http.MethodGet, "/v1/inbox", messengers, s.inbox},
+		{http.MethodPost, "/v1/inbox/take", messengers, s.take},
+		{http.MethodPost, "/v1/inbox/read", messengers, s.read},
+		{http.MethodPost, "/v1/sessions", messengers, s.presence},
+		{http.MethodPost, "/v1/watch", messengers, s.watch},
 	}
 }
 
@@ -189,6 +193,12 @@ func (s *Server) authenticate(r *http.Request) (Role, message.Caller, error) {
 	}
 	for known, role := range s.Tokens {
 		if subtle.ConstantTimeCompare([]byte(known), []byte(token)) == 1 {
+			if role == RoleHost {
+				if s.Messages == nil || s.Messages.Place == "" {
+					return "", message.Caller{}, fmt.Errorf("%w: this dispatcher names no place for the owner's machine (DISPATCHER_PLACE)", errUnauthorized)
+				}
+				return role, message.Caller{Host: true, Agent: s.Messages.Place}, nil
+			}
 			return role, message.Caller{Owner: role == RoleOwner}, nil
 		}
 	}

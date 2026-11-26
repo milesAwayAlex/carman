@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -46,5 +48,66 @@ func TestR2HookOff(t *testing.T) {
 	run()
 	if calls.Load() == 0 {
 		t.Error("the hook, on, did not call the dispatcher: the test proves nothing")
+	}
+}
+
+// TestR2HookWithoutPod: on the owner's machine (ADR 0049) there is no pod
+// token: with DISPATCHER_PLACE the hook uses DISPATCHER_TOKEN, names the
+// session for its directory, registers it as interactive, puts its id in
+// the shell, and says where it is; without it, the hook does nothing.
+func TestR2HookWithoutPod(t *testing.T) {
+	var auth, presence []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = append(auth, r.Header.Get("Authorization"))
+		if r.URL.Path == "/v1/sessions" {
+			b, _ := io.ReadAll(r.Body)
+			presence = append(presence, string(b))
+		}
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, "env")
+	t.Setenv("DISPATCHER_URL", srv.URL)
+	t.Setenv("DISPATCHER_TOKEN", "host-token")
+	t.Setenv("DISPATCHER_IDENTITY", filepath.Join(dir, "no-such-token"))
+	t.Setenv("CLAUDE_ENV_FILE", envFile)
+	t.Setenv("AGENT_NAME", "")
+	t.Setenv("DISPATCHER_SESSION_NAME", "")
+	t.Setenv("DISPATCHER_SESSION_KIND", "")
+	run := func(event string) string {
+		r, w, _ := os.Pipe()
+		w.WriteString(`{"session_id":"s1","hook_event_name":"` + event + `","cwd":"/work/src/my proj"}`)
+		w.Close()
+		out, ow, _ := os.Pipe()
+		oldIn, oldOut := os.Stdin, os.Stdout
+		os.Stdin, os.Stdout = r, ow
+		err := hook(context.Background(), map[string][]string{})
+		os.Stdin, os.Stdout = oldIn, oldOut
+		ow.Close()
+		b, _ := io.ReadAll(out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	t.Setenv("DISPATCHER_PLACE", "")
+	run("SessionStart")
+	if len(auth) != 0 {
+		t.Fatalf("no pod token and no place: the hook called the dispatcher %d times", len(auth))
+	}
+	t.Setenv("DISPATCHER_PLACE", "host")
+	out := run("SessionStart")
+	if len(auth) == 0 || auth[0] != "Bearer host-token" {
+		t.Fatalf("the hook's token: %v", auth)
+	}
+	if len(presence) != 1 || !strings.Contains(presence[0], `"name":"my-proj"`) || !strings.Contains(presence[0], `"kind":"interactive"`) || !strings.Contains(presence[0], `"state":"idle"`) {
+		t.Errorf("what the session says of itself: %v", presence)
+	}
+	if !strings.Contains(out, "on the owner's machine (host)") || !strings.Contains(out, "host/my-proj") {
+		t.Errorf("what the session is told: %s", out)
+	}
+	if b, _ := os.ReadFile(envFile); !strings.Contains(string(b), "DISPATCHER_SESSION=s1") {
+		t.Errorf("the shell is not told its session: %q", b)
 	}
 }
