@@ -68,11 +68,7 @@ spec:
                     secretKeyRef:
                       name: {{ .Values.memory.tokensSecret }}
                       key: dreamer
-                - name: CLAUDE_CODE_OAUTH_TOKEN
-                  valueFrom:
-                    secretKeyRef:
-                      name: {{ .Values.agent.modelSecret }}
-                      key: token
+                {{- include "agent.modelCredential" . | nindent 16 }}
                 # A consolidation pass reads the whole library itself; the
                 # hook that shows working sessions their memory is off for it.
                 - name: CMEM_HOOK

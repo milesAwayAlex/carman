@@ -1,13 +1,24 @@
+{{/* Whether the egress proxy holds the model's credential and meters model
+use (ADR 0050): "true" or "". */}}
+{{- define "egress.model" -}}
+{{- $mode := .Values.agent.modelCredential | default "pod" }}
+{{- if not (has $mode (list "pod" "both" "proxy")) }}{{ fail "agent.modelCredential is pod, both or proxy" }}{{ end }}
+{{- if and (ne $mode "pod") (not .Values.egress.enabled) }}{{ fail "agent.modelCredential both or proxy needs egress.enabled" }}{{ end }}
+{{- if ne $mode "pod" }}true{{ end }}
+{{- end -}}
+
 {{/* What the egress proxy runs on: see egress.yaml and ADR 0031. */}}
 {{- define "egress.envoy" -}}
 {{- $creds := .Values.egress.credentials }}
+{{- $model := include "egress.model" . }}
+{{- $modelHost := .Values.egress.model.host }}
 {{- $renewed := list }}{{- range .Values.egress.renewals }}{{- $renewed = append $renewed .key }}{{- end }}
 {{- if $renewed }}
 # A credential that is read again when its file changes is fetched as a
 # discovered secret, and the proxy has to have a name to ask for one.
 node: {id: egress, cluster: egress}
 {{- end }}
-{{- if $creds }}
+{{- if or $creds $model }}
 bootstrap_extensions:
   - name: envoy.bootstrap.internal_listener
     typed_config:
@@ -47,7 +58,7 @@ static_resources:
                       "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
                       log_format:
                         text_format_source:
-                          inline_string: "%START_TIME% egress from=%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT% %REQ(:METHOD)% %REQ(:AUTHORITY)% status=%RESPONSE_CODE% flags=%RESPONSE_FLAGS% ms=%DURATION% sent=%BYTES_RECEIVED% received=%BYTES_SENT%\n"
+                          inline_string: "%START_TIME% egress from={{ if $model }}%DOWNSTREAM_DIRECT_REMOTE_ADDRESS_WITHOUT_PORT%{{ else }}%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%{{ end }} %REQ(:METHOD)% %REQ(:AUTHORITY)% status=%RESPONSE_CODE% flags=%RESPONSE_FLAGS% ms=%DURATION% sent=%BYTES_RECEIVED% received=%BYTES_SENT%\n"
                 route_config:
                   name: out
                   virtual_hosts:
@@ -69,6 +80,21 @@ static_resources:
                               - upgrade_type: CONNECT
                                 connect_config: {}
                         {{- end }}
+                        {{- if $model }}
+                        # A tunnel to the model's API ends at the listener
+                        # that hands each request to the meter (ADR 0050).
+                        - match:
+                            connect_matcher: {}
+                            headers:
+                              - name: ":authority"
+                                string_match: {exact: "{{ $modelHost }}:443"}
+                          route:
+                            cluster: answer-model
+                            timeout: 0s
+                            upgrade_configs:
+                              - upgrade_type: CONNECT
+                                connect_config: {}
+                        {{- end }}
                         # HTTPS: the client asks for a tunnel to a host.
                         - match: {connect_matcher: {}}
                           route:
@@ -80,6 +106,21 @@ static_resources:
                         - match: {prefix: "/"}
                           route: {cluster: outside, timeout: 0s}
                 http_filters:
+                  {{- if $model }}
+                  # A tunnel that ends at a listener of the proxy's own loses
+                  # where it came from; this carries the caller's address
+                  # there, so that the listener knows which pod is asking
+                  # (ADR 0050). The address of the connection itself, never
+                  # one a header claims (X-Forwarded-For).
+                  - name: envoy.filters.http.set_filter_state
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.set_filter_state.v3.Config
+                      on_request_headers:
+                        - object_key: envoy.filters.listener.original_dst.remote_ip
+                          format_string:
+                            text_format_source: {inline_string: "%DOWNSTREAM_DIRECT_REMOTE_ADDRESS%"}
+                          shared_with_upstream: ONCE
+                  {{- end }}
                   - name: envoy.filters.http.dynamic_forward_proxy
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.dynamic_forward_proxy.v3.FilterConfig
@@ -96,6 +137,13 @@ static_resources:
     # against the public authorities.
     - name: answer-{{ .key }}
       internal_listener: {}
+      {{- if $model }}
+      # Where the tunnel came from, as the listener in front said.
+      listener_filters:
+        - name: envoy.filters.listener.original_dst
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.listener.original_dst.v3.OriginalDst
+      {{- end }}
       filter_chains:
         - transport_socket:
             name: envoy.transport_sockets.tls
@@ -111,6 +159,13 @@ static_resources:
               typed_config:
                 "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
                 stat_prefix: answer_{{ .key }}
+                {{- if $model }}
+                # The caller is where the tunnel came from, as the listener
+                # in front said; a header that claims otherwise is not
+                # believed, and none is added.
+                use_remote_address: true
+                skip_xff_append: true
+                {{- end }}
                 # With a credential attached, each request is on record:
                 # what was asked of the host (the start of its path, which
                 # may include a query), and how it answered. No headers,
@@ -121,7 +176,7 @@ static_resources:
                       "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
                       log_format:
                         text_format_source:
-                          inline_string: "%START_TIME% egress credential={{ .key }} %REQ(:METHOD)% %REQ(:AUTHORITY)%%REQ(:PATH):160% status=%RESPONSE_CODE% flags=%RESPONSE_FLAGS% ms=%DURATION%\n"
+                          inline_string: "%START_TIME% egress credential={{ .key }} {{ if $model }}from=%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT% {{ end }}%REQ(:METHOD)% %REQ(:AUTHORITY)%%REQ(:PATH):160% status=%RESPONSE_CODE% flags=%RESPONSE_FLAGS% ms=%DURATION%\n"
                 route_config:
                   name: real-{{ .key }}
                   virtual_hosts:
@@ -159,6 +214,66 @@ static_resources:
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
     {{- end }}
+    {{- if $model }}
+    # In the name of the model's API: the agent's TLS ends here, with the
+    # installation's certificate, and every request goes to the meter
+    # beside the proxy with the address it came from. The meter refuses a
+    # caller that is no agent's pod, puts the credential on the rest, and
+    # records what each used (ADR 0050). The proxy itself never has the
+    # model's credential.
+    - name: answer-model
+      internal_listener: {}
+      listener_filters:
+        - name: envoy.filters.listener.original_dst
+          typed_config:
+            "@type": type.googleapis.com/envoy.extensions.filters.listener.original_dst.v3.OriginalDst
+      filter_chains:
+        - transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              common_tls_context:
+                alpn_protocols: ["http/1.1"]
+                tls_certificates:
+                  - certificate_chain: {filename: /etc/envoy/tls/tls.crt}
+                    private_key: {filename: /etc/envoy/tls/tls.key}
+          filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: answer_model
+                # The caller is where the tunnel came from, as the listener
+                # in front said: a header that claims otherwise
+                # (X-Forwarded-For) is not believed, and none is added.
+                use_remote_address: true
+                skip_xff_append: true
+                # An answer may pause while the model thinks.
+                stream_idle_timeout: 900s
+                access_log:
+                  - name: envoy.access_loggers.stdout
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                      log_format:
+                        text_format_source:
+                          inline_string: "%START_TIME% egress model from=%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT% %REQ(:METHOD)% %REQ(:AUTHORITY)%%REQ(:PATH):160% status=%RESPONSE_CODE% flags=%RESPONSE_FLAGS% ms=%DURATION%\n"
+                route_config:
+                  name: model
+                  virtual_hosts:
+                    - name: host
+                      domains: ["{{ $modelHost }}", "{{ $modelHost }}:443"]
+                      routes:
+                        - match: {prefix: "/"}
+                          route: {cluster: meter, timeout: 0s}
+                          # Whatever the agent put in this header is
+                          # replaced: the address is the proxy's word.
+                          request_headers_to_add:
+                            - header: {key: x-egress-caller, value: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"}
+                              append_action: OVERWRITE_IF_EXISTS_OR_ADD
+                http_filters:
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+    {{- end }}
   clusters:
     {{- range $creds }}
     - name: answer-{{ .key }}
@@ -170,6 +285,9 @@ static_resources:
                   address:
                     envoy_internal_address:
                       server_listener_name: answer-{{ .key }}
+      {{- if $model }}
+      {{- include "egress.internalUpstream" . | nindent 6 }}
+      {{- end }}
     - name: real-{{ .key }}
       type: LOGICAL_DNS
       dns_lookup_family: V4_ONLY
@@ -192,6 +310,29 @@ static_resources:
                 - san_type: DNS
                   matcher: {exact: {{ .host }}}
     {{- end }}
+    {{- if $model }}
+    - name: answer-model
+      load_assignment:
+        cluster_name: answer-model
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    envoy_internal_address:
+                      server_listener_name: answer-model
+      {{- include "egress.internalUpstream" . | nindent 6 }}
+    # The meter, in the same pod.
+    - name: meter
+      type: STATIC
+      connect_timeout: 2s
+      load_assignment:
+        cluster_name: meter
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address: {address: 127.0.0.1, port_value: {{ .Values.egress.model.port }}}
+    {{- end }}
     - name: outside
       lb_policy: CLUSTER_PROVIDED
       cluster_type:
@@ -200,3 +341,34 @@ static_resources:
           "@type": type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig
           dns_cache_config: {name: outside, dns_lookup_family: V4_ONLY}
 {{- end }}
+
+
+{{/* A tunnel handed to a listener of the proxy's own carries what the
+listener in front put on it: the caller's address. */}}
+{{- define "egress.internalUpstream" -}}
+transport_socket:
+  name: envoy.transport_sockets.internal_upstream
+  typed_config:
+    "@type": type.googleapis.com/envoy.extensions.transport_sockets.internal_upstream.v3.InternalUpstreamTransport
+    transport_socket:
+      name: envoy.transport_sockets.raw_buffer
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.transport_sockets.raw_buffer.v3.RawBuffer
+{{- end -}}
+
+
+{{/* The model's credential as an agent pod has it: the secret's, or, where
+the egress proxy holds it (agent.modelCredential proxy, ADR 0050), a
+placeholder that the proxy's meter replaces on every request. */}}
+{{- define "agent.modelCredential" -}}
+{{- $_ := include "egress.model" . -}}
+- name: CLAUDE_CODE_OAUTH_TOKEN
+{{- if eq (.Values.agent.modelCredential | default "pod") "proxy" }}
+  value: {{ .Values.agent.modelPlaceholder | quote }}
+{{- else }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.agent.modelSecret }}
+      key: token
+{{- end }}
+{{- end -}}

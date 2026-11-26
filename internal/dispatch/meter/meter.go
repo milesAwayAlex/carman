@@ -24,7 +24,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"carman/internal/dispatch/message"
 )
@@ -64,7 +63,7 @@ type request struct {
 	who        message.Caller
 	credential string
 	metered    bool
-	started    time.Time
+	session    string
 }
 
 func (p *Proxy) log() *slog.Logger {
@@ -104,7 +103,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.log().Info("shape: request", "agent", who.Agent, "method", r.Method, "path", r.URL.Path,
 			"query", names(r.URL.Query()), "headers", names(r.Header), "content_type", r.Header.Get("Content-Type"))
 	}
-	rq := &request{who: who, credential: cred, metered: metered(r), started: time.Now()}
+	// The harness names its session on each request: the agent's own word,
+	// kept beside the proxy's, to find a conversation by.
+	rq := &request{who: who, credential: cred, metered: metered(r), session: r.Header.Get("X-Claude-Code-Session-Id")}
 	p.rp.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, rq)))
 }
 
@@ -173,6 +174,7 @@ func (p *Proxy) build() {
 						t.Unread++
 					}
 					t.addTokens(u.tokens, u.tools)
+					t.addSession(rq.session)
 				})
 			}}
 			return nil

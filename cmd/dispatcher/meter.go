@@ -113,13 +113,8 @@ func meterCmd(ctx context.Context) error {
 		Log:          log,
 		Shapes:       os.Getenv("METER_SHAPES") == "on",
 	}
+	// It answers at once: a request before the pods are listed lists them.
 	srv := &http.Server{Addr: listen, Handler: proxy, ReadHeaderTimeout: 30 * time.Second}
-	select {
-	case <-addrs.Ready():
-	case <-time.After(30 * time.Second):
-		log.Warn("the pods are not listed yet; requests are refused until they are")
-	case <-ctx.Done():
-	}
 	go func() {
 		<-ctx.Done()
 		shut, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)

@@ -92,6 +92,7 @@ func post(t *testing.T, front *httptest.Server, path, from, auth string) *http.R
 	req.Header.Set("Authorization", auth)
 	req.Header.Set("X-Api-Key", "whatever-the-agent-had")
 	req.Header.Set("Accept-Encoding", "gzip")
+	req.Header.Set("X-Claude-Code-Session-Id", "s-1")
 	resp, err := http.DefaultTransport.RoundTrip(req)
 	if err != nil {
 		t.Fatal(err)
@@ -161,6 +162,9 @@ func TestR10MeterStreamed(t *testing.T) {
 		if r.Tokens[k] != n {
 			t.Errorf("%s: %d, want %d (%v)", k, r.Tokens[k], n, r.Tokens)
 		}
+	}
+	if len(r.Sessions) != 1 || r.Sessions[0] != "s-1" {
+		t.Errorf("sessions: %v", r.Sessions)
 	}
 	if r.ServerTools["web_search_requests"] != 2 {
 		t.Errorf("server tools: %v", r.ServerTools)

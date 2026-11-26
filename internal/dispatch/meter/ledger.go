@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -25,8 +26,8 @@ type Record struct {
 	// Answers that were not a success, or a stream that ended in an error.
 	Errors int64 `json:"errors,omitempty"`
 	// Requests refused because the address was no agent's pod; Agent is
-	// then empty and From is the address.
-	Refused int64 `json:"refused,omitempty"`
+	// then empty and Address is where they came from.
+	Refused int64  `json:"refused,omitempty"`
 	Address string `json:"address,omitempty"`
 	// Answers whose usage could not be read.
 	Unread int64 `json:"unread,omitempty"`
@@ -35,6 +36,9 @@ type Record struct {
 	// breakdown as cache_creation.NAME), summed over the answers.
 	Tokens      map[string]int64 `json:"tokens,omitempty"`
 	ServerTools map[string]int64 `json:"server_tool_use,omitempty"`
+	// The sessions the requests named (the harness's own word, not the
+	// proxy's), at most a few.
+	Sessions []string `json:"sessions,omitempty"`
 	From        time.Time        `json:"from"`
 	To          time.Time        `json:"to"`
 	// The proxy's pod that saw it.
@@ -54,6 +58,13 @@ func (t *Record) addTokens(tokens, tools map[string]int64) {
 		}
 		t.ServerTools[k] += n
 	}
+}
+
+func (t *Record) addSession(id string) {
+	if id == "" || len(t.Sessions) >= 8 || slices.Contains(t.Sessions, id) {
+		return
+	}
+	t.Sessions = append(t.Sessions, id)
 }
 
 // String is the record as one line of the meter's own log.
