@@ -4,6 +4,7 @@ use (ADR 0050): "true" or "". */}}
 {{- $mode := .Values.agent.modelCredential | default "pod" }}
 {{- if not (has $mode (list "pod" "both" "proxy")) }}{{ fail "agent.modelCredential is pod, both or proxy" }}{{ end }}
 {{- if and (ne $mode "pod") (not .Values.egress.enabled) }}{{ fail "agent.modelCredential both or proxy needs egress.enabled" }}{{ end }}
+{{- if and (ne $mode "pod") .Values.egress.closedTo (not .Values.agent.sandbox.api.addresses) }}{{ fail "agent.modelCredential both or proxy: the meter reads pods from the cluster's API, which egress.closedTo may close; name its addresses in agent.sandbox.api.addresses" }}{{ end }}
 {{- if ne $mode "pod" }}true{{ end }}
 {{- end -}}
 
