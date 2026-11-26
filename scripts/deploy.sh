@@ -516,7 +516,8 @@ EOF
     [ -n "$warm_ref" ] || "${kube[@]}" delete cronjob/agent-warm networkpolicy/warm-job-reaches-the-registry serviceaccount/agent-warm --ignore-not-found >/dev/null
     # The meter's right to read pods, where the proxy no longer holds the
     # model's credential (agent.modelCredential pod, ADR 0050).
-    printf '%s\n' "$rendered" | grep -q '^  name: egress-meter$' ||
+    # (grep reads to the end: one that stops early fails the pipe.)
+    printf '%s\n' "$rendered" | grep '^  name: egress-meter$' >/dev/null ||
         "${kube[@]}" delete rolebinding/egress-meter role/egress-meter --ignore-not-found >/dev/null
     "${kube[@]}" rollout status statefulset/cmem --timeout=120s
     if "${kube[@]}" get deployment dispatcher >/dev/null 2>&1; then
