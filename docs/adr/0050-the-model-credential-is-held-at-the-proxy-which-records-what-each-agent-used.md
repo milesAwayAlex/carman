@@ -196,11 +196,17 @@ and to `proxy` again.
   with no model. The hourly reading could be read from the answers'
   headers instead; not done.
 - Not built: a budget the proxy enforces, and an event for each request.
-- A deploy left the model unreachable for four minutes when this was
-  first deployed: the deploy script's render of the proxy's hosts had
-  failed silently since the warm image (it asked for images without a
-  registry), so a new host got no certificate. Fixed: the render now
-  stops the deploy when it fails.
+- Deploying this left the model unreachable twice, about four minutes each,
+  with no job running. First, the deploy script's render of the proxy's
+  hosts had failed silently since the warm image (it asked for images
+  without a registry), so the new host got no certificate; the render now
+  stops the deploy when it fails. Second, the step that removes the
+  meter's Role after a switch back removed it under `proxy` too (a `grep
+  -q` under `pipefail`); the meter could not read pods and refused every
+  caller until the Role was put back by hand, and the step was fixed and
+  deployed again. Refusing when it cannot tell who is asking is the
+  meter's design: a meter that cannot read pods stops all model calls, and
+  says so in its log.
 
 **When the switch can go**: once the standing agent has been restarted
 under `proxy`, and a month of the dreamer, runs started by messages and

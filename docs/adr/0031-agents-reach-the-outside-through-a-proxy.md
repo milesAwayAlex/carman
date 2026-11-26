@@ -2,7 +2,9 @@
 
 Status: Accepted (2026-11-19). Built: the proxy, the network policy, and
 credentials attached for named hosts. Not built: a cloud provider token by
-identity, and rules on what a credential may be used for.
+identity, and rules on what a credential may be used for. Its decision that
+the model credential is not behind the proxy is superseded by ADR 0050
+(proposed) where `agent.modelCredential` is not `pod`.
 
 ## Context
 

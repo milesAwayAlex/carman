@@ -59,3 +59,4 @@ To change a decision, add a new record and mark the old one superseded.
 | [0046](0046-a-restricted-routine-may-run-named-commands-that-only-read.md) | A restricted routine may run named commands that only read | Accepted |
 | [0047](0047-who-may-write-to-an-agent.md) | Who may write to an agent: the owner, its own sessions, an answer, and the agents it lists | Accepted |
 | [0048](0048-the-notice-channel-is-open.md) | The channel that carries notices to the owner is mostly trusted, not private: a notice says roughly what happened and how urgent, with no personal data, internal identifiers or keys | Accepted |
+| [0050](0050-the-model-credential-is-held-at-the-proxy-which-records-what-each-agent-used.md) | The model's credential is held at the egress proxy, which knows each caller by its pod's address and records what each agent used | Proposed |
