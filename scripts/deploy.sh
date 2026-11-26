@@ -427,7 +427,7 @@ metadata:
   name: dispatcher-tokens
   namespace: $namespace
 stringData:
-  DISPATCHER_TOKENS: "owner=$owner,agent=$agent,backup=$backup,host=$host"
+  DISPATCHER_TOKENS: "owner=$owner,agent=$agent,backup=$backup"
   owner: "$owner"
   agent: "$agent"
   backup: "$backup"
@@ -436,10 +436,11 @@ EOF
         echo "made the dispatcher's token secret"
     elif [ -z "$("${kube[@]}" get secret dispatcher-tokens -o 'jsonpath={.data.host}')" ]; then
         # A secret made before the owner's machine had a role (ADR 0049).
+        # The host token is a key of its own, not in DISPATCHER_TOKENS,
+        # which a build from before it would refuse.
         host="$(openssl rand -hex 24)"
-        tokens="$("${kube[@]}" get secret dispatcher-tokens -o 'jsonpath={.data.DISPATCHER_TOKENS}' | base64 -d)"
         "${kube[@]}" patch secret dispatcher-tokens --type merge --patch-file /dev/stdin >/dev/null <<EOF
-{"stringData": {"DISPATCHER_TOKENS": "$tokens,host=$host", "host": "$host"}}
+{"stringData": {"host": "$host"}}
 EOF
         dispatcher_restart=1
         echo "added the host role's token to the dispatcher's token secret"

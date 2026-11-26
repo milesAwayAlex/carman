@@ -41,8 +41,9 @@ dispatcher:
   # The image of the service. Required when enabled; scripts/deploy.sh sets it.
   image: ""
   # The secret holding the role tokens (keys DISPATCHER_TOKENS, owner, agent,
-  # backup, host). scripts/deploy.sh makes it on the first deploy, and adds
-  # the host token to a secret made before there was one.
+  # backup, and host, the owner's machine's, apart from DISPATCHER_TOKENS so
+  # that an older build still reads them). scripts/deploy.sh makes it on the
+  # first deploy, and adds host to a secret made before there was one.
   tokensSecret: dispatcher-tokens
   # How many tasks it runs at once. One until pacing decides more.
   maxRunning: 1

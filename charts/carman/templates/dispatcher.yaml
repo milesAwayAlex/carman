@@ -127,6 +127,12 @@ spec:
             # The owner's machine, whose sessions hold the host token (ADR 0049).
             - name: DISPATCHER_PLACE
               value: {{ .Values.dispatcher.host.place | quote }}
+            - name: DISPATCHER_HOST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.dispatcher.tokensSecret }}
+                  key: host
+                  optional: true
             - name: DISPATCHER_EXPECT_GRACE
               value: {{ .Values.dispatcher.expect.grace | quote }}
             - name: DISPATCHER_NOTICES

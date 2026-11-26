@@ -120,7 +120,10 @@ session there reads its inbox.
   fails to render.
 - `scripts/deploy.sh CONTEXT` makes the host token with the others, and
   adds it to a token secret made before it (and restarts the dispatcher to
-  read it). `scripts/deploy.sh CONTEXT env` writes
+  read it). It is a key of its own (`host`, read as
+  `DISPATCHER_HOST_TOKEN`), not an entry of `DISPATCHER_TOKENS`: a build
+  from before this refuses a role it does not know, and deploying one is
+  the way back of `deploy/RECOVERY.md`. `scripts/deploy.sh CONTEXT env` writes
   `.local/dispatcher.env` beside `.local/cmem.env`: `DISPATCHER_URL`,
   `DISPATCHER_TOKEN` and `DISPATCHER_PLACE`.
 - `adapters/claude-code/dispatcher.settings.example.json` is the settings

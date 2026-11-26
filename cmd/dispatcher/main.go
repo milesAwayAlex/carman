@@ -19,7 +19,7 @@
 // startWithin, timeout, priority), DISPATCHER_WRITERS (a JSON object: each
 // agent to the agents that may write to it, ADR 0047), DISPATCHER_PLACE (the
 // name of the owner's machine, whose sessions hold the host role's token,
-// ADR 0049; none when empty), DISPATCHER_EXPECT_GRACE (1h, beyond a
+// ADR 0049; none when empty), DISPATCHER_HOST_TOKEN (that token), DISPATCHER_EXPECT_GRACE (1h, beyond a
 // CronJob's own catch-up), DISPATCHER_NOTICES (on to send them; withheld
 // otherwise), DISPATCHER_NOTICE_CLASS (notify), DISPATCHER_CONTEXT_NAME (the
 // kubectl context a notice names) and, for the admission rule,
@@ -356,6 +356,11 @@ func serve(ctx context.Context) error {
 	tokens, err := api.ParseTokens(os.Getenv("DISPATCHER_TOKENS"))
 	if err != nil {
 		return fmt.Errorf("DISPATCHER_TOKENS: %w", err)
+	}
+	// The host role's token is apart, so that a build from before it reads
+	// DISPATCHER_TOKENS as it was (the way back of deploy/RECOVERY.md).
+	if t := os.Getenv("DISPATCHER_HOST_TOKEN"); t != "" {
+		tokens[t] = api.RoleHost
 	}
 	maxRunning := 1
 	if v := os.Getenv("DISPATCHER_MAX_RUNNING"); v != "" {
