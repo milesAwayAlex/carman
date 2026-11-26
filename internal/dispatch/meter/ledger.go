@@ -23,7 +23,7 @@ type Record struct {
 	PodUID   string `json:"pod_uid,omitempty"`
 	Model    string `json:"model,omitempty"`
 	Requests int64  `json:"requests"`
-	// Answers that were not a success, or a stream that ended in an error.
+	// Answers that were an error (4xx or 5xx), or a stream that ended in one.
 	Errors int64 `json:"errors,omitempty"`
 	// Requests refused because the address was no agent's pod; Agent is
 	// then empty and Address is where they came from.

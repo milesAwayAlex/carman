@@ -157,7 +157,9 @@ func (p *Proxy) build() {
 			if !rq.metered || resp.StatusCode/100 != 2 {
 				p.Ledger.add(rq.who, "", func(t *Record) {
 					t.Requests++
-					if resp.StatusCode/100 != 2 {
+					// A 304 (the harness asking whether what it has is
+					// still good) is an answer, not a failure.
+					if resp.StatusCode >= 400 {
 						t.Errors++
 					}
 				})

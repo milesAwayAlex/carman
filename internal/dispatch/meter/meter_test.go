@@ -51,6 +51,8 @@ func model(t *testing.T, got chan<- seen, more <-chan struct{}) *httptest.Server
 			w.(http.Flusher).Flush()
 			<-more
 			io.WriteString(w, streamRest)
+		case r.URL.Path == "/api/claude_code/policy_limits":
+			w.WriteHeader(http.StatusNotModified)
 		default:
 			w.Header().Set("Content-Type", "application/json")
 			io.WriteString(w, `{}`)
@@ -172,7 +174,8 @@ func TestR10MeterStreamed(t *testing.T) {
 }
 
 // TestR10MeterWholeAndOther: an answer that is not streamed is read whole;
-// a request whose answer says nothing of usage is counted, with no model.
+// a request whose answer says nothing of usage is counted, with no model,
+// and a 304 is not an error.
 // Two requests of one pod and model are one record.
 func TestR10MeterWholeAndOther(t *testing.T) {
 	got := make(chan seen, 8)
@@ -183,9 +186,11 @@ func TestR10MeterWholeAndOther(t *testing.T) {
 		io.ReadAll(resp.Body)
 		resp.Body.Close()
 	}
-	resp := post(t, front, "/api/oauth/usage", "10.0.0.1", "")
-	io.ReadAll(resp.Body)
-	resp.Body.Close()
+	for _, path := range []string{"/api/oauth/usage", "/api/claude_code/policy_limits"} {
+		resp := post(t, front, path, "10.0.0.1", "")
+		io.ReadAll(resp.Body)
+		resp.Body.Close()
+	}
 	time.Sleep(50 * time.Millisecond)
 	recs := ledger.Due(true)
 	byModel := map[string]Record{}
@@ -195,7 +200,7 @@ func TestR10MeterWholeAndOther(t *testing.T) {
 	if w := byModel["claude-sonnet-5-5"]; w.Requests != 2 || w.Tokens["input_tokens"] != 14 || w.Tokens["output_tokens"] != 6 {
 		t.Errorf("whole answers: %+v", w)
 	}
-	if o := byModel[""]; o.Requests != 1 || o.Agent != "dreamer" || len(o.Tokens) != 0 {
+	if o := byModel[""]; o.Requests != 2 || o.Errors != 0 || o.Agent != "dreamer" || len(o.Tokens) != 0 {
 		t.Errorf("another request: %+v", o)
 	}
 }
