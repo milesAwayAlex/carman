@@ -4,8 +4,9 @@
 #
 #   scripts/deploy.sh CONTEXT           build the image, apply, wait until it serves
 #   scripts/deploy.sh CONTEXT status    what is running, and whether it answers
-#   scripts/deploy.sh CONTEXT env       write the laptop's settings to .local/cmem.env
-#                                       and the consolidation role's to .local/cmem-dreamer.env
+#   scripts/deploy.sh CONTEXT env       write the laptop's settings to .local/cmem.env,
+#                                       the consolidation role's to .local/cmem-dreamer.env
+#                                       and the dispatcher's host role's to .local/dispatcher.env
 #   scripts/deploy.sh CONTEXT check     ask the service's library whether every note is as written
 #   scripts/deploy.sh CONTEXT backup FILE    copy the whole library, history included, to a tar file
 #   scripts/deploy.sh CONTEXT restore FILE   put a backup in place of the library and restart
@@ -418,7 +419,7 @@ EOF
     # through standard input, never printed. The password is made even for
     # a database the installation gives, where it is replaced by its own.
     if ! "${kube[@]}" get secret dispatcher-tokens >/dev/null 2>&1; then
-        owner="$(openssl rand -hex 24)" agent="$(openssl rand -hex 24)" backup="$(openssl rand -hex 24)"
+        owner="$(openssl rand -hex 24)" agent="$(openssl rand -hex 24)" backup="$(openssl rand -hex 24)" host="$(openssl rand -hex 24)"
         "${kube[@]}" apply -f - >/dev/null <<EOF
 apiVersion: v1
 kind: Secret
@@ -426,12 +427,22 @@ metadata:
   name: dispatcher-tokens
   namespace: $namespace
 stringData:
-  DISPATCHER_TOKENS: "owner=$owner,agent=$agent,backup=$backup"
+  DISPATCHER_TOKENS: "owner=$owner,agent=$agent,backup=$backup,host=$host"
   owner: "$owner"
   agent: "$agent"
   backup: "$backup"
+  host: "$host"
 EOF
         echo "made the dispatcher's token secret"
+    elif [ -z "$("${kube[@]}" get secret dispatcher-tokens -o 'jsonpath={.data.host}')" ]; then
+        # A secret made before the owner's machine had a role (ADR 0049).
+        host="$(openssl rand -hex 24)"
+        tokens="$("${kube[@]}" get secret dispatcher-tokens -o 'jsonpath={.data.DISPATCHER_TOKENS}' | base64 -d)"
+        "${kube[@]}" patch secret dispatcher-tokens --type merge --patch-file /dev/stdin >/dev/null <<EOF
+{"stringData": {"DISPATCHER_TOKENS": "$tokens,host=$host", "host": "$host"}}
+EOF
+        dispatcher_restart=1
+        echo "added the host role's token to the dispatcher's token secret"
     fi
     if ! "${kube[@]}" get secret dispatcher-db >/dev/null 2>&1; then
         openssl rand -hex 24 | tr -d '\n' | "${kube[@]}" create secret generic dispatcher-db --from-file=password=/dev/stdin >/dev/null
@@ -515,6 +526,8 @@ EOF
     "${kube[@]}" rollout status statefulset/cmem --timeout=120s
     if "${kube[@]}" get deployment dispatcher >/dev/null 2>&1; then
         ! "${kube[@]}" get statefulset dispatcher-db >/dev/null 2>&1 || "${kube[@]}" rollout status statefulset/dispatcher-db --timeout=180s
+        # Its tokens are read when it starts.
+        [ "${dispatcher_restart:-0}" = 0 ] || "${kube[@]}" rollout restart deployment/dispatcher >/dev/null
         "${kube[@]}" rollout status deployment/dispatcher --timeout=180s
     fi
     if "${kube[@]}" get deployment egress >/dev/null 2>&1; then
@@ -587,6 +600,16 @@ env)
     printf 'export CMEM_URL=%s\nexport CMEM_TOKEN=%s\n' "$url" "$(secret laptop)" > .local/cmem.env
     printf 'export CMEM_URL=%s\nexport CMEM_DREAMER_TOKEN=%s\n' "$url" "$(secret dreamer)" > .local/cmem-dreamer.env
     echo "wrote .local/cmem.env (the laptop role) and .local/cmem-dreamer.env (the consolidation role)"
+    # The owner's machine's sessions, for the dispatcher's hooks (ADR 0049).
+    host_token="$("${kube[@]}" get secret dispatcher-tokens -o 'jsonpath={.data.host}' 2>/dev/null | base64 -d || true)"
+    place="$("${kube[@]}" get deployment dispatcher -o 'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="DISPATCHER_PLACE")].value}' 2>/dev/null || true)"
+    if [ -n "$host_token" ] && [ -n "$place" ]; then
+        printf 'export DISPATCHER_URL=%s\nexport DISPATCHER_TOKEN=%s\nexport DISPATCHER_PLACE=%s\n' \
+            "${DISPATCHER_URL:-http://127.0.0.1:8379}" "$host_token" "$place" > .local/dispatcher.env
+        echo "wrote .local/dispatcher.env (the dispatcher's host role, place $place)"
+    else
+        echo "the dispatcher has no host token or names no place yet: deploy first; .local/dispatcher.env not written" >&2
+    fi
     ;;
 check)
     "${kube[@]}" exec cmem-0 -- cmem check --library /data/library

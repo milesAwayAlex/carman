@@ -41,7 +41,8 @@ dispatcher:
   # The image of the service. Required when enabled; scripts/deploy.sh sets it.
   image: ""
   # The secret holding the role tokens (keys DISPATCHER_TOKENS, owner, agent,
-  # backup). scripts/deploy.sh makes it on the first deploy.
+  # backup, host). scripts/deploy.sh makes it on the first deploy, and adds
+  # the host token to a secret made before there was one.
   tokensSecret: dispatcher-tokens
   # How many tasks it runs at once. One until pacing decides more.
   maxRunning: 1
@@ -100,7 +101,23 @@ dispatcher:
     above: 0.9
     maxAge: 2h
   service:
+    # ClusterIP inside a cluster that has another way in. LoadBalancer where
+    # the cluster's load balancer is how the owner's machine reaches it, for
+    # the sessions there (ADR 0049).
+    type: ClusterIP
     port: 8379
+    # Where the cluster isolates this namespace (`isolated`), the addresses
+    # a LoadBalancer is reached from (CIDRs, as the dispatcher sees them).
+    # Required then; nothing outside the namespace comes in otherwise.
+    admitFrom: []
+  # Sessions on the owner's own machine (ADR 0049): they hold the host
+  # role's token, and are PLACE/NAME to everyone else. `place` names the
+  # machine (not the name of an agent here); empty, the host token is
+  # refused. `writtenBy` lists the agents that may write to them besides
+  # answering, as an agent's does (ADR 0047).
+  host:
+    place: host
+    writtenBy: []
   resources:
     requests: {cpu: 10m, memory: 32Mi}
     limits: {memory: 256Mi}

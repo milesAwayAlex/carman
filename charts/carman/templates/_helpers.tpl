@@ -106,5 +106,16 @@ A name there that is not an agent of the installation fails the render. */ -}}
 {{- end }}
 {{- with .writtenBy }}{{ $_ := set $out $agent . }}{{ end }}
 {{- end }}
+{{- with .Values.dispatcher.host }}
+{{- if has .place $names }}
+{{- fail (printf "dispatcher.host.place: %q is the name of an agent here; the owner's machine needs a name of its own" .place) }}
+{{- end }}
+{{- range (.writtenBy | default list) }}
+{{- if not (has . $names) }}
+{{- fail (printf "dispatcher.host.writtenBy names %q, which is not an agent here (the agents are %s)" . (join ", " $names)) }}
+{{- end }}
+{{- end }}
+{{- if and .place .writtenBy }}{{ $_ := set $out .place .writtenBy }}{{ end }}
+{{- end }}
 {{- toJson $out }}
 {{- end -}}

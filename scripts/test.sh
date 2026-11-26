@@ -37,6 +37,20 @@ if command -v helm >/dev/null; then
         echo "the chart renders a writtenBy that names no agent" >&2
         exit 1
     fi
+    # The owner's machine (ADR 0049): its writtenBy, a name of its own, and
+    # a way in from outside only where the addresses are given.
+    "${render[@]}" --set-json 'agents=[{"name":"a","routines":["x"]}]' --set-json 'dispatcher.host.writtenBy=["a"]' |
+        grep -qF 'value: "{\"host\":[\"a\"]}"' || { echo "the chart does not hand the dispatcher the host's writtenBy" >&2; exit 1; }
+    if "${render[@]}" --set-json 'agents=[{"name":"host","routines":["x"]}]' >/dev/null 2>&1; then
+        echo "the chart renders a place for the owner's machine named for an agent" >&2
+        exit 1
+    fi
+    if "${render[@]}" --set dispatcher.service.type=LoadBalancer >/dev/null 2>&1; then
+        echo "the chart renders an isolated dispatcher reached from outside with no addresses to admit" >&2
+        exit 1
+    fi
+    "${render[@]}" --set dispatcher.service.type=LoadBalancer --set-json 'dispatcher.service.admitFrom=["10.0.0.0/8"]' |
+        grep -qF 'cidr: "10.0.0.0/8"' || { echo "the chart does not admit the owner's machine to the dispatcher" >&2; exit 1; }
 else
     echo "helm is not here: the chart's checks are skipped" >&2
 fi
