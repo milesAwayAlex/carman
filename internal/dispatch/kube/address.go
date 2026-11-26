@@ -16,12 +16,12 @@ import (
 // Addresses says which pod of the namespace has an address, for the egress
 // proxy's meter (ADR 0050): a request to the model comes from a pod's
 // address, and the pod, while it runs, is the only one with it. The pods
-// are listed once and then watched, so that a lookup is a map read; an
-// address it does not know makes it list again, at most once a second,
-// before it answers that nobody has it.
+// are listed once and then watched, so that a lookup is a map read.
 type Addresses struct {
 	Client *Client
 	Log    *slog.Logger
+	// Settle is how long an unknown address is looked for (5s when zero).
+	Settle time.Duration
 
 	mu     sync.RWMutex
 	byIP   map[string]podObject
@@ -51,23 +51,44 @@ func (a *Addresses) Ready() <-chan struct{} {
 // Lookup says whose pod has the address now: its agent, name and UID. A
 // pod that is no agent's (no label agent, no AGENT_NAME) is found with an
 // empty Agent.
+//
+// An address not seen yet may be a pod that has just started: its first
+// request can come before the cluster's API has its address (seen: a job's
+// harness asking three seconds after its pod was made). So an unknown
+// address is looked for again, by the watch and by listing at most twice
+// a second, for up to Settle (5s), before it is nobody's.
 func (a *Addresses) Lookup(ctx context.Context, ip string) (message.Caller, bool) {
 	if c, ok := a.find(ip); ok {
 		return c, true
 	}
-	// An address not seen yet may be a pod that has just started: list
-	// again, unless that was done a moment ago.
-	a.relist.Lock()
-	a.mu.RLock()
-	recent := time.Since(a.listed) < time.Second
-	a.mu.RUnlock()
-	if !recent {
-		if _, err := a.list(ctx); err != nil {
-			a.log().Warn("listing pods to find an address", "address", ip, "error", err)
+	settle := a.Settle
+	if settle == 0 {
+		settle = 5 * time.Second
+	}
+	deadline := time.Now().Add(settle)
+	for {
+		a.relist.Lock()
+		a.mu.RLock()
+		recent := time.Since(a.listed) < 500*time.Millisecond
+		a.mu.RUnlock()
+		if !recent {
+			if _, err := a.list(ctx); err != nil {
+				a.log().Warn("listing pods to find an address", "address", ip, "error", err)
+			}
+		}
+		a.relist.Unlock()
+		if c, ok := a.find(ip); ok {
+			return c, true
+		}
+		if !time.Now().Before(deadline) {
+			return message.Caller{}, false
+		}
+		select {
+		case <-ctx.Done():
+			return message.Caller{}, false
+		case <-time.After(200 * time.Millisecond):
 		}
 	}
-	a.relist.Unlock()
-	return a.find(ip)
 }
 
 func (a *Addresses) find(ip string) (message.Caller, bool) {

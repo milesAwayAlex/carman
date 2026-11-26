@@ -52,7 +52,7 @@ func TestR10AddressesSayWhoseIsAnAddress(t *testing.T) {
 		fmt.Fprintf(w, pods, extra)
 	}))
 	defer srv.Close()
-	a := &Addresses{Client: &Client{Base: srv.URL, Namespace: "carman", HTTP: srv.Client()}}
+	a := &Addresses{Client: &Client{Base: srv.URL, Namespace: "carman", HTTP: srv.Client()}, Settle: 1200 * time.Millisecond}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go a.Run(ctx)
@@ -72,8 +72,9 @@ func TestR10AddressesSayWhoseIsAnAddress(t *testing.T) {
 			t.Errorf("%s: %+v", ip, c)
 		}
 	}
-	close(late)
-	time.Sleep(1100 * time.Millisecond) // a list again is at most once a second
+	// A pod the API does not show yet when its first request comes is
+	// found once it does, within the settling time.
+	go func() { time.Sleep(150 * time.Millisecond); close(late) }()
 	if c, ok := a.Lookup(ctx, "10.0.0.7"); !ok || c.Agent != "desk" {
 		t.Errorf("a pod that started after the list: %+v %v (lists: %d)", c, ok, lists.Load())
 	}
