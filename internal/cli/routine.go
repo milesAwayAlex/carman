@@ -383,7 +383,7 @@ func (c *command) routine(args []string) (err error) {
 	// know what day it is.
 	today := "\n\nToday's date is " + started.Format("2006-01-02") + " (UTC).\n"
 	spent, carried := 0.0, ""
-	used := runUsage{Agent: c.getenv("AGENT_NAME"), Routine: strings.TrimSuffix(filepath.Base(c.flags.Arg(0)), ".md"),
+	used := runUsage{Agent: c.getenv("AGENT_NAME"), Pod: c.podName(), Routine: strings.TrimSuffix(filepath.Base(c.flags.Arg(0)), ".md"),
 		Task: c.getenv("TASK_ID"), Started: started, Tokens: map[string]int64{}}
 	defer func() {
 		used.Cost, used.Ended, used.Outcome = spent, time.Now().UTC(), "done"
@@ -476,7 +476,10 @@ func carryOver(a attempt, open []memory.Refusal, runs []string) string {
 // runUsage is the data of the run.usage event a routine's run emits: what
 // it cost, on which models, and the plan's limits as last seen.
 type runUsage struct {
-	Agent     string           `json:"agent,omitempty"`
+	Agent string `json:"agent,omitempty"`
+	// The pod it ran in, where it ran in one: what the egress proxy's
+	// record of model use is kept by, to set the two side by side (ADR 0050).
+	Pod       string           `json:"pod,omitempty"`
 	Routine   string           `json:"routine"`
 	Task      string           `json:"task,omitempty"`
 	Message   string           `json:"message,omitempty"`
@@ -516,7 +519,7 @@ func (c *command) recordRun(file, msg, model, since string, failed bool) {
 	if err != nil {
 		started = time.Now().UTC()
 	}
-	used := runUsage{Agent: c.getenv("AGENT_NAME"), Routine: "message", Task: c.getenv("TASK_ID"), Message: msg,
+	used := runUsage{Agent: c.getenv("AGENT_NAME"), Pod: c.podName(), Routine: "message", Task: c.getenv("TASK_ID"), Message: msg,
 		Started: started.UTC(), Ended: time.Now().UTC(), Outcome: "done", Tokens: map[string]int64{}}
 	out, err := os.ReadFile(file)
 	if err != nil {
@@ -549,6 +552,15 @@ func streamModel(out []byte) string {
 		}
 	}
 	return ""
+}
+
+// podName is the pod this runs in, where it runs in one: a pod's host name
+// is its name.
+func (c *command) podName() string {
+	if c.getenv("KUBERNETES_SERVICE_HOST") == "" {
+		return ""
+	}
+	return c.getenv("HOSTNAME")
 }
 
 // emitUsage records the run's usage in the dispatcher's log, as the agent
