@@ -444,7 +444,9 @@ EOF
     # the manifest: a deploy leaves it as it was, and off the first time.
     dreaming="$("${kube[@]}" get cronjob dreamer -o 'jsonpath={.spec.suspend}' 2>/dev/null || true)"
     # What the egress proxy is to hold a credential for, from the values.
-    egress="$(helm template carman charts/carman --namespace "$namespace" "${chart_values[@]}" --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 --show-only templates/egress.yaml 2>/dev/null || true)"
+    # Images with a registry: a warm image (agent.warm) refuses one without.
+    egress="$(helm template carman charts/carman --namespace "$namespace" "${chart_values[@]}" --set memory.image=registry.invalid/m:0 --set agent.image=registry.invalid/a:0 --set dispatcher.image=registry.invalid/d:0 --show-only templates/egress.yaml)" ||
+        die "the egress proxy's settings do not render; see above"
     egress_hosts="$(printf '%s\n' "$egress" | sed -n 's/^  hosts: "\(.*\)"$/\1/p')"
     egress_keys="$(printf '%s\n' "$egress" | sed -n 's/^  keys: "\(.*\)"$/\1/p')"
     if [ -n "$egress_hosts" ]; then
