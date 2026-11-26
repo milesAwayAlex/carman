@@ -164,9 +164,9 @@ questions. The run's own report and the proxy's record, by kind:
 | `run.usage` (the run's word) | 18 | 3,933 | 264,698 | 1,727,485 |
 | `model.usage` (the proxy's) | 18 | 3,933 | 264,698 | 1,727,485 |
 
-The proxy's record also said which model answered (the routine's ladder
-started at Sonnet, not at the model its settings for that routine name;
-the run's report agrees). The hourly reading ran through the meter at its
+Both say Sonnet answered: the trial ran `cmem routine` directly, as earlier
+replays did, and a routine's own ladder (Opus first, for this one) is
+applied by the dreamer's entrypoint, `run-routine`. The hourly reading ran through the meter at its
 next tick, and `dispatch status` showed both records. The switch was then
 set to `proxy` and deployed, back to `pod` once (the proxy rendered
 without the meter, the templates with the secret, and a pod made from the
