@@ -111,3 +111,57 @@ importing what it holds. The benchmark's cmem arms ran with it off.
 ## Turning it off
 
 Remove the `hooks` block. The `cmem` commands still work when called by hand.
+
+# Messages to and from your own sessions
+
+The same way, a session on your own machine can be written to by the
+installation's agents and sessions, and write to them (ADR 0049): the
+dispatcher's hook carries a message into it between tool calls, at the end
+of a turn, or by waking it when idle, as in an agent's pod. The settings are
+in `dispatcher.settings.example.json`, beside the memory's.
+
+What it is to everyone else: a session of the place your machine is called
+(`dispatcher.host.place` in the values, `host` unless changed), named for
+the directory it runs in, so the session in a checkout called `billing` is
+`host/billing`. Set `DISPATCHER_SESSION_NAME` to name it otherwise. It may
+write to any agent and any session; an agent may write to it only to answer
+it, or when listed under `dispatcher.host.writtenBy`. A message to `owner`
+from it is a notice, as from any session: it is not you. A message for one
+of your sessions that is not running waits, and the next session of that
+name to start there is handed it.
+
+## Install
+
+1. Put `dispatcher` on your PATH, beside `cmem`. With Nix, the flake exports
+   it as `packages.<system>.dispatcher` (and `pkgs.carman.dispatcher`).
+   Without: `CGO_ENABLED=0 nix develop -c go build -o ~/.local/bin/dispatcher ./cmd/dispatcher`.
+   Nothing else is needed: no pod, no token file, no kubectl.
+2. Have the dispatcher reachable from your machine. On the local cluster the
+   local values make its service a LoadBalancer on port 8379, forwarded to
+   `http://127.0.0.1:8379`. `scripts/deploy.sh CONTEXT env` writes
+   `.local/dispatcher.env` with `DISPATCHER_URL`, the host role's
+   `DISPATCHER_TOKEN` and `DISPATCHER_PLACE`. Check it from a shell:
+   `. .local/dispatcher.env && dispatcher whoami` says `role host`.
+3. Try it in one project first: merge `dispatcher.settings.example.json`
+   into that project's `.claude/settings.local.json` (not committed), with
+   the token added under `env` as `DISPATCHER_TOKEN`, and `DISPATCHER_URL`
+   and `DISPATCHER_PLACE` as `.local/dispatcher.env` says. Start a new
+   session there: the first thing in its context says "You can be written
+   to", and names it `host/PROJECT`.
+4. For every session: merge the same into `~/.claude/settings.json`, and
+   put the token in the environment Claude Code starts from (your shell
+   profile sourcing `.local/dispatcher.env`, for one) rather than in the
+   file.
+
+Each hook gives up after three seconds, and does nothing when the
+dispatcher does not answer. `CMEM_HOOK=off` or `DISPATCHER_HOOK=off` in a
+session's environment switches it off for that session.
+
+## Taking it out
+
+Remove the `dispatcher hook claude-code` entries (and the `dispatcher`
+permissions and `DISPATCHER_*` variables) from the settings file you added
+them to. Sessions that were registered show as not running in `dispatcher
+peers` until the message retention forgets them; what was sent to them
+stays in the log, and the owner can see what became of each with
+`scripts/deploy.sh CONTEXT dispatch message ID`.

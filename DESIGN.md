@@ -105,6 +105,23 @@ only the owner and those cases. A message that is not allowed is refused
 at sending, with who may, and recorded as `message.refused`; `peers` marks
 what the caller may not write to.
 
+Sessions on the owner's own machine (ADR 0049, proposed) are a place with
+a token of its own (the dispatcher's `host` role; the place is
+`dispatcher.host.place`, `host` by default), outside the cluster, with no
+pod. Each is `PLACE/NAME`, named for the directory it runs in unless
+`DISPATCHER_SESSION_NAME` says otherwise; which of the place's sessions a
+caller is, is its word. They write to any agent and session, as the owner
+may, but are not the owner: a message from one to `owner` is a notice, and
+the owner's inbox is not theirs. Agents write to them as ADR 0047 allows
+(`dispatcher.host.writtenBy`). The same hooks carry messages into them,
+with `DISPATCHER_URL`, the host token and `DISPATCHER_PLACE` from the
+environment. One runs while its waiter listens or a hook was heard within
+a day. One that is not running is not started by a message: the message
+waits, and the next session of its name there, or the same one resumed, is
+handed it. The dispatcher's Service may be a LoadBalancer
+(`dispatcher.service.type`; the local values do this, on port 8379), and
+`scripts/deploy.sh CONTEXT env` writes `.local/dispatcher.env`.
+
 ### Worker details (proposed)
 
 - **Permissions.** `dontAsk` mode with an allowlist is the documented headless
@@ -555,8 +572,10 @@ Decisions are recorded one per file in `docs/adr/`. The index,
    (withheld until switched on), hourly usage readings and each run's cost,
    and a first admission rule. Then (ADR 0045, proposed): messages between
    sessions, agents and the owner, each pod known by a token of its own.
+   Then (ADR 0049, proposed): the owner's own sessions, as a place with a
+   token of its own, through the same hooks.
    Next: move the scheduled agents onto the dispatcher one by one, switch
-   notices on, reach the laptop's sessions, and pace by a curve to reset.
+   notices on, and pace by a curve to reset.
 
 ## 12. References
 

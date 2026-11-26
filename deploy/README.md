@@ -48,13 +48,23 @@ This relies on the VM's configuration as of 2026-11-18. Before that fix the
 VM forwarded neither a LoadBalancer nor a NodePort, and the first deployment
 here ran on the VM's own network instead.
 
-`scripts/deploy.sh devvm env` writes two files, readable only by you:
+`scripts/deploy.sh devvm env` writes three files, readable only by you:
 
 - `.local/cmem.env`: `CMEM_URL` and the laptop role's `CMEM_TOKEN`. Source it
   in your shell profile, or copy the two values to wherever Claude Code gets
   its environment (see `adapters/claude-code/README.md`).
 - `.local/cmem-dreamer.env`: the consolidation role's token, for
   `scripts/consolidate.sh`. Keep it out of ordinary sessions.
+
+- `.local/dispatcher.env`: `DISPATCHER_URL` (`http://127.0.0.1:8379`: the
+  local values make the dispatcher a LoadBalancer too), the dispatcher's
+  host role's `DISPATCHER_TOKEN`, and `DISPATCHER_PLACE`, the name the
+  laptop's sessions go by (ADR 0049). It is for the dispatcher's hooks in
+  the laptop's own sessions; `adapters/claude-code/README.md`, "Messages to
+  and from your own sessions", installs them. The deploy adds the host
+  token to a token secret made before it, and restarts the dispatcher to
+  read it. On a cluster whose namespace is isolated, the dispatcher's
+  LoadBalancer needs `dispatcher.service.admitFrom`.
 
 If the laptop cannot reach the service while `status` shows it running, look
 at Lima's forwarding: something else on the laptop may hold port 8377 (Lima

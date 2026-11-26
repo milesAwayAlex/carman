@@ -1,0 +1,41 @@
+{
+  "env": {
+    "DISPATCHER_URL": "http://127.0.0.1:8379",
+    "DISPATCHER_PLACE": "host"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(dispatcher peers*)",
+      "Bash(dispatcher send *)",
+      "Bash(dispatcher reply *)",
+      "Bash(dispatcher inbox*)",
+      "Bash(dispatcher read *)",
+      "Bash(dispatcher message *)",
+      "Bash(dispatcher watch *)",
+      "Bash(dispatcher whoami*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [
+        { "type": "command", "command": "dispatcher hook claude-code", "timeout": 10 },
+        { "type": "command", "command": "dispatcher hook claude-code --wait 23h", "asyncRewake": true, "timeout": 86400 }
+      ] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "dispatcher hook claude-code", "timeout": 10 }] }
+    ],
+    "PostToolBatch": [
+      { "hooks": [{ "type": "command", "command": "dispatcher hook claude-code", "timeout": 10 }] }
+    ],
+    "Stop": [
+      { "hooks": [
+        { "type": "command", "command": "dispatcher hook claude-code", "timeout": 10 },
+        { "type": "command", "command": "dispatcher hook claude-code --wait 23h", "asyncRewake": true, "timeout": 86400 }
+      ] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "dispatcher hook claude-code", "timeout": 10 }] }
+    ]
+  }
+}

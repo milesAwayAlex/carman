@@ -104,10 +104,18 @@ Built so far:
   session that is not running starts it again as its agent. Who may write
   to an agent (ADR 0047): the owner, its own sessions, an
   answer, and the agents its `writtenBy` lists.
+- Sessions on the owner's own machine (ADR 0049, proposed): a place
+  (`dispatcher.host.place`) with the dispatcher's `host` token, its
+  sessions `PLACE/NAME` named for their directory. They write as the owner
+  may but are not the owner; a message for one that is not running waits
+  for the next session of its name there. The same hooks, installed from
+  `adapters/claude-code` with `.local/dispatcher.env`
+  (`scripts/deploy.sh CONTEXT env`); the dispatcher a LoadBalancer on the
+  local cluster's port 8379. Not yet tried on a cluster.
 
 Not built yet: the way in from a laptop to a service on a shared cluster,
-messages to and from the laptop's own sessions, a message that starts an
-interactive agent's session that is not open,
+more than one machine of the owner's (one place per installation), a
+message that starts an interactive agent's session that is not open,
 the task-stream benchmark (M7), a second harness (M8), and for agents that
 do work outside memory: triggers other than a schedule, and a way for the
 owner to answer an agent's message where it arrives (today: `dispatch reply`
