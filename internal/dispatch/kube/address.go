@@ -132,17 +132,20 @@ func (a *Addresses) apply(kind string, p podObject) {
 // where the list was, and a list again whenever the watch ends.
 func (a *Addresses) Run(ctx context.Context) {
 	a.init()
+	wait := 2 * time.Second
 	for ctx.Err() == nil {
 		rv, err := a.list(ctx)
 		if err == nil {
+			wait = 2 * time.Second
 			err = a.watch(ctx, rv)
 		}
 		if err != nil && ctx.Err() == nil {
-			a.log().Warn("watching pods", "error", err)
+			a.log().Warn("watching pods", "error", err, "again in", wait)
 			select {
 			case <-ctx.Done():
-			case <-time.After(2 * time.Second):
+			case <-time.After(wait):
 			}
+			wait = min(2*wait, 30*time.Second)
 		}
 	}
 }
