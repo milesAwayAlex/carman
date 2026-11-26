@@ -165,9 +165,36 @@ Each deploy that ends with the service answering records in the cluster the
 commit it was made from and the one before it, and the same for the
 installation's own definition. To go back, deploy the one before:
 
-    git worktree add ../back COMMIT-BEFORE && cd ../back
-    ln -s PATH-TO/.local .local           # the installation's definition; check out its commit-before too if it changed
+    git worktree add ../CHECKOUT-back COMMIT-BEFORE && cd ../CHECKOUT-back
+    ln -s PATH-TO/.local .local
     nix develop -c scripts/deploy.sh CONTEXT
+
+The link gives the worktree the installation's definition and this
+machine's settings; it is ignored by git, so the deploy is recorded as the
+plain commit. If `status` shows that the installation's definition changed
+too (its "before it" differs from what is deployed), put the definition
+itself back first, in place, since the files beside it that are not tracked
+are needed by the deploy and a second copy would lack them:
+
+    git -C PATH-TO/.local checkout DEFINITION-BEFORE    # before the deploy
+    git -C PATH-TO/.local checkout main                 # after it, whatever its result
+
+Whoever runs the way back does both; nobody edits the definition in between.
+
+Then check: `status` says the service answers and names the commit you
+deployed, and the memory service, the proxy and the dispatcher are Running.
+Tried from outside by a session that had no part in the change, on
+2026-11-26: four minutes from the first command to the end of the deploy.
+
+What this does not reach: a standing interactive agent keeps the pod it
+has, on the image it started with, until that pod is deleted. If the change
+broke the agent image, delete the pod after the deploy
+(`scripts/deploy.sh CONTEXT agent restart NAME`), knowing that it ends the
+sessions open in it; their conversations resume from disk.
+
+A machine's container tool may print errors about credentials for
+registries this installation does not use while it deploys. They do not
+matter here: look at the deploy's own last lines and at `status`.
 
 Images are named by their content, so the earlier ones are still in the
 registry or the node's store and nothing is rebuilt unless they were

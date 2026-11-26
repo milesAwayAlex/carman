@@ -3,7 +3,7 @@
 .claude/settings.local.json
 CLAUDE.local.md
 /bin/
-/.local/
+/.local
 # What `nix build` leaves behind.
 /result
 /result-*
