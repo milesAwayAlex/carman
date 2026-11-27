@@ -29,7 +29,11 @@
 // kubectl context a notice names) and, for the admission rule,
 // DISPATCHER_ADMISSION (on), DISPATCHER_ADMISSION_BELOW (priority, 50),
 // DISPATCHER_ADMISSION_ABOVE (utilization, 0.9) and
-// DISPATCHER_ADMISSION_MAX_AGE (2h).
+// DISPATCHER_ADMISSION_MAX_AGE (2h); for pacing (ADR 0060),
+// DISPATCHER_ADMISSION_MODE (threshold, or curve), DISPATCHER_PACE_TARGET
+// (0.95, also read by dispatch status), DISPATCHER_PACE_SOON (1h),
+// DISPATCHER_PACE_ROOM (on to record usage.room) and
+// DISPATCHER_PACE_ROOM_MIN (0.1).
 package main
 
 import (
@@ -464,6 +468,10 @@ func serve(ctx context.Context) error {
 	// opened below, and a class's ladder from its CronJob.
 	var readings func(context.Context) ([]dispatch.Record, error)
 	var admission dispatch.Admission
+	pacing, err := paceSettings()
+	if err != nil {
+		return err
+	}
 	if os.Getenv("DISPATCHER_ADMISSION") == "on" {
 		rule := budgetRule{Below: 50, Above: 0.9, MaxAge: 2 * time.Hour,
 			Readings: func(ctx context.Context) ([]dispatch.Record, error) { return readings(ctx) }}
@@ -483,8 +491,16 @@ func serve(ctx context.Context) error {
 		if rule.MaxAge, err = duration("DISPATCHER_ADMISSION_MAX_AGE", rule.MaxAge); err != nil {
 			return err
 		}
+		switch rule.Mode = os.Getenv("DISPATCHER_ADMISSION_MODE"); rule.Mode {
+		case "", "threshold":
+			logger.Info("holding work below a priority while a usage window is high", "below", rule.Below, "above", rule.Above, "max_age", rule.MaxAge.String())
+		case "curve":
+			logger.Info("holding work below a priority while a usage window is ahead of its line", "below", rule.Below, "target", pacing.target, "soon", pacing.soon.String(), "max_age", rule.MaxAge.String())
+		default:
+			return errors.New("DISPATCHER_ADMISSION_MODE is threshold or curve")
+		}
+		rule.Target, rule.Soon = pacing.target, pacing.soon
 		admission = rule.admit
-		logger.Info("holding work below a priority while a usage window is high", "below", rule.Below, "above", rule.Above, "max_age", rule.MaxAge.String())
 	}
 
 	dbURL := os.Getenv("DISPATCHER_DATABASE_URL")
@@ -524,6 +540,10 @@ func serve(ctx context.Context) error {
 
 	work, cancel := context.WithCancel(ctx)
 	defer cancel()
+	if pacing.room {
+		go watchRoom(work, readings, d.Emit, pacing.target, pacing.roomMin, logger)
+		logger.Info("recording usage.room for a window expected to leave room unused", "target", pacing.target, "min", pacing.roomMin)
+	}
 	if watcher != nil {
 		watcher.Emit = d.Emit
 		go watcher.Run(work)

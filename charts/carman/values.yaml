@@ -98,11 +98,23 @@ dispatcher:
   # Deferring what can wait: a task whose priority is below `below` is held
   # while the latest usage reading has a window at `above` or more that has
   # not reset. A reading older than maxAge is unknown, and unknown admits.
+  # With mode `curve` (ADR 0060), `above` is not used: below `below`, a task
+  # is held while a window is ahead of its line to `pace.target` at its
+  # reset, unless it resets within `pace.soon` with room left.
   admission:
     enabled: false
     below: 50
     above: 0.9
     maxAge: 2h
+    mode: threshold
+  # Pacing to each window's reset (ADR 0060): the line's target, and, with
+  # `room`, a usage.room event after each reading for a window expected to
+  # leave at least `roomMin` under the target unused at the present rate.
+  pace:
+    target: 0.95
+    soon: 1h
+    room: false
+    roomMin: 0.1
   service:
     # ClusterIP inside a cluster that has another way in. LoadBalancer where
     # the cluster's load balancer is how the owner's machine reaches it, for

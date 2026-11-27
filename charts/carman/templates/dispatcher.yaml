@@ -149,7 +149,19 @@ spec:
               value: {{ .above | quote }}
             - name: DISPATCHER_ADMISSION_MAX_AGE
               value: {{ .maxAge | quote }}
+            - name: DISPATCHER_ADMISSION_MODE
+              value: {{ .mode | default "threshold" | quote }}
             {{- end }}
+            {{- end }}
+            {{- with .Values.dispatcher.pace }}
+            - name: DISPATCHER_PACE_TARGET
+              value: {{ .target | quote }}
+            - name: DISPATCHER_PACE_SOON
+              value: {{ .soon | quote }}
+            - name: DISPATCHER_PACE_ROOM
+              value: {{ ternary "on" "off" (.room | default false) | quote }}
+            - name: DISPATCHER_PACE_ROOM_MIN
+              value: {{ .roomMin | quote }}
             {{- end }}
             # The database, as libpq's variables: the service and pg_dump
             # both read them, and the password is in no address.
