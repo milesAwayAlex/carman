@@ -22,6 +22,12 @@ fi
 # Commands of this installation's own (scripts/deploy.sh CONTEXT tool FILE),
 # and the harness where its installer puts it.
 export PATH="/etc/agent/bin:$HOME/.local/bin:$PATH"
+# Go turns cgo off by itself only where its default compiler is missing by
+# name, and a toolchain an installation brings may not: with no C compiler
+# here, a plain go build or go test fails until cgo is off. Off where none is.
+if [ -z "${CGO_ENABLED+x}" ] && ! command -v "${CC:-gcc}" >/dev/null 2>&1 && ! command -v cc >/dev/null 2>&1 && ! command -v clang >/dev/null 2>&1; then
+    export CGO_ENABLED=0
+fi
 
 # The harness's own state (~/.claude.json), so that a new home starts at the
 # prompt with nobody at the keyboard: its first-start screens (the theme and
