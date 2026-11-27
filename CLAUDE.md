@@ -169,7 +169,7 @@ Built so far:
   and `scripts/deploy.sh CONTEXT dispatch ...` runs the client on the
   owner's machine with it (`dispatch owner-token new|back`).
 
-- A trial's agents reach the model (ADR new-a-trial-agent-reaches-the-model,
+- A trial's agents reach the model (ADR 0065,
   proposed): with `egress.model.trials.enabled` the meter listens on a port
   of its own for trials, which serves the model and nothing else, knows a
   caller by its pod in the sandbox (labels `trial` and `agent`), records

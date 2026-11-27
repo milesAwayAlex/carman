@@ -181,7 +181,7 @@ handed a session whose harness the watcher then finds gone, with no word
 from the session in between, is recorded as not delivered and delivered
 once more, marked as a second time: at least once, never silently lost.
 
-### A trial's agents and the model (ADR new-a-trial-agent-reaches-the-model, proposed)
+### A trial's agents and the model (ADR 0065, proposed)
 
 A trial installation's agents (ADR 0054) reach the model at a second
 listener of the meter's (`egress.model.trials`, off by default), which

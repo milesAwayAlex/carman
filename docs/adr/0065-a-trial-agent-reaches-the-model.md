@@ -1,4 +1,4 @@
-# new-a-trial-agent-reaches-the-model: An agent of a trial reaches the model at a listener of the meter's own for trials, known by its pod in the sandbox, with no credential there
+# 0065: An agent of a trial reaches the model at a listener of the meter's own for trials, known by its pod in the sandbox, with no credential there
 
 Status: Proposed (2026-11-27).
 

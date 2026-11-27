@@ -52,7 +52,7 @@ type Proxy struct {
 	CallerHeader string
 	// Direct takes the caller's address from the connection itself: for a
 	// listener that callers reach with no proxy in front (trials, ADR
-	// new-a-trial-agent-reaches-the-model). CallerHeader is then not read.
+	// 0065). CallerHeader is then not read.
 	Direct bool
 	// Admit, when set, says whether this caller's request may go on, after
 	// it is known whose it is and which model it asks for (empty when the

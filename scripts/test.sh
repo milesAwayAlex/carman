@@ -165,7 +165,7 @@ if command -v helm >/dev/null; then
         echo "the chart renders an agent named as a watch's job is" >&2
         exit 1
     fi
-    # R10, trials reach the model (ADR new-a-trial-agent-reaches-the-model):
+    # R10, trials reach the model (ADR 0065):
     # only where switched on, with the credential at the proxy and a sandbox;
     # then a listener of the meter's own, the cheapest model unless others
     # are listed, a Role over the sandbox's pods only, and a way out of the

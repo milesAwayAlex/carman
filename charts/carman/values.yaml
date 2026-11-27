@@ -623,7 +623,7 @@ egress:
       requests: {cpu: 10m, memory: 32Mi}
       limits: {memory: 256Mi}
     # Agents of trial installations in the sandbox (ADR 0054) reach the
-    # model (ADR new-a-trial-agent-reaches-the-model): the meter listens on
+    # model (ADR 0065): the meter listens on
     # a port of its own for them, which serves the model and nothing else
     # (not the proxy's other credentials), and no credential goes into the
     # sandbox. A caller is a trial's agent when its pod there says which

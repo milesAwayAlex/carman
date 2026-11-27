@@ -133,7 +133,7 @@ func meterCmd(ctx context.Context) error {
 		Observer:     observer,
 		Budget:       budget,
 	}
-	// Trials (ADR new-a-trial-agent-reaches-the-model): a second listener,
+	// Trials (ADR 0065): a second listener,
 	// reached with no proxy in front by agents of trial installations in
 	// the sandbox. It serves the model and nothing else, knows a caller by
 	// the address its connection comes from, looked up among the sandbox's

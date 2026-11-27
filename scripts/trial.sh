@@ -31,7 +31,7 @@
 # exits TRIAL_AFTER_EXIT, 0 unless said) and second from minute 1, set after
 # first (ADR 0062).
 # TRIAL_AGENT_BASE=IMAGE and TRIAL_MODEL=URL: agents of the trial that reach
-# the model (ADR new-a-trial-agent-reaches-the-model). IMAGE is one with
+# the model (ADR 0065). IMAGE is one with
 # the harness in it (the installation's warm image); this checkout's
 # binaries, scripts and routines are laid over it. URL is the installation's
 # meter for trials (http://egress.NAMESPACE.svc:3131, where the
