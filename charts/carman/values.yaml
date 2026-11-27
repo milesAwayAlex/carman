@@ -24,49 +24,6 @@ memory:
   # The secret holding the role tokens (keys CMEM_TOKENS, laptop, worker,
   # dreamer). scripts/deploy.sh makes it on the first deploy.
   tokensSecret: cmem-tokens
-  # The improvement loop (ADR 0058): the list of what should be improved in
-  # the platform itself is kept in the dispatcher's log, and read with
-  # `scripts/deploy.sh CONTEXT dispatch improve`. The owner and the owner's
-  # machine read and write it always. Everything that spends by itself or
-  # writes to the owner is off until `send` and `notify` say otherwise: off,
-  # a brief that passed and the line for the owner are recorded with what
-  # they would have said, to be read for a few days first.
-  improvement:
-    # Agents that may read the list, add to it and say what they build.
-    agents: []
-    # The agent that reads the evidence since it last looked, adds to the
-    # list, and asks for briefs: one with the routine `improve`. It needs
-    # no writtenBy anywhere: a brief that passes is vouched for here.
-    surveyor: ""
-    # Whose messages' words the surveyor reads as evidence: agents by name,
-    # the owner's machine by its place, `owner`. Of every other message it
-    # sees who wrote to whom, when, and how long it was.
-    messagesOf: []
-    # Where a brief may be handed: addresses as `dispatcher send` takes
-    # them (agent/NAME, NAME/SESSION, PLACE/SESSION).
-    to: []
-    # What may start with no word from the owner: an item nobody has
-    # decided on whose kind (fault, friction, gap, cost) and size (small,
-    # medium, large) are both listed. Empty: only what the owner agreed
-    # (`improve agree ID`).
-    auto:
-      kinds: []
-      sizes: []
-    # How many briefs pass in 24 hours, sent or withheld.
-    briefsPerDay: 1
-    # Room in the plan's usage, by one of two rules. `below`: every shared
-    # window of the latest reading is below `below`, or has reset (0 does
-    # not look). `room`: pacing expects every shared window to leave room
-    # unused at its reset (usage.room, ADR 0060; needs dispatcher.pace.room).
-    # Under either, a reading older than maxAge, or none, is not room.
-    usage:
-      rule: below
-      below: 0.5
-      maxAge: 2h
-    # Hand a brief that passed to its addressee; and tell the owner, in one
-    # line and at most once a day, that items wait for a decision.
-    send: false
-    notify: false
   service:
     # ClusterIP inside a cluster that has another way in. LoadBalancer where
     # the cluster's load balancer is how a laptop reaches the service.
@@ -165,6 +122,53 @@ dispatcher:
     soon: 1h
     room: false
     roomMin: 0.1
+  # Triggers (ADR 0063): work started by what happens, beside the clock, a
+  # command and a message. Nothing unless rules, watches or hooks are
+  # written here.
+  #
+  # A rule: when an event of this kind is in the log, start a task of this
+  # class. No model decides. One task for an event; at most `atMost` in a
+  # period (1 in 1h unless said), beyond which an event starts nothing and
+  # is recorded as rule.held; an event about a run a rule started starts
+  # nothing. The run is told what triggered it in TASK_TRIGGER_* (RULE,
+  # EVENT, TYPE, SUBJECT, TIME, and each field of `carry`), and a routine's
+  # prompt says so. Only tokens are carried (an identifier, a number, a
+  # URL, a digest: no spaces): what a run needs of an outside text it reads
+  # at the source.
+  #   rules:
+  #     - name: sheet-changed
+  #       when: {type: watch.changed, subject: prices}   # and where: {field: value}
+  #       start: agent-example       # the CronJob whose job template runs
+  #       priority: 10
+  #       timeout: 1h
+  #       atMost: {count: 1, per: 24h}
+  #       carry: [digest, since]
+  rules: []
+  # A watch: a job with no model that asks a source on a schedule and tells
+  # the dispatcher a digest of what its filter kept. The dispatcher records
+  # watch.changed when the digest differs from the last (and watch.first
+  # once). It leaves the cluster through the egress proxy, as agents do.
+  #   watches:
+  #     - name: prices
+  #       cron: "*/30 * * * *"       # timeZone: UTC unless named
+  #       url: https://example.com/prices      # or command: [tool, arg]
+  #       headers: {User-Agent: Mozilla}
+  #       keep: '\$[0-9.]+ / 1 hour' # every match is kept; empty keeps all
+  #       atLeast: 1000              # fewer kept: the reading fails, and is no change
+  #       timeout: 2m
+  watches: []
+  # A hook: a door at /v1/hooks/NAME for a source that can call in, where
+  # the installation has a way in to the dispatcher's service. A call is
+  # recorded as hook.received only when its body is signed with the hook's
+  # secret (hex HMAC-SHA256 in `header`, as the code hosts send it); the
+  # secret is the key NAME of the secret `hooksSecret`. The event has the
+  # fields of `pick` that are tokens, never the body.
+  #   hooks:
+  #     tracker:
+  #       header: X-Hub-Signature-256
+  #       pick: {action: action, issue: data.identifier}
+  hooks: {}
+  hooksSecret: dispatcher-hooks
   # The improvement loop (ADR 0058): the list of what should be improved in
   # the platform itself is kept in the dispatcher's log, and read with
   # `scripts/deploy.sh CONTEXT dispatch improve`. The owner and the owner's

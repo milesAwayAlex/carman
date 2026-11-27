@@ -144,6 +144,26 @@ spec:
               value: {{ .Values.dispatcher.notices.class | quote }}
             - name: DISPATCHER_CONTEXT_NAME
               value: {{ .Values.dispatcher.notices.context | quote }}
+            # Triggers (ADR 0063): rules, the watches' names, hooks and their secrets.
+            {{- with .Values.dispatcher.rules }}
+            - name: DISPATCHER_RULES
+              value: {{ toJson . | quote }}
+            {{- end }}
+            {{- with (include "dispatcher.watches" .) }}
+            - name: DISPATCHER_WATCHES
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.dispatcher.hooks }}
+            - name: DISPATCHER_HOOKS
+              value: {{ toJson . | quote }}
+            {{- range $name, $_ := . }}
+            - name: DISPATCHER_HOOK_SECRET_{{ $name | upper | replace "-" "_" }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.dispatcher.hooksSecret }}
+                  key: {{ $name }}
+            {{- end }}
+            {{- end }}
             # The improvement loop's settings (ADR 0058).
             - name: DISPATCHER_IMPROVEMENT
               value: {{ include "dispatcher.improvement" . | quote }}

@@ -141,10 +141,11 @@ while True:
     obj, at = dec.raw_decode(text, at)
     out.append(obj)
 # The class the trial runs through the dispatcher: a suspended CronJob whose
-# job runs true, in the dispatcher image.
+# job says what it was handed (its TASK_ variables) and ends well, in the
+# dispatcher image.
 out.append({"apiVersion": "batch/v1", "kind": "CronJob", "metadata": {"name": "probe"},
     "spec": {"schedule": "0 0 1 1 *", "suspend": True, "jobTemplate": {"spec": {"backoffLimit": 0, "template": {"spec": {
-        "restartPolicy": "Never", "containers": [{"name": "probe", "image": os.environ["TRIAL_IMAGE"], "command": ["/bin/true"]}]}}}}}})
+        "restartPolicy": "Never", "containers": [{"name": "probe", "image": os.environ["TRIAL_IMAGE"], "command": ["/bin/sh", "-c", "env | grep ^TASK_ | sort; true"]}]}}}}}})
 if os.environ.get("TRIAL_TICK"):
     out.append({"apiVersion": "batch/v1", "kind": "CronJob", "metadata": {"name": "tick"},
         "spec": {"schedule": "* * * * *", "suspend": True, "jobTemplate": {"spec": {"backoffLimit": 0, "ttlSecondsAfterFinished": 600,
@@ -176,6 +177,16 @@ def refs(v):
             for e in s:
                 if e.get("class") in classes:
                     e["class"] = pre + e["class"]
+            v["value"] = json.dumps(s)
+        elif n == "DISPATCHER_RULES":
+            # A rule starts a class by its name here, and tells a template by it.
+            s = json.loads(val)
+            for e in s:
+                if e.get("start") in classes:
+                    e["start"] = pre + e["start"]
+                where = e.get("when", {}).get("where") or {}
+                if where.get("template") in classes:
+                    where["template"] = pre + where["template"]
             v["value"] = json.dumps(s)
         elif n == "DISPATCHER_NOTICE_CLASS" and val in classes:
             v["value"] = pre + val

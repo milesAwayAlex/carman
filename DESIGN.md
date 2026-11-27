@@ -173,6 +173,27 @@ handed a session whose harness the watcher then finds gone, with no word
 from the session in between, is recorded as not delivered and delivered
 once more, marked as a second time: at least once, never silently lost.
 
+### Triggers (ADR 0063, proposed)
+
+Beside the clock, a command and a message, work starts when something
+happens. A rule of the installation's (`dispatcher.rules`) names events
+(a type, a subject, fields of the data that must equal a value) and a
+class; the dispatcher, reading its log with a place kept in `marks`,
+submits one task for an event (`rule/NAME/EVENT-ID`), at most so many in
+a period (an event beyond that is dropped and recorded as `rule.held`),
+and none for an event about a run a rule started, so that a rule cannot
+feed itself. The run is told what triggered it in `TASK_TRIGGER_*`, and
+a routine's prompt says so. What happens outside enters two ways. A
+watch (`dispatcher.watches`) is a job with no model on the dispatcher's
+schedule: `dispatcher source` asks a URL or runs a command, keeps what a
+filter keeps and tells the dispatcher its digest; the dispatcher records
+`watch.changed` when the digest differs from the last it remembers. A
+hook (`dispatcher.hooks`) is a door at `/v1/hooks/NAME`, where a call is
+recorded as `hook.received` only when its body is signed with the hook's
+secret. Neither keeps the source's text: a value from outside is kept,
+and carried to a run, only if it is a token (no spaces), so a run is
+handed references and reads the source itself. Off unless written.
+
 ### The improvement loop (ADR 0058, proposed)
 
 The platform keeps a list of what should be improved in itself, in the
@@ -707,6 +728,8 @@ Decisions are recorded one per file in `docs/adr/`. The index,
    Then (ADR 0058, proposed): the list of improvements to the platform,
    its evidence and its gate, tried in a trial; the surveyor is not yet
    an agent of any installation.
+   Then (ADR 0063, proposed): rules from the log to tasks, watches and
+   hooks for what happens outside, tried in a trial.
    Next: move the scheduled agents onto the dispatcher one by one, switch
    notices on, and act on room a window will leave unused (the curve:
    ADR 0060, proposed).

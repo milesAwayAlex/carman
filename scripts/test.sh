@@ -128,6 +128,23 @@ if command -v helm >/dev/null; then
         echo "the chart renders an improvement loop whose surveyor is no agent, or that sends with none, or that waits for room pacing does not record" >&2
         exit 1
     fi
+    # R2, triggers (ADR 0063): none unless written; a watch is a job with no
+    # model or memory credential, on the dispatcher's schedule; an agent may
+    # not take a watch's job's name; the triggers' trial values render.
+    plain="$(helm template t charts/carman --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 --set backup.repository=r)"
+    ! grep -qE 'DISPATCHER_(RULES|WATCHES|HOOKS)|name: watch-' <<<"$plain" || { echo "the chart renders triggers nobody wrote" >&2; exit 1; }
+    watched=(helm template t charts/carman --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 --set backup.repository=r
+        --set-json 'dispatcher.watches=[{"name":"page","cron":"*/30 * * * *","url":"https://example.com/"}]')
+    job="$("${watched[@]}" --show-only templates/dispatched.yaml | awk '/name: watch-page$/,0')"
+    grep -q 'command: \["dispatcher", "source"\]' <<<"$job" && ! grep -qE 'CLAUDE_CODE_OAUTH_TOKEN|CMEM_TOKEN|secretKeyRef' <<<"$job" ||
+        { echo "a watch's job is not the watch alone: it has a credential, or does not run the watch" >&2; exit 1; }
+    "${watched[@]}" --show-only templates/dispatcher.yaml | grep -F '\"class\":\"watch-page\"' >/dev/null || { echo "the chart does not schedule a watch" >&2; exit 1; }
+    if "${watched[@]}" --set-json 'agents=[{"name":"watch-page","routines":["x"]}]' >/dev/null 2>&1; then
+        echo "the chart renders an agent named as a watch's job is" >&2
+        exit 1
+    fi
+    helm template t charts/carman -f deploy/values/trial.yaml -f deploy/values/trial-triggers.yaml --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 |
+        grep -F '\"when\":{' >/dev/null || { echo "the triggers' trial values do not render their rules" >&2; exit 1; }
     helm template t charts/carman -f deploy/values/trial.yaml --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 >/dev/null ||
         { echo "the trial's values do not render" >&2; exit 1; }
     # ADR 0061: an agent's entry may name its tools, and the chart refuses
