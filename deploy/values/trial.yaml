@@ -1,0 +1,18 @@
+# A trial installation (scripts/trial.sh): the dispatcher with its own
+# Postgres and the memory service on an empty library, in a namespace where
+# the one standing it up may run workloads but not make accounts, roles or
+# network policies. No credential of the real installation, no egress proxy,
+# no model: nothing here reaches outside the namespace.
+memory:
+  service:
+    type: ClusterIP
+dispatcher:
+  service:
+    type: ClusterIP
+egress:
+  enabled: false
+usage:
+  enabled: false
+backup:
+  enabled: false
+agents: []

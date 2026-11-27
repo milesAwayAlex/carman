@@ -13,6 +13,8 @@
 #   scripts/deploy.sh CONTEXT restore --from-store [COPY]   the same, with the latest copy the nightly job kept (or the one with that id)
 #   scripts/deploy.sh CONTEXT copies         the copies the nightly job has kept
 #   scripts/deploy.sh CONTEXT copy NAME [COPY] > FILE   one of them: the latest of NAME (library, or a name under backup.also), or the one with that id
+#   scripts/deploy.sh CONTEXT secrets   make the secrets a deploy makes, and move an old dispatcher
+#                                       token secret, without deploying (for scripts/trial.sh)
 #   scripts/deploy.sh CONTEXT token ROLE | ...
 #                                       write one role's token to a pipe, for handing to a
 #                                       password manager; refuses to write it to a terminal
@@ -175,7 +177,8 @@ build_dispatcher() {
 
 # The dispatcher's owner token (ADR 0051): on this machine only, readable
 # by this user only. The cluster holds its SHA-256.
-owner_token_file=.local/dispatcher-owner.token
+# CARMAN_OWNER_TOKEN_FILE names another, for a trial installation's own.
+owner_token_file="${CARMAN_OWNER_TOKEN_FILE:-.local/dispatcher-owner.token}"
 sha256_hex() { shasum -a 256 | cut -d' ' -f1; }
 # Makes a new owner token and writes it to the file; prints its hash.
 new_owner_token() {
@@ -226,7 +229,8 @@ dispatch_client() {
         export DISPATCHER_TOKEN
         exec "$bin" "$@"
     ) || status=$?
-    [ -z "$forward" ] || { kill "$forward" 2>/dev/null; wait "$forward" 2>/dev/null; rm -f "$log"; }
+    # (wait gives the killed forward's status, which is not the command's)
+    [ -z "$forward" ] || { kill "$forward" 2>/dev/null; wait "$forward" 2>/dev/null || true; rm -f "$log"; }
     return "$status"
 }
 
@@ -465,27 +469,9 @@ warm_run() {
 # only the data.
 only_data() { printf '{"data":'; cat; printf '}'; }
 
-case "$action" in
-deploy)
-    if [ -z "${CARMAN_IMAGE:-}" ]; then
-        root="$build_root/service"
-        mkdir -p "$root"
-        rm -f "$root/cmem"
-        linux_cmem "$root"
-        cp deploy/Dockerfile "$root/Dockerfile"
-        # A new tag whenever the binary changes, so the cluster rolls it out.
-        CARMAN_IMAGE="${registry}carman-cmem:$(cat "$root"/cmem-* "$root/Dockerfile" | shasum -a 256 | cut -c1-12)"
-        docker build -q --label built-by=deploy -t "$CARMAN_IMAGE" "$root" >/dev/null
-        publish "$CARMAN_IMAGE"
-        echo "built $CARMAN_IMAGE"
-    fi
-
-    "${kube[@]}" apply -f - >/dev/null <<EOF
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: $namespace
-EOF
+# The secrets a deploy makes when they are missing: the memory's role
+# tokens, the dispatcher's, and its database's password.
+make_secrets() {
     if ! "${kube[@]}" get secret cmem-tokens >/dev/null 2>&1; then
         laptop="$(openssl rand -hex 24)" worker="$(openssl rand -hex 24)" dreamer="$(openssl rand -hex 24)"
         # Through standard input, so the tokens are never on a command line.
@@ -541,6 +527,69 @@ EOF
         openssl rand -hex 24 | tr -d '\n' | "${kube[@]}" create secret generic dispatcher-db --from-file=password=/dev/stdin >/dev/null
         echo "made the dispatcher's database password"
     fi
+}
+
+# Moves a dispatcher token secret from before ADR 0051 off the owner's
+# token; sets dispatcher_restart when it did.
+move_owner_token() {
+    # A secret from before ADR 0051 holds the owner's token. It has been on
+    # the cluster, so a new one is made here, and the secret is replaced by
+    # one with its hash and every other token as it was. Replaced, not
+    # patched: that also drops the copy an apply kept in an annotation.
+    # Done just before the apply, which restarts the dispatcher on it.
+    if cluster_has_owner_token; then
+        tokens_data() { "${kube[@]}" get secret dispatcher-tokens -o "jsonpath={.data.$1}"; }
+        kept="$(tokens_data DISPATCHER_TOKENS | base64 -d | tr ',' '\n' | { grep -v '^ *owner=' || true; } | paste -sd, -)"
+        [ -n "$kept" ] || die "the dispatcher's token secret holds no token but the owner's; not moving it"
+        agent_data="$(tokens_data agent)" backup_data="$(tokens_data backup)" host_data="$(tokens_data host)"
+        [ -n "$agent_data" ] && [ -n "$backup_data" ] && [ -n "$host_data" ] || die "the dispatcher's token secret lacks agent, backup or host; not moving it"
+        owner_sha256="$(new_owner_token)"
+        "${kube[@]}" replace -f - >/dev/null <<EOF || die "could not replace the dispatcher's token secret; it is as it was, and $owner_token_file holds a token the cluster does not know"
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dispatcher-tokens
+  namespace: $namespace
+type: Opaque
+stringData:
+  DISPATCHER_TOKENS: "$kept"
+  owner-sha256: "$owner_sha256"
+data:
+  agent: "$agent_data"
+  backup: "$backup_data"
+  host: "$host_data"
+EOF
+        dispatcher_restart=1
+        echo "moved the owner's token off the cluster: a new one is in $owner_token_file, and the cluster holds its hash (ADR 0051)"
+    elif [ -n "$(cluster_owner_hash)" ] && [ ! -s "$owner_token_file" ]; then
+        echo "deploy: the cluster holds the hash of an owner token this machine does not have ($owner_token_file); to make a new one: scripts/deploy.sh $context dispatch owner-token new" >&2
+    elif [ -s "$owner_token_file" ] && [ "$(cluster_owner_hash)" != "$(owner_token_hash)" ]; then
+        echo "deploy: the owner token in $owner_token_file is not the one the cluster knows; to make a new one: scripts/deploy.sh $context dispatch owner-token new" >&2
+    fi
+}
+
+case "$action" in
+deploy)
+    if [ -z "${CARMAN_IMAGE:-}" ]; then
+        root="$build_root/service"
+        mkdir -p "$root"
+        rm -f "$root/cmem"
+        linux_cmem "$root"
+        cp deploy/Dockerfile "$root/Dockerfile"
+        # A new tag whenever the binary changes, so the cluster rolls it out.
+        CARMAN_IMAGE="${registry}carman-cmem:$(cat "$root"/cmem-* "$root/Dockerfile" | shasum -a 256 | cut -c1-12)"
+        docker build -q --label built-by=deploy -t "$CARMAN_IMAGE" "$root" >/dev/null
+        publish "$CARMAN_IMAGE"
+        echo "built $CARMAN_IMAGE"
+    fi
+
+    "${kube[@]}" apply -f - >/dev/null <<EOF
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: $namespace
+EOF
+    make_secrets
     build_dispatcher
 
     build_agent
@@ -615,40 +664,7 @@ EOF
             echo "pointed $warm_ref at $CARMAN_AGENT_IMAGE until the warm image is made"
         fi
     fi
-    # A secret from before ADR 0051 holds the owner's token. It has been on
-    # the cluster, so a new one is made here, and the secret is replaced by
-    # one with its hash and every other token as it was. Replaced, not
-    # patched: that also drops the copy an apply kept in an annotation.
-    # Done just before the apply, which restarts the dispatcher on it.
-    if cluster_has_owner_token; then
-        tokens_data() { "${kube[@]}" get secret dispatcher-tokens -o "jsonpath={.data.$1}"; }
-        kept="$(tokens_data DISPATCHER_TOKENS | base64 -d | tr ',' '\n' | { grep -v '^ *owner=' || true; } | paste -sd, -)"
-        [ -n "$kept" ] || die "the dispatcher's token secret holds no token but the owner's; not moving it"
-        agent_data="$(tokens_data agent)" backup_data="$(tokens_data backup)" host_data="$(tokens_data host)"
-        [ -n "$agent_data" ] && [ -n "$backup_data" ] && [ -n "$host_data" ] || die "the dispatcher's token secret lacks agent, backup or host; not moving it"
-        owner_sha256="$(new_owner_token)"
-        "${kube[@]}" replace -f - >/dev/null <<EOF || die "could not replace the dispatcher's token secret; it is as it was, and $owner_token_file holds a token the cluster does not know"
-apiVersion: v1
-kind: Secret
-metadata:
-  name: dispatcher-tokens
-  namespace: $namespace
-type: Opaque
-stringData:
-  DISPATCHER_TOKENS: "$kept"
-  owner-sha256: "$owner_sha256"
-data:
-  agent: "$agent_data"
-  backup: "$backup_data"
-  host: "$host_data"
-EOF
-        dispatcher_restart=1
-        echo "moved the owner's token off the cluster: a new one is in $owner_token_file, and the cluster holds its hash (ADR 0051)"
-    elif [ -n "$(cluster_owner_hash)" ] && [ ! -s "$owner_token_file" ]; then
-        echo "deploy: the cluster holds the hash of an owner token this machine does not have ($owner_token_file); to make a new one: scripts/deploy.sh $context dispatch owner-token new" >&2
-    elif [ -s "$owner_token_file" ] && [ "$(cluster_owner_hash)" != "$(owner_token_hash)" ]; then
-        echo "deploy: the owner token in $owner_token_file is not the one the cluster knows; to make a new one: scripts/deploy.sh $context dispatch owner-token new" >&2
-    fi
+    move_owner_token
     printf '%s\n' "$rendered" | kubectl --context "$context" apply -f -   # every object names its namespace; one is not this one
     # Applying does not remove what the values no longer ask for.
     [ -n "$warm_ref" ] || "${kube[@]}" delete cronjob/agent-warm networkpolicy/warm-job-reaches-the-registry serviceaccount/agent-warm --ignore-not-found >/dev/null
@@ -744,6 +760,15 @@ env)
     else
         echo "the dispatcher has no host token or names no place yet: deploy first; .local/dispatcher.env not written" >&2
     fi
+    ;;
+secrets)
+    # What a deploy does to the secrets, and nothing else: for a trial
+    # installation (scripts/trial.sh), which applies the chart itself.
+    # The dispatcher reads them when it starts: what applies the chart after
+    # this restarts it, as a deploy does.
+    make_secrets
+    move_owner_token
+    [ "${dispatcher_restart:-0}" = 0 ] || echo "the dispatcher's secret changed; it needs a restart, after the chart is applied"
     ;;
 check)
     "${kube[@]}" exec cmem-0 -- cmem check --library /data/library
@@ -992,6 +1017,6 @@ EOF
     esac
     ;;
 *)
-    die "unknown action $action; say deploy, status, check, backup, restore, env, token, secret, agent-image, dreamer, routine, tool, agent or dispatch"
+    die "unknown action $action; say deploy, status, secrets, check, backup, restore, env, token, secret, agent-image, dreamer, routine, tool, agent or dispatch"
     ;;
 esac
