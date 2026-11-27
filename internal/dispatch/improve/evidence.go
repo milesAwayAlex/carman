@@ -24,6 +24,21 @@ var EvidenceTypes = []string{
 	"job.ended", "run.missed", "task.failed", "task.overran", "task.not-started", "schedule.missed",
 	message.TypeSent, message.TypeRefused, message.TypeUndelivered, message.TypeWaiting,
 	"usage.observed", "run.usage",
+	TypeDeployed,
+}
+
+// TypeDeployed is what a deploy records (scripts/deploy.sh, as the owner):
+// the commit of the platform now running and the subjects of the commits
+// since the one before. It is how the surveyor knows what is merged and
+// deployed: a branch named in a message is neither.
+const TypeDeployed = "installation.deployed"
+
+// Deployed is its data.
+type Deployed struct {
+	Commit   string   `json:"commit"`
+	Previous string   `json:"previous,omitempty"`
+	Commits  []string `json:"commits,omitempty"` // "abc1234 subject", newest first
+	More     int      `json:"more,omitempty"`    // commits beyond those listed
 }
 
 // Line is one event as the surveyor sees it.
@@ -167,6 +182,22 @@ func (s *Service) line(r dispatch.Record, width int) (string, bool) {
 		}
 		if j.ExitCode != nil {
 			t += fmt.Sprintf(", exit %d", *j.ExitCode)
+		}
+		return fit(t), true
+	case TypeDeployed:
+		var d Deployed
+		if json.Unmarshal(r.Data, &d) != nil {
+			return "", false
+		}
+		t := "the platform deployed is now " + cut(d.Commit, 12)
+		if d.Previous != "" {
+			t += " (before it " + cut(d.Previous, 12) + ")"
+		}
+		switch {
+		case len(d.Commits) > 0 && d.Previous != "":
+			t += fmt.Sprintf("; %d commit(s) since: ", len(d.Commits)+d.More) + strings.Join(d.Commits, "; ")
+		case len(d.Commits) > 0:
+			t += "; its latest commits: " + strings.Join(d.Commits, "; ")
 		}
 		return fit(t), true
 	case "usage.observed":

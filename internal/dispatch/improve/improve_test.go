@@ -309,9 +309,13 @@ func TestEvidenceShowsWordsOnlyOfListedSenders(t *testing.T) {
 	emit(message.TypeSent, message.Message{ID: "m2", From: "session/3", Agent: "desk", Name: "vpn", To: "session/4", Body: "a customer's name"})
 	emit("usage.observed", map[string]any{"model": "m", "rate_limit_info": map[string]any{"status": "allowed"}})
 	emit("task.done", map[string]any{})
+	emit(TypeDeployed, Deployed{Commit: "1111111111111111111111111111111111111111", Previous: "2222222222222222222222222222222222222222", Commits: []string{"abc1234 A fix", "def5678 Another"}, More: 3})
 	ev := must[Evidence](t)(s.Evidence(ctx, surveyor, -1, 0, 0))
-	if len(ev.Lines) != 3 || ev.Through != 5 || ev.More {
+	if len(ev.Lines) != 4 || ev.Through != 7 || ev.More {
 		t.Fatalf("the evidence: %+v", ev)
+	}
+	if d := ev.Lines[3].Text; !strings.Contains(d, "is now 111111111111") || !strings.Contains(d, "5 commit(s) since: abc1234 A fix; def5678 Another") {
+		t.Errorf("what was deployed: %q", d)
 	}
 	all := ev.Lines[0].Text + "\n" + ev.Lines[1].Text + "\n" + ev.Lines[2].Text
 	if !strings.Contains(all, "bad-1") || !strings.Contains(all, "the trial took two tries") {
@@ -328,7 +332,7 @@ func TestEvidenceShowsWordsOnlyOfListedSenders(t *testing.T) {
 	}
 	// The next survey starts where this one read to.
 	must[Survey](t)(s.Surveyed(ctx, surveyor, "", ev.Through, ""))
-	if ev = must[Evidence](t)(s.Evidence(ctx, surveyor, -1, 0, 0)); len(ev.Lines) != 1 || ev.After != 3 {
+	if ev = must[Evidence](t)(s.Evidence(ctx, surveyor, -1, 0, 0)); len(ev.Lines) != 2 || ev.After != 3 {
 		t.Errorf("after a survey through 3: %+v", ev)
 	}
 }

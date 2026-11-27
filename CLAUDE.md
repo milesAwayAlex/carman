@@ -173,7 +173,9 @@ Built so far:
   usage, a named addressee) and records without sending until
   `dispatcher.improvement.send`. `docs/improvements/seed.json` is what was
   known at the start; `scripts/check-improve.sh CONTEXT` tries it all in a
-  trial. No installation has a surveyor yet.
+  trial. A deploy records what it deployed (`installation.deployed`: the
+  commit and the subjects of the commits since), which is how the surveyor
+  knows what is merged.
 
 Not built yet: the way in from a laptop to a service on a shared cluster,
 more than one machine of the owner's (one place per installation), the

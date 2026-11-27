@@ -83,6 +83,7 @@ dispatcher emit TYPE [--subject S] [--id ID] [--source S] [--data JSON]
 dispatcher status [ID]
 dispatcher log [--after N] [--type T] [--limit N] [--last N]
 dispatcher dump > FILE
+git log --oneline PREVIOUS..COMMIT | dispatcher deployed COMMIT [--previous PREVIOUS]   what a deploy deployed (the owner's)
 HARNESS --output-format stream-json --verbose | dispatcher reading [--model M] [--every HOURS]
 dispatcher reading --due                  the models of USAGE_MODELS (MODEL=HOURS,...) to read this hour
 dispatcher meter                          the egress proxy's meter of model use (ADR 0050)
@@ -183,6 +184,8 @@ func run(ctx context.Context, args []string) error {
 		return logCmd(ctx, c, flags)
 	case "reading":
 		return observe(ctx, c, flags)
+	case "deployed":
+		return deployed(ctx, c, pos, flags, os.Stdin)
 	case "dump":
 		resp, err := c.Raw(ctx, http.MethodGet, "/v1/dump", nil, nil)
 		if err != nil {

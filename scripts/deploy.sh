@@ -854,6 +854,17 @@ EOF
         "${kube[@]}" create configmap deployed --from-literal="commit=$now" --from-literal="installation=$theirs" \
             --from-literal="at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" --from-literal="previous=$was" --from-literal="previous-installation=$was_theirs" \
             --dry-run=client -o json | "${kube[@]}" apply -f - >/dev/null || echo "deploy: what was deployed could not be recorded in the cluster" >&2
+        # And in the dispatcher's log (ADR 0058), with the subjects of the
+        # commits since the one before: what reads the log for what should
+        # be improved then knows what is merged and deployed, where a
+        # message only names a branch. Only for a commit with nothing
+        # changed beside it; not recording it never fails a deploy.
+        if [ "${now#* }" = "$now" ] && [ "$now" != unknown ] && [ "$was" != "$now" ] && [ -s "$owner_token_file" ] && "${kube[@]}" get deployment dispatcher >/dev/null 2>&1; then
+            range="$now"
+            ! git merge-base --is-ancestor "${was%% *}" "$now" 2>/dev/null || range="${was%% *}..$now"
+            (git log --format='%h %s' --max-count=200 "$range" | dispatch_client deployed "$now" ${was:+--previous "${was%% *}"}) ||
+                echo "deploy: what was deployed could not be recorded in the dispatcher's log" >&2
+        fi
     fi
     # Every deploy that changes a binary makes a new image tag. Where images
     # are built straight into the cluster's runtime, the old ones only fill
@@ -1182,7 +1193,7 @@ dreamer)
     ;;
 dispatch)
     case "${3:-}" in
-    status | log | submit | emit | peers | send | reply | inbox | read | message | watch | improve)
+    status | log | submit | emit | deployed | peers | send | reply | inbox | read | message | watch | improve)
         # Messages (ADR 0045) are sent and read as the owner; and the list
         # of improvements to the platform (ADR 0058).
         dispatch_client "${@:3}"
