@@ -330,7 +330,8 @@ func (c *Client) PodAlive(ctx context.Context, name, uid string) (bool, error) {
 }
 
 // Agents are the CronJobs whose pods carry the label agent: each is how a
-// new conversation of that agent starts, and how long its Job may run.
+// new conversation of that agent starts, and how long its Job may run; and
+// the interactive agents, whose standing pod (of a StatefulSet) carries it.
 // Read at most every half minute.
 type Agents struct {
 	Client *Client
@@ -373,6 +374,29 @@ func (a *Agents) Agents(ctx context.Context) (map[string]message.AgentInfo, erro
 		if name := cj.Spec.JobTemplate.Spec.Template.Metadata.Labels["agent"]; name != "" {
 			out[name] = message.AgentInfo{Name: name, Class: cj.Metadata.Name,
 				Deadline: time.Duration(cj.Spec.JobTemplate.Spec.ActiveDeadlineSeconds) * time.Second}
+		}
+	}
+	var pods struct {
+		Items []struct {
+			Metadata struct {
+				Labels map[string]string `json:"labels"`
+				Owners []struct {
+					Kind string `json:"kind"`
+				} `json:"ownerReferences"`
+			} `json:"metadata"`
+		} `json:"items"`
+	}
+	if err := a.Client.do(ctx, http.MethodGet, a.Client.path("pods")+"?labelSelector=agent", nil, &pods); err != nil {
+		return nil, err
+	}
+	for _, p := range pods.Items {
+		name := p.Metadata.Labels["agent"]
+		standing := false
+		for _, o := range p.Metadata.Owners {
+			standing = standing || o.Kind == "StatefulSet"
+		}
+		if _, ok := out[name]; name != "" && standing && !ok {
+			out[name] = message.AgentInfo{Name: name, Interactive: true}
 		}
 	}
 	a.last, a.fetched = out, time.Now()

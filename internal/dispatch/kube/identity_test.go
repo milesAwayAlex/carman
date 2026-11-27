@@ -125,6 +125,10 @@ func TestR2Identity(t *testing.T) {
 // agent is not an agent.
 func TestR2AgentsCarryTheirDeadline(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/namespaces/carman/pods" {
+			w.Write([]byte(`{"items":[]}`))
+			return
+		}
 		if r.URL.Path != "/apis/batch/v1/namespaces/carman/cronjobs" {
 			w.WriteHeader(http.StatusNotFound)
 			return
@@ -140,6 +144,36 @@ func TestR2AgentsCarryTheirDeadline(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(got) != 2 || got["review"].Class != "agent-review" || got["review"].Deadline != 2*time.Hour || got["plain"].Deadline != 0 {
+		t.Errorf("agents: %+v", got)
+	}
+}
+
+// TestR2AgentsStandingPodIsInteractive: an interactive agent, which has
+// no CronJob, is defined by its standing pod, a StatefulSet's that carries
+// the label agent; a Job's pod defines no agent.
+func TestR2AgentsStandingPodIsInteractive(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/apis/batch/v1/namespaces/carman/cronjobs":
+			w.Write([]byte(`{"items":[{"metadata":{"name":"agent-review"},"spec":{"jobTemplate":{"spec":{"template":{"metadata":{"labels":{"agent":"review"}}}}}}}]}`))
+		case "/api/v1/namespaces/carman/pods":
+			if r.URL.Query().Get("labelSelector") != "agent" {
+				t.Errorf("pods listed with %q", r.URL.RawQuery)
+			}
+			w.Write([]byte(`{"items":[
+				{"metadata":{"labels":{"agent":"desk"},"ownerReferences":[{"kind":"StatefulSet"}]}},
+				{"metadata":{"labels":{"agent":"review"},"ownerReferences":[{"kind":"Job"}]}},
+				{"metadata":{"labels":{"agent":"once"},"ownerReferences":[{"kind":"Job"}]}}]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	got, err := (&Agents{Client: &Client{Base: srv.URL, Namespace: "carman", HTTP: srv.Client()}}).Agents(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || !got["desk"].Interactive || got["desk"].Class != "" || got["review"].Class != "agent-review" {
 		t.Errorf("agents: %+v", got)
 	}
 }
