@@ -181,6 +181,17 @@ handed a session whose harness the watcher then finds gone, with no word
 from the session in between, is recorded as not delivered and delivered
 once more, marked as a second time: at least once, never silently lost.
 
+The plan's usage limit is said to whoever waits (ADR
+new-a-limit-is-an-outcome, proposed). A run started for a message that
+fails with the limit's words is recorded as `message.limited`, and its
+sender is told the work was not done and when the limit resets; the
+dispatcher sends the message again once after the reset when the sender
+asked (`--again-after-limit`) or `dispatcher.messages.againAfterLimit`
+says so. The watcher reads each running session's transcript, and a last
+entry that is the harness's stop at the limit is told
+(`/v1/attend/limited`) to the senders of what the session took and has
+not answered, and to whoever watches it, once for each stop.
+
 ### A trial's agents and the model (ADR 0065, proposed)
 
 A trial installation's agents (ADR 0054) reach the model at a second

@@ -366,7 +366,7 @@ func shellQuote(word string) string {
 // the model, and the next model up the ladder would hit the same wall: the
 // thing to do is wait.
 var (
-	usageLimit = regexp.MustCompile(`(?i)(hit|reached) your [a-z ]*limit|usage limit|spend limit`)
+	usageLimit = regexp.MustCompile(`(?i)(hit|reached) your [a-z0-9 -]*limit|usage limit|spend limit`)
 	limitReset = regexp.MustCompile(`(?i)resets\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*\(UTC\)`)
 )
 

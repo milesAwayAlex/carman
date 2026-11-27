@@ -100,7 +100,9 @@ on the owner's machine (ADR 0049) with DISPATCHER_URL, DISPATCHER_TOKEN (the
 host role's) and DISPATCHER_PLACE:
 dispatcher peers [--since 168h] [--all]   who is worth writing to: running sessions, and of the rest the latest of each
                                           AGENT/NAME or one a message was exchanged with; --all: every session seen
-dispatcher send TO 'TEXT' [--answers ID]  TO: owner, an agent's name, AGENT/SESSION-NAME or session/ID; TEXT - reads stdin
+dispatcher send TO 'TEXT' [--answers ID] [--again-after-limit]
+                                          TO: owner, an agent's name, AGENT/SESSION-NAME or session/ID; TEXT - reads stdin;
+                                          --again-after-limit: if its run stops at the plan's usage limit, sent again once after the reset
 dispatcher reply ID 'TEXT'                answer a message, to whoever sent it
 dispatcher inbox [--read]                 what is unread for me; --read marks it read
 dispatcher read ID...                     mark messages read
@@ -234,7 +236,7 @@ func parse(args []string) ([]string, map[string][]string, error) {
 			flags[n] = append(flags[n], v)
 			continue
 		}
-		if name == "read" || name == "all" || name == "once" || name == "body" || name == "from" || name == "print" { // a switch, not a flag with a value
+		if name == "read" || name == "all" || name == "once" || name == "body" || name == "from" || name == "print" || name == "again-after-limit" || name == "failed" { // a switch, not a flag with a value
 			flags[name] = append(flags[name], "yes")
 			continue
 		}
@@ -662,7 +664,7 @@ func serve(ctx context.Context) error {
 	if cluster.Client != nil {
 		messages = &message.Service{Store: d, Cluster: cluster, Context: contextName, Namespace: namespace,
 			Priority: 50, Timeout: 30 * time.Minute, Retention: messagesKept, Writers: writers, Place: os.Getenv("DISPATCHER_PLACE"), Log: logger,
-			RunsPerSender: runsPerSender, RunsPeriod: runsPeriod}
+			RunsPerSender: runsPerSender, RunsPeriod: runsPeriod, AgainAfterLimit: os.Getenv("DISPATCHER_MESSAGE_AGAIN_AFTER_LIMIT") == "true"}
 		go (&message.Router{Service: messages, Logger: logger}).Run(work)
 	}
 

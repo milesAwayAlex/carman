@@ -279,3 +279,33 @@ func TestR2AttendNotRemembered(t *testing.T) {
 		t.Errorf("the senders are told: %s", keys)
 	}
 }
+
+// TestR2AttendLimitStop: the watcher knows a session that stopped at the
+// plan's usage limit by its transcript's last entry, the harness's own for
+// an error from the model, with the limit's words (a stand-in here, as a
+// harness writes them); not a session that went on, nor another error.
+func TestR2AttendLimitStop(t *testing.T) {
+	dir := t.TempDir()
+	stop := `{"type":"assistant","uuid":"u-stop","isApiErrorMessage":true,"message":{"model":"<synthetic>","content":[{"type":"text","text":"You've hit your 5-hour limit · resets 10:40am (UTC)"}]}}`
+	other := `{"type":"assistant","uuid":"u-402","isApiErrorMessage":true,"message":{"model":"<synthetic>","content":[{"type":"text","text":"API Error: 402 the egress proxy says no"}]}}`
+	said := `{"type":"assistant","uuid":"u-1","message":{"model":"claude-opus-5-5","content":[{"type":"text","text":"working"}]}}`
+	user := `{"type":"user","uuid":"u-2","message":{"content":[{"type":"text","text":"go on"}]}}`
+	system := `{"type":"system","uuid":"u-3","content":"a hook said something"}`
+	for name, c := range map[string]struct {
+		lines []string
+		key   string
+	}{
+		"stopped":         {[]string{said, stop}, "u-stop"},
+		"stopped, a hook": {[]string{said, stop, system}, "u-stop"},
+		"went on":         {[]string{said, stop, user}, ""},
+		"another error":   {[]string{said, other}, ""},
+		"working":         {[]string{user, said}, ""},
+	} {
+		f := filepath.Join(dir, strings.ReplaceAll(name, " ", "-")+".jsonl")
+		os.WriteFile(f, []byte(strings.Join(c.lines, "\n")+"\n"), 0o600)
+		key, words, ok := limitStop(f)
+		if key != c.key || ok != (c.key != "") || (ok && !strings.Contains(words, "resets 10:40am")) {
+			t.Errorf("%s: limitStop = %q, %q, %v; want key %q", name, key, words, ok, c.key)
+		}
+	}
+}

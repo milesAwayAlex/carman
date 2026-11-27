@@ -74,6 +74,11 @@ dispatcher:
     # -1: no limit.
     runsPerSender: 24
     runsPeriod: 3h
+    # A run started for a message that stops at the plan's usage limit:
+    # the sender is told so and when it resets (ADR new-a-limit-is-an-outcome),
+    # and with this every such message is sent again once after the reset,
+    # as a sender asks for its own with `dispatcher send --again-after-limit`.
+    againAfterLimit: false
   # Schedules the dispatcher keeps (ADR 0043), beside the agents with
   # `dispatched: true` and the usage reading. Each runs the job template of
   # the CronJob its class names, which must be suspended: the dispatcher

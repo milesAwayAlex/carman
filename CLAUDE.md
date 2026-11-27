@@ -154,7 +154,10 @@ Built so far:
   in its pod says when a session's harness process has gone (recorded by
   its `SessionStart` hook), and opens again with `agent-open --reopen` a
   remembered session a message waits for, with a backoff, telling the
-  sender why when it does not.
+  sender why when it does not. A session stopped at the plan's usage
+  limit, and a run for a message that did, are told to whoever waits on
+  them, the message sent again once after the reset if asked
+  (`--again-after-limit`; ADR new-a-limit-is-an-outcome).
 - `carman go` (ADR 0057, proposed): `cmd/carman`, the owner's way to a
   session from any directory. It lists the dispatcher's sessions, those
   waiting on him first, and goes to one: `kubectl exec` into a standing
