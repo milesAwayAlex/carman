@@ -159,6 +159,19 @@ Built so far:
   and `scripts/deploy.sh CONTEXT dispatch ...` runs the client on the
   owner's machine with it (`dispatch owner-token new|back`).
 
+- The improvement loop (ADR 0058, proposed): the list of what should be
+  improved in the platform is events in the dispatcher's log
+  (`dispatcher improve`, the owner: `scripts/deploy.sh CONTEXT dispatch
+  improve`); only the owner agrees or declines. A surveyor, an agent with
+  the routine `routines/improve.md`, reads the evidence the log holds
+  (`improve evidence`: a message's words only from senders the
+  installation lists), adds to the list, and asks for a brief, which the
+  dispatcher lets through by rule (agreed, a budget for the day, room in
+  usage, a named addressee) and records without sending until
+  `dispatcher.improvement.send`. `docs/improvements/seed.json` is what was
+  known at the start; `scripts/check-improve.sh CONTEXT` tries it all in a
+  trial. No installation has a surveyor yet.
+
 Not built yet: the way in from a laptop to a service on a shared cluster,
 more than one machine of the owner's (one place per installation), the
 watcher of ADR 0053 on the owner's machine,

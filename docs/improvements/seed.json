@@ -1,0 +1,304 @@
+[
+  {
+    "id": "way-in-on-a-shared-cluster",
+    "title": "A laptop reaches the memory service and the dispatcher on a shared cluster",
+    "why": "On a shared, managed cluster there is no load balancer the owner's machine can use, so sessions there have neither memory nor messages.",
+    "takes": "Decide the way in (the cluster's own ingress with its identity, or a tunnel), then make the chart and the laptop's settings take it. Needs a shared cluster to try on.",
+    "evidence": [
+      "CLAUDE.md, \"Not built yet\": \"the way in from a laptop to a service on a shared cluster\"",
+      "ADR 0049, What would make us look again: \"A shared cluster with no load balancer the machine can reach: the way in from a laptop to a service on a shared cluster is not built for the memory either.\""
+    ],
+    "kind": "gap",
+    "size": "large"
+  },
+  {
+    "id": "more-than-one-owner-machine",
+    "title": "Each machine of the owner's is a place of its own",
+    "why": "A second machine would share the first one's place, token and session names, and needs copies of the owner's token and of the dispatcher's settings by hand.",
+    "takes": "A place and a host token per machine in the values and the secret; the deploy script writes each machine's settings.",
+    "evidence": [
+      "CLAUDE.md, \"Not built yet\": \"more than one machine of the owner's (one place per installation)\"",
+      "ADR 0049, Consequences: \"One place per installation. A second machine would share the place and its token, and its sessions' names with it.\"",
+      "ADR 0051, Consequences: \"A second machine of the owner's needs a copy of the file\""
+    ],
+    "kind": "gap",
+    "size": "medium"
+  },
+  {
+    "id": "watcher-on-the-owners-machine",
+    "title": "A session on the owner's machine whose harness died is known to be gone, and opened again for a message",
+    "why": "A session closed without its end hook looks running for up to a day, and a message for it waits for the next session of its name with nobody told.",
+    "takes": "Run `dispatcher attend` on the machine with the place's token; opening a session again needs a terminal the person will look at, which the machine's configuration provides.",
+    "evidence": [
+      "CLAUDE.md, \"Not built yet\": \"the watcher of ADR 0053 on the owner's machine\"",
+      "ADR 0053, The owner's machine (not built)",
+      "ADR 0049, Consequences: \"A session on the machine that the owner closes without SessionEnd (a killed terminal) looks running for up to a day\""
+    ],
+    "kind": "gap",
+    "size": "medium"
+  },
+  {
+    "id": "task-stream-benchmark",
+    "title": "The task-stream benchmark says whether memory is useful (M7)",
+    "why": "M7 is the requirement the memory exists for, and it is checked only in its smallest form, by the transfer benchmark.",
+    "takes": "A fixed sequence of tasks, a fresh session each, only memory carried over, graded by scripts; arms as DESIGN section 7 lists them.",
+    "evidence": [
+      "CLAUDE.md, \"Not built yet\": \"the task-stream benchmark (M7)\"",
+      "DESIGN.md section 7: \"Task stream (not built)\""
+    ],
+    "kind": "gap",
+    "size": "large"
+  },
+  {
+    "id": "second-harness",
+    "title": "A second harness completes the benchmark with only the CLI (M8)",
+    "why": "M8 says memory is modular; nothing but Claude Code has used it.",
+    "takes": "Run the carman arm of the benchmark on another harness that has a shell.",
+    "evidence": [
+      "CLAUDE.md, \"Not built yet\": \"a second harness (M8)\""
+    ],
+    "kind": "gap",
+    "size": "large"
+  },
+  {
+    "id": "triggers-other-than-a-schedule",
+    "title": "An agent's work is started by a webhook or a ticket, not only by the clock or a message",
+    "why": "R2 asks for triggers that are many to many; today work starts on a schedule, by hand, or by a message.",
+    "takes": "An endpoint of the dispatcher that turns a signed request into an event, and a rule from events to tasks. A design first: what authenticates a caller from outside.",
+    "evidence": [
+      "CLAUDE.md, \"Not built yet\": \"for agents that do work outside memory: triggers other than a schedule\"",
+      "REQUIREMENTS.md R2: \"A task can be started by a webhook and by a schedule\""
+    ],
+    "kind": "gap",
+    "size": "large"
+  },
+  {
+    "id": "answer-where-it-arrives",
+    "title": "The owner answers an agent's message where the notice arrives",
+    "why": "A notice is one-way: to answer, the owner goes to a machine that reaches the cluster and runs `dispatch reply`, so answers come late or not at all.",
+    "takes": "The installation's notice channel carries a reply back as a message that answers the one the notice was about; what proves the reply is the owner's has to be decided.",
+    "evidence": [
+      "CLAUDE.md, \"Not built yet\": \"a way for the owner to answer an agent's message where it arrives (today: dispatch reply from the laptop)\"",
+      "ADR 0036, Decision: \"A reply in the chat does not reach the agent. Not built.\""
+    ],
+    "kind": "gap",
+    "size": "medium"
+  },
+  {
+    "id": "scheduled-agents-onto-the-dispatcher",
+    "title": "Every scheduled agent is started by the dispatcher",
+    "why": "Agents still started by the cluster's own schedules are not held by admission, so pacing cannot place their work; their missed runs are only noticed after the fact.",
+    "takes": "One agent at a time: `dispatched: true` on its entry, a run watched through, then the next. No code is expected, only what the first moves show is missing.",
+    "evidence": [
+      "CLAUDE.md, \"Not built yet\": \"The scheduled agents are not yet moved onto the dispatcher\"",
+      "ADR 0043, Consequences: \"it acts only on tasks the dispatcher starts: the scheduled agents still on CronJobs are not held\""
+    ],
+    "kind": "gap",
+    "size": "small"
+  },
+  {
+    "id": "pacing-by-a-curve-to-reset",
+    "title": "Backlog work is paced by a curve that reaches full at the window's reset",
+    "why": "R7: unused capacity at reset should stay under a target, and a fixed threshold either starves backlog work or lets it eat the owner's headroom.",
+    "takes": "Replace the threshold in admission by expected use at reset; emit an event saying how much of which window is expected to go unused, which the improvement loop's gate then reads in place of its own rule.",
+    "evidence": [
+      "CLAUDE.md, \"Not built yet\": \"pacing is a threshold, not yet a curve to the window's reset\"",
+      "ADR 0058: the gate's rule for room in usage is a stand-in until this exists"
+    ],
+    "kind": "gap",
+    "size": "medium"
+  },
+  {
+    "id": "dreamer-cannot-message",
+    "title": "The dreamer can be written to and can write, as agents can",
+    "why": "The dreamer's questions for the owner go through a notice and a resumed conversation; it has no token for the dispatcher and no label a message could start it by.",
+    "takes": "Give the dreamer's pod the projected token and the label, and decide what a restricted routine may do with messages.",
+    "evidence": [
+      "ADR 0045, Consequences: \"The dreamer's pod has neither yet: it can neither message nor be messaged.\""
+    ],
+    "kind": "gap",
+    "size": "medium"
+  },
+  {
+    "id": "no-limit-on-messages-sent",
+    "title": "Something limits how many runs a session can start by writing messages",
+    "why": "A message to an agent by name, or to a session that is not running, costs a run of that agent's model; a confused session can start many.",
+    "takes": "A count per sender and day in the dispatcher's send, with a refusal that says so; the number in the values.",
+    "evidence": [
+      "ADR 0045, Consequences: \"Nothing limits how many messages a session sends but the running limit.\""
+    ],
+    "kind": "cost",
+    "size": "small"
+  },
+  {
+    "id": "requirement-for-messaging",
+    "title": "REQUIREMENTS.md has a requirement for messages between sessions, agents and the owner",
+    "why": "Messaging is built and tested against R2 only; the owner asked that it be no worse than the harness's own, and nothing states that as a check.",
+    "takes": "The owner adds the wording ADR 0045 proposes (R11), or other wording; the tests then name it. Only the owner edits that file.",
+    "evidence": [
+      "ADR 0045, Consequences: \"Proposed wording for the owner to add, if wanted: R11 | Sessions, agents and the owner can write to each other | A message reaches its addressee whether its session is busy, idle or not running, once; the sender can see what became of it.\""
+    ],
+    "kind": "gap",
+    "size": "small"
+  },
+  {
+    "id": "requirement-for-approval-gates",
+    "title": "R9, human approval gates, is written",
+    "why": "R9 has been open since the first version, 'to be written after observing unattended runs'. The improvement loop is the first thing that starts work by itself and has a gate; ADR 0058 proposes wording from it.",
+    "takes": "The owner writes R9, from ADR 0058's proposal or otherwise.",
+    "evidence": [
+      "REQUIREMENTS.md R9: \"Open. To be written after observing unattended runs\"",
+      "ADR 0058, Proposed wording for R9"
+    ],
+    "kind": "gap",
+    "size": "small"
+  },
+  {
+    "id": "notice-content-is-not-checked",
+    "title": "A notice that carries an identifier or a secret-shaped string is caught before it is sent",
+    "why": "The notice channel is not private; what goes into a notice is the agent's judgement and nothing checks it. The memory service already refuses credential-shaped strings.",
+    "takes": "Run the memory's secret check over a notice's words in `notify-owner`'s caller or in the dispatcher's notice task, and withhold with a reason on a hit.",
+    "evidence": [
+      "ADR 0048, Consequences: \"What is personal or an identifier is the agent's judgement, for what it writes itself; nothing checks it.\""
+    ],
+    "kind": "gap",
+    "size": "small"
+  },
+  {
+    "id": "budget-enforced-at-the-proxy",
+    "title": "The proxy refuses model calls of an agent that is over its budget",
+    "why": "A run's budget is the harness's own stop; the proxy's meter counts what each agent used and enforces nothing.",
+    "takes": "A budget per agent and period in the values, read by the meter; a refusal the harness shows as a limit. An event per request, if a budget needs it.",
+    "evidence": [
+      "ADR 0050, Consequences: \"Not built: a budget the proxy enforces, and an event for each request.\""
+    ],
+    "kind": "gap",
+    "size": "medium"
+  },
+  {
+    "id": "usage-read-from-answers-headers",
+    "title": "The account's usage is read from the model's answers as they pass the proxy",
+    "why": "The hourly reading costs a call per model and is up to six hours old for most models, while every answer the proxy passes carries the windows.",
+    "takes": "The meter records the rate-limit headers of answers as `usage.observed`; the hourly reading stays for hours with no traffic.",
+    "evidence": [
+      "ADR 0050, Consequences: \"The hourly reading could be read from the answers' headers instead; not done.\"",
+      "ADR 0052, Consequences: \"A model read every six hours can be refused for up to six hours before the status says so\""
+    ],
+    "kind": "gap",
+    "size": "medium"
+  },
+  {
+    "id": "model-credential-switch-removed",
+    "title": "The model's credential is only at the proxy, and the switch that puts it back in pods is gone",
+    "why": "`pod` and `both` keep a path on which every agent pod holds the credential; ADR 0050 says when they can go.",
+    "takes": "After a month through the meter with no request failed by it and no unexplained disagreement: remove the two modes and mount the credential only in the meter.",
+    "evidence": [
+      "ADR 0050, \"When the switch can go\""
+    ],
+    "kind": "gap",
+    "size": "small"
+  },
+  {
+    "id": "refusal-shapes-checked-against-a-real-one",
+    "title": "The shapes of a usage refusal are checked against a real refusal",
+    "why": "The reading's parsing of a refused call was written from the harness's schema and tested on made-up lines; if it is wrong, admission holds or admits on a misreading.",
+    "takes": "At the first real refusal, compare the recorded event with the parser's expectations and add it to the tests.",
+    "evidence": [
+      "ADR 0052, Consequences: \"the first real refusal should be checked against them\""
+    ],
+    "kind": "fault",
+    "size": "small"
+  },
+  {
+    "id": "admission-reads-a-routines-own-ladder",
+    "title": "Admission knows the model a routine will really start with",
+    "why": "A dreamer routine with a ladder of its own is admitted or held by the default ladder's first model, which may not be the one it runs.",
+    "takes": "Read the routine's own ladder from the job template's environment where the task names its routine.",
+    "evidence": [
+      "ADR 0052, Consequences: \"a dreamer routine's own ladder (CMEM_ROUTINE_MODELS_NAME) is not read, only the default one\""
+    ],
+    "kind": "fault",
+    "size": "small"
+  },
+  {
+    "id": "trial-agent-reaches-the-model",
+    "title": "An agent in a trial installation can reach the model",
+    "why": "A change to a routine or to how agents run cannot be tried end to end in a trial; the improvement loop's own routine was tried from a session's pod instead.",
+    "takes": "The installation's proxy takes callers from the sandbox and names them `trial` in its record, behind a value (ADR 0054 prefers this to a credential in the sandbox).",
+    "evidence": [
+      "ADR 0054, Not in the first version: \"A trial agent that reaches the model.\"",
+      "ADR 0058, What was tried: the routine could not run as an agent of the trial"
+    ],
+    "kind": "gap",
+    "size": "medium"
+  },
+  {
+    "id": "trial-agents-message-each-other",
+    "title": "Two agents of a trial write to each other",
+    "why": "Messaging between agents is tried in a trial only with pods made by hand for the purpose.",
+    "takes": "Agent definitions in the trial's values and pods with the projected token; no model is needed to send and read.",
+    "evidence": [
+      "ADR 0054, Not in the first version: \"Messages between two trial agents.\"",
+      "ADR 0058: scripts/check-improve.sh makes stand-in pods by hand for this reason"
+    ],
+    "kind": "gap",
+    "size": "small"
+  },
+  {
+    "id": "two-trials-in-one-sandbox",
+    "title": "Two sessions can each have a trial at the same time",
+    "why": "A trial keeps the chart's names, so a namespace holds one; a second session waits for the first to take its trial down, and nothing tells it when.",
+    "takes": "Either a name prefix the deploy script and chart both take, or a sandbox namespace per session; ADR 0054 chose the chart's names so that the scripts are tried as they are.",
+    "evidence": [
+      "ADR 0054, Decision: \"One trial at a time in one namespace.\"",
+      "2026-11-27, building ADR 0058: `trial.sh up` refused because another session's trial was in the sandbox, and waited"
+    ],
+    "kind": "friction",
+    "size": "medium"
+  },
+  {
+    "id": "trial-images-stay-in-the-registry",
+    "title": "The registry lets go of the images of trials that are over",
+    "why": "Every `trial.sh up` of a changed checkout leaves two images that nothing removes.",
+    "takes": "A retention on the registry by name pattern, or a clean-up job of the installation's: nothing in the sandbox may delete from it.",
+    "evidence": [
+      "ADR 0054, Consequences: \"The registry keeps the trial's images after down: nothing in the sandbox may delete from it.\""
+    ],
+    "kind": "cost",
+    "size": "small"
+  },
+  {
+    "id": "restricted-agent-with-named-commands",
+    "title": "An agent can be limited to named commands, as the dreamer is",
+    "why": "The surveyor of the improvement loop needs one command (`dispatcher improve`) and runs with every tool, because only the dreamer takes command prefixes from the chart and the test for a prefix admits only verbs that read.",
+    "takes": "Let an agent's entry name command prefixes, and decide what test replaces 'plainly a read' for a command that writes on purpose.",
+    "evidence": [
+      "ADR 0046, Consequences: \"Only the dreamer takes them from the chart.\"",
+      "ADR 0058, Consequences: the surveyor runs with tools: all"
+    ],
+    "kind": "gap",
+    "size": "medium"
+  },
+  {
+    "id": "survey-reads-the-dreamers-report",
+    "title": "The surveyor reads what the dreamer could not check",
+    "why": "The dreamer's nightly report lists what it could not check or had to ask; it is in the run's kept conversation and its log, not in the dispatcher's log, so the improvement loop does not see it.",
+    "takes": "The routine runner records a routine's last words as an event (`run.report`), and the evidence includes it under the same rule as messages.",
+    "evidence": [
+      "ADR 0058, Not in the first version"
+    ],
+    "kind": "gap",
+    "size": "small"
+  },
+  {
+    "id": "go-builds-in-the-agent-pod",
+    "title": "A plain go build works in an agent's pod",
+    "why": "The agent image has no C compiler, so `go build` and `go vet` fail until CGO_ENABLED=0 is set; scripts/test.sh sets it, a session's own first build does not, and each new session finds this out again.",
+    "takes": "Set CGO_ENABLED=0 in the agent image's environment.",
+    "evidence": [
+      "2026-11-27, building ADR 0058 in a platform session's pod: `go build ./...` ended with: cgo: C compiler \"gcc\" not found: exec: \"gcc\": executable file not found in $PATH"
+    ],
+    "kind": "friction",
+    "size": "small"
+  }
+]

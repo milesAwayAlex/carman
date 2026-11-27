@@ -56,6 +56,8 @@
 #   scripts/deploy.sh CONTEXT dispatch peers|send|reply|inbox|read|message|watch ...   messages,
 #                                       as the owner (ADR 0045): who can be written to, a message
 #                                       to a session, an agent or the owner, the owner's inbox
+#   scripts/deploy.sh CONTEXT dispatch improve [list|show ID|agree ID|decline ID 'WHY'|note ...]
+#                                        the list of what should be improved in the platform (ADR 0058)
 #   scripts/deploy.sh CONTEXT dispatch dump > FILE      its database, as SQL
 #   scripts/deploy.sh CONTEXT dispatch restore FILE     put a dump in place of its database, which is kept aside
 #   scripts/deploy.sh CONTEXT dispatch owner-token new  make a new owner token, here, and give the cluster its hash
@@ -1167,8 +1169,9 @@ dreamer)
     ;;
 dispatch)
     case "${3:-}" in
-    status | log | submit | peers | send | reply | inbox | read | message | watch)
-        # Messages (ADR 0045) are sent and read as the owner.
+    status | log | submit | emit | peers | send | reply | inbox | read | message | watch | improve)
+        # Messages (ADR 0045) are sent and read as the owner; and the list
+        # of improvements to the platform (ADR 0058).
         dispatch_client "${@:3}"
         ;;
     dump)
@@ -1230,7 +1233,7 @@ EOF
         *) die "say: dispatch owner-token new, or dispatch owner-token back" ;;
         esac
         ;;
-    *) die "say: dispatch status [ID], dispatch log, dispatch submit CLASS [ID], dispatch dump > FILE, dispatch restore FILE, dispatch owner-token new|back, or for messages: dispatch peers, send TO 'TEXT', reply ID 'TEXT', inbox [--read], read ID, message ID, watch SESSION" ;;
+    *) die "say: dispatch status [ID], dispatch log, dispatch submit CLASS [ID], dispatch emit TYPE, dispatch dump > FILE, dispatch restore FILE, dispatch owner-token new|back, or for messages: dispatch peers, send TO 'TEXT', reply ID 'TEXT', inbox [--read], read ID, message ID, watch SESSION; for the list of improvements: dispatch improve [list|show ID|agree ID|decline ID 'WHY'|...]" ;;
     esac
     ;;
 *)

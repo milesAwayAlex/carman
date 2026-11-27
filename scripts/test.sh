@@ -93,6 +93,15 @@ if command -v helm >/dev/null; then
         { echo "an agent is given the installation's definition without being asked to" >&2; exit 1; }
     "${agents[@]}" --set-json 'agents=[{"name":"a","interactive":true,"definition":true}]' | grep -F 'mountPath: /etc/installation' >/dev/null ||
         { echo "an agent with definition: true does not get the installation's definition" >&2; exit 1; }
+    # The improvement loop (ADR 0058): with nothing said it sends nothing and
+    # tells nobody, and its surveyor is an agent of the installation.
+    "${render[@]}" | grep -F 'name: DISPATCHER_IMPROVEMENT' -A1 | grep -F '\"send\":false' | grep -F '\"notify\":false' | grep -F '\"surveyor\":\"\"' >/dev/null ||
+        { echo "the chart does not hand the dispatcher an improvement loop that is off" >&2; exit 1; }
+    if "${render[@]}" --set dispatcher.improvement.surveyor=nobody >/dev/null 2>&1 || "${render[@]}" --set dispatcher.improvement.send=true >/dev/null 2>&1 ||
+        "${render[@]}" --set dispatcher.improvement.usage.rule=room >/dev/null 2>&1 || ! "${render[@]}" --set dispatcher.improvement.usage.rule=room --set dispatcher.pace.room=true >/dev/null 2>&1; then
+        echo "the chart renders an improvement loop whose surveyor is no agent, or that sends with none, or that waits for room pacing does not record" >&2
+        exit 1
+    fi
     helm template t charts/carman -f deploy/values/trial.yaml --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 >/dev/null ||
         { echo "the trial's values do not render" >&2; exit 1; }
 else

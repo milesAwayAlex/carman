@@ -1,0 +1,20 @@
+# On top of the trial's values (TRIAL_VALUES, scripts/trial.sh): the
+# improvement loop (ADR 0058) as scripts/check-improve.sh tries it. The
+# surveyor and an agent of the list are agents here so that the chart takes
+# their names; their jobs are never started (no model reaches a trial), and
+# the check stands a pod in for each.
+agents:
+  - name: watch
+    routines: [improve]
+  - name: platform
+    routines: [improve]
+dispatcher:
+  improvement:
+    agents: [platform]
+    surveyor: watch
+    messagesOf: [platform]
+    to: [agent/builder]
+    briefsPerDay: 1
+    usage:
+      below: 0.5
+      maxAge: 2h

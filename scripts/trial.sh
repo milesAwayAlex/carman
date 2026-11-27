@@ -19,6 +19,9 @@
 # pod `definition-reader` that has it as an agent given it does (ADR 0056);
 # `deploy definition apply ID` applies a proposal to DIR.
 #
+# TRIAL_VALUES=FILE: values on top of the trial's own (deploy/values/trial.yaml),
+# for a trial of something they leave off.
+#
 # The namespace is the context's own unless TRIAL_NAMESPACE names one.
 # Everything made carries the label trial=TRIAL_NAME (trial unless set), and
 # `down` deletes only what carries it. The chart's names are kept, so that a
@@ -85,7 +88,7 @@ build_image() {  # NAME CMD DOCKERFILE
 # what only the installation may make, every pod as the trial's account,
 # every object and pod labelled, and each selector narrowed to the label.
 render() {
-    helm template "$name" "$src/charts/carman" --namespace "$namespace" -f deploy/values/trial.yaml \
+    helm template "$name" "$src/charts/carman" --namespace "$namespace" -f deploy/values/trial.yaml ${TRIAL_VALUES:+-f "$TRIAL_VALUES"} \
         --set "memory.image=$memory_image" --set "dispatcher.image=$dispatcher_image" --set "agent.image=$dispatcher_image" |
         kubectl --context "$context" create --dry-run=client -o json -f - |
         TRIAL_REFUSED="$refused" TRIAL_LABEL="$name" TRIAL_ACCOUNT="$account" TRIAL_IMAGE="$dispatcher_image" python3 -c '

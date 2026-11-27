@@ -150,3 +150,27 @@ A name there that is not an agent of the installation fails the render. */ -}}
 {{- end }}
 {{- toJson $out }}
 {{- end -}}
+
+{{- /* The improvement loop's settings (ADR 0058), as JSON. The surveyor and
+the agents of the list are agents of the installation. */ -}}
+{{- define "dispatcher.improvement" -}}
+{{- $names := list }}
+{{- range .Values.agents }}{{ $names = append $names .name }}{{ end }}
+{{- with .Values.dispatcher.improvement }}
+{{- range (.agents | default list) }}
+{{- if not (has . $names) }}
+{{- fail (printf "dispatcher.improvement.agents names %q, which is not an agent here (the agents are %s)" . (join ", " $names)) }}
+{{- end }}
+{{- end }}
+{{- if and .surveyor (not (has .surveyor $names)) }}
+{{- fail (printf "dispatcher.improvement.surveyor is %q, which is not an agent here (the agents are %s)" .surveyor (join ", " $names)) }}
+{{- end }}
+{{- if and (eq (.usage.rule | default "below") "room") (not $.Values.dispatcher.pace.room) }}
+{{- fail "dispatcher.improvement.usage.rule: room needs dispatcher.pace.room, which records the room pacing expects (ADR 0060)" }}
+{{- end }}
+{{- if and (or .send .notify) (not .surveyor) }}
+{{- fail "dispatcher.improvement: send and notify need a surveyor" }}
+{{- end }}
+{{- toJson . }}
+{{- end }}
+{{- end }}

@@ -385,6 +385,21 @@ type Result struct {
 
 // Send sends a message as the caller, from the session it names (if any).
 func (s *Service) Send(ctx context.Context, c Caller, session, given, body, answers string) (Result, error) {
+	return s.send(ctx, c, session, given, body, answers, false)
+}
+
+// SendVouched sends a message as the caller to an addressee the dispatcher
+// itself vouches for: a brief that passed the improvement loop's gate, or
+// its one line for the owner (ADR 0058). The lists of who may write to an
+// agent (ADR 0047) are not asked; every other rule of Send holds.
+func (s *Service) SendVouched(ctx context.Context, c Caller, session, to, body string) (Result, error) {
+	return s.send(ctx, c, session, to, body, "", true)
+}
+
+// NewID is an id for something in the log: when, and six random bytes.
+func NewID() string { return newID() }
+
+func (s *Service) send(ctx context.Context, c Caller, session, given, body, answers string, vouched bool) (Result, error) {
 	if strings.TrimSpace(body) == "" {
 		return Result{}, fmt.Errorf("%w: a message needs a body", ErrInvalid)
 	}
@@ -437,7 +452,7 @@ func (s *Service) Send(ctx context.Context, c Caller, session, given, body, answ
 		}
 		return s.refuse(ctx, m, err.Error())
 	}
-	if !c.Owner {
+	if !c.Owner && !vouched {
 		target, err := s.targetAgent(ctx, to)
 		if err != nil {
 			return Result{}, err

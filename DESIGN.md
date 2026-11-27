@@ -173,6 +173,31 @@ handed a session whose harness the watcher then finds gone, with no word
 from the session in between, is recorded as not delivered and delivered
 once more, marked as a second time: at least once, never silently lost.
 
+### The improvement loop (ADR 0058, proposed)
+
+The platform keeps a list of what should be improved in itself, in the
+dispatcher's log: an item is `improvement.noted` and the
+`improvement.changed` and `improvement.briefed` events after it, folded
+into its present state (noticed, agreed, building, done, declined), and
+kept as long as the log is. The owner and the owner's machine read and
+write it (`scripts/deploy.sh CONTEXT dispatch improve`, `dispatcher
+improve`), and the agents the installation names; only the owner agrees
+or declines. One agent, the surveyor, runs the routine `improve` on a
+schedule: it reads the evidence since the last survey through one call
+of the dispatcher (failed and missed runs, refusals, each run's cost,
+and messages, with their words only from the senders the installation
+lists), brings the list up to date, and asks for at most one brief. The
+dispatcher decides, calling no model: the item is agreed by the owner or
+of a kind and size the installation lets start by itself (none, by
+default), no brief was written for it, the addressee is named, the day's
+budget has room, and the plan's usage has room (pacing's `usage.room`
+for every shared window, ADR 0060, or every window under a mark). A brief that passes goes as a
+message vouched for by the dispatcher, which is the surveyor's only way
+to another agent; with `improvement.send` off it is recorded with its
+text and not sent. The owner is told in one line, at most once a day,
+that items wait for his decision; with `improvement.notify` off the line
+is recorded only. Nothing is merged or deployed by the loop.
+
 ### Worker details (proposed)
 
 - **Permissions.** `dontAsk` mode with an allowlist is the documented headless
@@ -595,12 +620,12 @@ M8 is checked by running the carman arm on a second harness with only the CLI.
 | Q1 | Embeddings: only if the retrieval set shows word search is the limit. Evidence so far says the quality of what is written matters more than ranking |
 | Q2 | Worker language: thin TS/Python on the SDK, or Go driving the CLI? |
 | Q3 | Which tasks get a daydreamer pass, and on which model? |
-| Q4 | Human approval gates (R9) |
+| Q4 | Human approval gates (R9). ADR 0058 has the first gate, and proposes wording |
 | Q5 | Answered: built-in Claude Code memory is off on the laptop since the hook was installed |
 | Q6 | Answered by ADRs 0033 and 0038: no git remote; a nightly job copies the whole library to a store outside the cluster |
 | Q7 | Should the laptop record episodes automatically, or only write notes? |
 | Q8 | Answered by ADR 0023: a new note says `--here` or `--global`. Still open within it: a level for one organisation's repositories, between a single repository and everywhere |
-| Q9 | Self-improvement: carman should notice how it is working and use good opportunities to improve itself, starting with memory consolidation. What it watches, and what it may change on its own, are not designed |
+| Q9 | Self-improvement: carman should notice how it is working and use good opportunities to improve itself, starting with memory consolidation. A first design is ADR 0058 (proposed): a list in the dispatcher's log, a surveyor that reads the log's evidence, and a gate on what starts by itself. Open: what it may change on its own beyond handing a brief to a builder |
 | Q10 | Token budgets: agents that know the subscription's usage limits and when each window resets, a budget for each task, and in the end one total budget divided between tasks for the most value. Section 5 is its start |
 | Q11 | Reaching the owner: prompts and summaries about what needs or is worth their attention, such as a question only they can answer. The channel is open (tickets and a chat bot were named) |
 | Q12 | Which model does which memory processing: to be measured on a benchmark that tells models apart (ADR 0027) |
@@ -672,6 +697,9 @@ Decisions are recorded one per file in `docs/adr/`. The index,
    token of its own, through the same hooks. Then (ADR 0051, proposed): the
    owner's token off the cluster, which holds only its hash. Then
    (ADR 0053, proposed): a standing pod's watcher of its own sessions.
+   Then (ADR 0058, proposed): the list of improvements to the platform,
+   its evidence and its gate, tried in a trial; the surveyor is not yet
+   an agent of any installation.
    Next: move the scheduled agents onto the dispatcher one by one, switch
    notices on, and act on room a window will leave unused (the curve:
    ADR 0060, proposed).

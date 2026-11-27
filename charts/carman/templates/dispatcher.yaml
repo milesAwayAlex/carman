@@ -139,6 +139,9 @@ spec:
               value: {{ .Values.dispatcher.notices.class | quote }}
             - name: DISPATCHER_CONTEXT_NAME
               value: {{ .Values.dispatcher.notices.context | quote }}
+            # The improvement loop's settings (ADR 0058).
+            - name: DISPATCHER_IMPROVEMENT
+              value: {{ include "dispatcher.improvement" . | quote }}
             {{- with .Values.dispatcher.admission }}
             {{- if .enabled }}
             - name: DISPATCHER_ADMISSION
