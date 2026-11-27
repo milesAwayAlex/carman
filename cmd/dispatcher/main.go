@@ -33,7 +33,9 @@
 // DISPATCHER_ADMISSION_MODE (threshold, or curve), DISPATCHER_PACE_TARGET
 // (0.95, also read by dispatch status), DISPATCHER_PACE_SOON (1h),
 // DISPATCHER_PACE_ROOM (on to record usage.room) and
-// DISPATCHER_PACE_ROOM_MIN (0.1).
+// DISPATCHER_PACE_ROOM_MIN (0.1); DISPATCHER_RESERVE_PLACES (0) of
+// DISPATCHER_MAX_RUNNING kept for work of priority DISPATCHER_RESERVE_FROM
+// (60) or more (ADR 0059).
 package main
 
 import (
@@ -501,6 +503,25 @@ func serve(ctx context.Context) error {
 		}
 		rule.Target, rule.Soon = pacing.target, pacing.soon
 		admission = rule.admit
+	}
+
+	reserve := reserveRule{From: 60, MaxRunning: maxRunning}
+	if v := os.Getenv("DISPATCHER_RESERVE_PLACES"); v != "" {
+		if reserve.Places, err = strconv.Atoi(v); err != nil {
+			return fmt.Errorf("DISPATCHER_RESERVE_PLACES: %w", err)
+		}
+	}
+	if v := os.Getenv("DISPATCHER_RESERVE_FROM"); v != "" {
+		if reserve.From, err = strconv.Atoi(v); err != nil {
+			return fmt.Errorf("DISPATCHER_RESERVE_FROM: %w", err)
+		}
+	}
+	if err := reserve.check(); err != nil {
+		return err
+	}
+	if reserve.Places > 0 {
+		admission = admitAll(reserve.admit, admission)
+		logger.Info("keeping places for scheduled work", "places", reserve.Places, "from", reserve.From, "of", maxRunning)
 	}
 
 	dbURL := os.Getenv("DISPATCHER_DATABASE_URL")
