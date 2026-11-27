@@ -37,8 +37,8 @@ type Proxy struct {
 	// Upstream is the model's API, for example https://api.anthropic.com.
 	Upstream  *url.URL
 	Transport http.RoundTripper
-	// Credential is the value of the Authorization header to send, read
-	// each time so that a renewed credential is used at once.
+	// Credential is the value of the Authorization header to send, asked
+	// for once per request: a request keeps the one it started with.
 	Credential func() (string, error)
 	// Identify says whose pod has an address now.
 	Identify func(ctx context.Context, ip string) (message.Caller, bool)

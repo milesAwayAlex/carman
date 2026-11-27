@@ -62,7 +62,7 @@ func model(t *testing.T, got chan<- seen, more <-chan struct{}) *httptest.Server
 	return srv
 }
 
-func meterFor(t *testing.T, srv *httptest.Server, ledger *Ledger) *httptest.Server {
+func meterFor(t *testing.T, srv *httptest.Server, ledger *Ledger, cred ...func() (string, error)) *httptest.Server {
 	up, _ := url.Parse(srv.URL)
 	// As the meter's own: no compression asked for (cmd/dispatcher).
 	tr := srv.Client().Transport.(*http.Transport).Clone()
@@ -82,6 +82,9 @@ func meterFor(t *testing.T, srv *httptest.Server, ledger *Ledger) *httptest.Serv
 		},
 		CallerHeader: "X-Egress-Caller",
 		Ledger:       ledger,
+	}
+	if len(cred) > 0 {
+		p.Credential = cred[0]
 	}
 	front := httptest.NewServer(p)
 	t.Cleanup(front.Close)

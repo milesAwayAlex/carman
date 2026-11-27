@@ -28,8 +28,8 @@ which account was in place, so a redeploy or a recovery could not tell.
   know accounts by name only. Nothing here says what an account is: the
   names are the installation's.
 - **The proxy holds one.** `scripts/deploy.sh CONTEXT model-account NAME`
-  pipes that account's credential into the proxy's secret, restarts the
-  proxy, and checks by comparing digests that the secret holds it. With no
+  pipes that account's credential into the proxy's secret and checks by
+  comparing digests that the secret holds it. With no
   name it says which account the proxy holds, by the same comparison, so
   the answer is what is there and not what was last recorded.
 - **The choice is in the definition.** The command writes the name to
@@ -43,9 +43,26 @@ which account was in place, so a redeploy or a recovery could not tell.
   status`) and the admission rule use only those since. The command then
   takes a reading of every model, so the new account's standing is known
   at once.
-- **It refuses while an agent's job runs** unless told (`--now`): the
-  proxy's restart cuts an answer in flight. A standing agent's session is
-  not counted: its harness asks again.
+- **The meter takes it without a restart.** The secret is mounted in the
+  meter's pod as a directory, which the cluster changes some tens of
+  seconds after the secret by writing a new directory beside it and
+  swapping the link `..data` to it. The meter looks at that link and the
+  file every two seconds and reads the file again when either changes;
+  it takes the new value only if the file did not change while being
+  read and is not empty, and otherwise keeps the one in use. A request
+  takes the credential once, when it arrives, so one in flight finishes
+  on the one it started with. The meter logs `the model's credential
+  changed` with a count of changes since it started, never the
+  credential nor a digest of it.
+- **The command waits for the meter** before it records the change and
+  takes the reading, since the reading goes through the meter: until the
+  meter's log shows one more change than before, or a new pod of the
+  proxy runs (which reads the secret as it starts), for three minutes. If
+  the meter does not take it in time, the command says so, records
+  nothing, and names `--restart`, which restarts the proxy instead. That
+  restart cuts answers in flight, so it refuses while an agent's job runs
+  unless told (`--now`). Nothing else is cut, so the switch no longer
+  refuses while a job runs.
 - **It needs little.** kubectl, the checkout, the definition. The record
   in the log is best-effort, so the switch works with the dispatcher down;
   `deploy/RECOVERY.md` has the same steps by hand. A session on the
@@ -61,8 +78,12 @@ which account was in place, so a redeploy or a recovery could not tell.
   by message.
 - It does not split agents between accounts: one proxy, one credential.
   Per-agent accounts would need the meter to choose by caller.
-- The proxy is restarted, so every agent's request in flight is cut once.
-  The meter could read the secret again when it changes; not built.
+- The proxy's own credentials (`egress.credentialsSecret`, for hosts
+  other than the model's) are read by Envoy when it starts, and a change
+  of them still restarts the proxy.
+- The meter's signal is its log, read by the command through kubectl: the
+  meter answers only inside its pod, and the log is reachable by whoever
+  can deploy and by nobody else.
 - What each account's use cost is not kept apart: the proxy's record
   (`model.usage`) names agents and models, not accounts. The `model.account`
   events say when each was in place, which is enough to split the record

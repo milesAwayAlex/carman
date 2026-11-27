@@ -26,7 +26,8 @@ import (
 //
 // From the environment: METER_LISTEN (127.0.0.1:3130), METER_UPSTREAM
 // (https://api.anthropic.com), METER_CREDENTIAL_FILE (the token alone, or
-// the whole header value if it starts with "Bearer "), METER_CALLER_HEADER
+// the whole header value if it starts with "Bearer "; read again when it
+// changes), METER_CALLER_HEADER
 // (x-egress-caller), METER_IDLE (2m) and METER_LONGEST (15m), how long a
 // tally stays open; METER_SHAPES (on: log the names of what passes, never
 // values); DISPATCHER_URL and DISPATCHER_TOKEN_FILE, where the records go,
@@ -84,6 +85,14 @@ func meterCmd(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() { sender.Run(ctx); close(done) }()
 
+	// Read again when the cluster swaps the mounted secret: a change of
+	// account needs no restart (ADR 0055).
+	cred := &meter.CredentialFile{Path: credFile, Log: log}
+	if err := cred.Load(); err != nil {
+		log.Error("the model's credential cannot be read; refusing requests until it can", "error", err)
+	}
+	go cred.Run(ctx)
+
 	proxy := &meter.Proxy{
 		Upstream: up,
 		Transport: &http.Transport{
@@ -96,17 +105,7 @@ func meterCmd(ctx context.Context) error {
 			DisableCompression:    true,
 			ExpectContinueTimeout: time.Second,
 		},
-		Credential: func() (string, error) {
-			b, err := os.ReadFile(credFile)
-			if err != nil {
-				return "", err
-			}
-			v := strings.TrimSpace(string(b))
-			if v != "" && !strings.HasPrefix(v, "Bearer ") {
-				v = "Bearer " + v
-			}
-			return v, nil
-		},
+		Credential:   cred.Get,
 		Identify:     addrs.Lookup,
 		CallerHeader: envOr("METER_CALLER_HEADER", "x-egress-caller"),
 		Ledger:       ledger,
