@@ -91,6 +91,12 @@ if command -v helm >/dev/null; then
         --set-json 'dreamer.models=["m-a","m-b"]' --set-json 'dreamer.modelsFor={"x":["m-c"]}' \
         --set usage.model=m-0 --set-json 'usage.addModels=["m-e"]' --set-json 'usage.skipModels=["m-b"]' --set-json 'usage.everyHoursFor={"m-c":2}' |
         grep -F 'value: "m-0=1,m-a=6,m-d=6,m-c=2,m-e=6"' >/dev/null || { echo "the chart does not hand the usage reading the installation's models" >&2; exit 1; }
+    # An agent's pod is told the image it runs: a job the warm one, a
+    # standing pod agent.image.
+    out="$(helm template t charts/carman --set memory.image=m:0 --set agent.image=r.example/a:0 --set dispatcher.image=d:0 \
+        --set backup.repository=r --set agent.warm.enabled=true --show-only templates/agents.yaml \
+        --set-json 'agents=[{"name":"j","routines":["x"]},{"name":"s","interactive":true}]' | grep -A1 'name: AGENT_IMAGE' | grep -o 'value: .*' | sort -u | tr '\n' ' ')"
+    [ "$out" = 'value: "r.example/a:0" value: "r.example/a:warm" ' ] || { echo "agent pods are not told the image they run: $out" >&2; exit 1; }
     # R2: the dreamer, the backup and the warm job are started by the
     # dispatcher where their values say, their CronJobs suspended (ADR 0059).
     nightly=(helm template t charts/carman --set memory.image=m:0 --set agent.image=r.example/a:0 --set dispatcher.image=d:0

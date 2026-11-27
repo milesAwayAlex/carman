@@ -139,6 +139,7 @@ func (s *Server) routes() []route {
 		{http.MethodGet, "/v1/dump", dumpers, s.dump},
 		{http.MethodGet, "/v1/meter/standing", []Role{RoleOwner, RoleMeter}, s.standing},
 		{http.MethodGet, "/v1/usage/latest", []Role{RoleOwner, RoleAgent}, s.usageLatest},
+		{http.MethodGet, "/v1/deployed", messengers, s.deployed},
 		{http.MethodGet, "/v1/whoami", messengers, s.whoami},
 		{http.MethodGet, "/v1/peers", messengers, s.peers},
 		{http.MethodPost, "/v1/messages", messengers, s.send},

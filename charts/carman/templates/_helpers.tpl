@@ -32,13 +32,23 @@ agent.image's own repository. */ -}}
 {{- /* The image an agent's job starts from, and when it is pulled: the warm
 image, asked for at each start since its tag moves, or agent.image. */ -}}
 {{- define "agent.jobImage" -}}
+image: {{ include "agent.jobImageName" . }}
+imagePullPolicy: {{ ternary "Always" "IfNotPresent" (default false .Values.agent.warm.enabled) }}
+{{- end -}}
+
+{{- define "agent.jobImageName" -}}
 {{- if .Values.agent.warm.enabled -}}
-image: {{ include "warm.repository" . }}:{{ .Values.agent.warm.tag }}
-imagePullPolicy: Always
+{{ include "warm.repository" . }}:{{ .Values.agent.warm.tag }}
 {{- else -}}
-image: {{ required "agent.image is required" .Values.agent.image }}
-imagePullPolicy: IfNotPresent
+{{ required "agent.image is required" .Values.agent.image }}
 {{- end }}
+{{- end -}}
+
+{{- /* The image an agent's pod runs, for it to know: AGENT_IMAGE. Given
+the root and whether the pod is a standing one. */ -}}
+{{- define "agent.imageEnv" -}}
+- name: AGENT_IMAGE
+  value: {{ ternary (required "agent.image is required" .root.Values.agent.image) (include "agent.jobImageName" .root) .standing | quote }}
 {{- end -}}
 
 {{- /* A pod's own account, which is nothing to the cluster's API. */ -}}

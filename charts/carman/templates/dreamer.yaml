@@ -109,6 +109,7 @@ spec:
                 # Where each routine's run records what it used (ADR 0043).
                 - name: AGENT_NAME
                   value: dreamer
+                {{- include "agent.imageEnv" (dict "root" . "standing" false) | nindent 16 }}
                 - name: DISPATCHER_URL
                   value: http://dispatcher.{{ .Release.Namespace }}.svc:{{ .Values.dispatcher.service.port }}
                 - name: DISPATCHER_TOKEN

@@ -84,6 +84,7 @@ dispatcher emit TYPE [--subject S] [--id ID] [--source S] [--data JSON]
 dispatcher status [ID]
 dispatcher log [--after N] [--type T] [--limit N] [--last N]
 dispatcher dump > FILE
+dispatcher deployed   what commit of the platform is deployed, since when, and what it brought
 git log --oneline PREVIOUS..COMMIT | dispatcher deployed COMMIT [--previous PREVIOUS]   what a deploy deployed (the owner's)
 HARNESS --output-format stream-json --verbose | dispatcher reading [--model M] [--every HOURS]
 dispatcher reading --due                  the models of USAGE_MODELS (MODEL=HOURS,...) to read this hour, but

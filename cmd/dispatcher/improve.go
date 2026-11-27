@@ -377,8 +377,16 @@ func paceRoom(readings func(context.Context) ([]dispatch.Record, error), rooms f
 // the owner): the commit, the one before, and on standard input the
 // commits between, a line each, newest first.
 func deployed(ctx context.Context, c *api.Client, pos []string, flags map[string][]string, in io.Reader) error {
+	if len(pos) == 0 {
+		var d api.Deployed
+		if err := c.Do(ctx, http.MethodGet, "/v1/deployed", nil, nil, &d); err != nil {
+			return err
+		}
+		fmt.Print(deployedText(d))
+		return nil
+	}
 	if len(pos) != 1 {
-		return errors.New("say: git log --oneline PREVIOUS..COMMIT | dispatcher deployed COMMIT [--previous PREVIOUS]")
+		return errors.New("say: dispatcher deployed, or (the owner) git log --oneline PREVIOUS..COMMIT | dispatcher deployed COMMIT [--previous PREVIOUS]")
 	}
 	d := improve.Deployed{Commit: pos[0], Previous: one(flags, "previous", "")}
 	sc := bufio.NewScanner(io.LimitReader(in, 1<<20))
@@ -403,4 +411,22 @@ func deployed(ctx context.Context, c *api.Client, pos []string, flags map[string
 	}
 	fmt.Printf("recorded in the dispatcher's log: %s is deployed, %d commit(s) since the one before\n", d.Commit, len(d.Commits)+d.More)
 	return nil
+}
+
+// deployedText is what dispatcher deployed says of the latest deploy.
+func deployedText(d api.Deployed) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "deployed: %s since %s\n", d.Commit, d.Since.UTC().Format(time.RFC3339))
+	if d.Previous != "" {
+		fmt.Fprintf(&b, "before it: %s; the commits it brought, newest first:\n", d.Previous)
+	} else if len(d.Commits) > 0 {
+		b.WriteString("its latest commits, newest first:\n")
+	}
+	for _, c := range d.Commits {
+		fmt.Fprintf(&b, "  %s\n", c)
+	}
+	if d.More > 0 {
+		fmt.Fprintf(&b, "  and %d more\n", d.More)
+	}
+	return b.String()
 }
