@@ -1,6 +1,8 @@
 {{- if .Values.backup.enabled }}
 # A copy of the installation's state, put outside the cluster every night:
-# the whole library, history included, and whatever else the values name.
+# the whole library, history included, the dispatcher's database, the
+# installation's definition, the conversations jobs have kept and each
+# standing agent's sessions, and whatever else the values name.
 # The copies go to a repository the platform gives (ADR 0038), and each
 # stands by itself: `backup-state dump library` gives a file that
 # `cmem restore FILE DIR` makes a library of, on any machine.
@@ -102,6 +104,20 @@ spec:
                 # deploy put in the cluster.
                 {{- $also = append $also (dict "name" "installation" "command" (list "cat" "/etc/installation/definition.bundle")) }}
                 {{- end }}
+                {{- if .Values.backup.conversations }}
+                {{- if .Values.agent.sessionStorage }}
+                # The conversations jobs have kept, from their volume, read-only.
+                {{- $also = append $also (dict "name" "conversations" "command" (list "backup-state" "tree" "/var/lib/backup/conversations")) }}
+                {{- end }}
+                {{- range .Values.agents }}
+                {{- if .interactive }}
+                # A standing agent's sessions, from its home: the harness's
+                # conversations and what opens them again as they were. Not its
+                # checkouts or caches, which can be made again (ADR 0038, RECOVERY.md).
+                {{- $also = append $also (dict "name" (printf "sessions-%s" .name) "command" (concat (list "backup-state" "tree" (printf "/var/lib/backup/homes/%s" .name)) $.Values.backup.sessionPaths)) }}
+                {{- end }}
+                {{- end }}
+                {{- end }}
                 - name: BACKUP_ALSO
                   value: {{ $also | toJson | quote }}
                 {{- range $name, $value := .Values.backup.env }}
@@ -134,6 +150,20 @@ spec:
                   mountPath: /etc/installation
                   readOnly: true
                 {{- end }}
+                {{- if .Values.backup.conversations }}
+                {{- if .Values.agent.sessionStorage }}
+                - name: conversations
+                  mountPath: /var/lib/backup/conversations
+                  readOnly: true
+                {{- end }}
+                {{- range .Values.agents }}
+                {{- if .interactive }}
+                - name: home-{{ .name }}
+                  mountPath: /var/lib/backup/homes/{{ .name }}
+                  readOnly: true
+                {{- end }}
+                {{- end }}
+                {{- end }}
               resources:
                 {{- toYaml .Values.backup.resources | nindent 16 }}
               securityContext:
@@ -158,6 +188,27 @@ spec:
             - name: installation
               configMap:
                 name: installation
+            {{- end }}
+            {{- if .Values.backup.conversations }}
+            # Volumes that agents' pods write, read here at the same time.
+            # A volume of one node is readable by a second pod on that node;
+            # on a cluster of several nodes this pod has to be put where they
+            # all are, or this is switched off (backup.conversations).
+            {{- if .Values.agent.sessionStorage }}
+            - name: conversations
+              persistentVolumeClaim:
+                claimName: agent-sessions
+                readOnly: true
+            {{- end }}
+            {{- range .Values.agents }}
+            {{- if .interactive }}
+            # The home the StatefulSet agent-{{ .name }} made for its pod.
+            - name: home-{{ .name }}
+              persistentVolumeClaim:
+                claimName: home-agent-{{ .name }}-0
+                readOnly: true
+            {{- end }}
+            {{- end }}
             {{- end }}
 {{- if .Values.egress.enabled }}
 ---

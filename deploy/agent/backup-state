@@ -5,6 +5,10 @@
 #   backup-state                    copy everything: the library, then whatever else is named
 #   backup-state list               the copies that are kept
 #   backup-state dump NAME [COPY]   one copy of NAME on standard output (the latest, or the copy with that id)
+#   backup-state tree DIR [PATH...] a tar of PATHs under DIR (all of DIR, if none) on standard
+#                                   output, as the job copies a volume of conversations: in a
+#                                   stable order, without locks or credentials, and each
+#                                   transcript (.jsonl) cut at its last whole line
 #
 # The store is a restic repository: a bucket that speaks S3, a cloud's own
 # bucket, or a directory. restic keeps each night's copy as a snapshot,
@@ -21,6 +25,72 @@
 #                       What the command prints is the copy; if it fails, no copy is kept.
 #   BACKUP_KEEP         which copies to keep, as restic's forget takes it
 #                       (for example: --keep-daily 30 --keep-weekly 12); all, if not set
+# A tree of files as a tar stream. Names in a stable order, so that restic,
+# which cuts a stream where its content says, finds last night's chunks
+# again and stores only what was added. A transcript is appended to line by
+# line while it is read: the copy stops at the last line that was whole.
+if [ "${1:-}" = tree ]; then
+    shift
+    [ -d "${1:-}" ] || { echo "usage: backup-state tree DIR [PATH...]" >&2; exit 2; }
+    exec python3 -c '
+import io, os, stat, sys, tarfile
+root, paths = sys.argv[1], sys.argv[2:] or ["."]
+# What is not copied: locks, which mean nothing once their holder is gone,
+# and a sign-in, if one was ever made here.
+skip = lambda name: name.endswith(".lock") or name == ".credentials.json"
+
+def whole_lines(f, size):  # the length up to and with the last line break
+    end = size
+    while end > 0:
+        start = max(0, end - 65536)
+        f.seek(start)
+        block = f.read(end - start)
+        cut = block.rfind(b"\n")
+        if cut >= 0:
+            return start + cut + 1
+        end = start
+    return 0
+
+out = tarfile.open(fileobj=sys.stdout.buffer, mode="w|", format=tarfile.GNU_FORMAT)
+def add(rel):
+    full = os.path.join(root, rel)
+    try:
+        st = os.lstat(full)
+    except FileNotFoundError:
+        return
+    info = tarfile.TarInfo(os.path.normpath(rel))
+    info.mtime, info.mode, info.uid, info.gid = int(st.st_mtime), stat.S_IMODE(st.st_mode), st.st_uid, st.st_gid
+    if stat.S_ISDIR(st.st_mode):
+        info.type = tarfile.DIRTYPE
+        out.addfile(info)
+        for name in sorted(os.listdir(full)):
+            if not skip(name):
+                add(os.path.join(rel, name))
+    elif stat.S_ISLNK(st.st_mode):
+        info.type, info.linkname = tarfile.SYMTYPE, os.readlink(full)
+        out.addfile(info)
+    elif stat.S_ISREG(st.st_mode):
+        try:
+            f = open(full, "rb")
+        except FileNotFoundError:
+            return
+        with f:
+            if rel.endswith(".jsonl"):
+                # Appended to, never rewritten: what was there is still there.
+                info.size = whole_lines(f, st.st_size)
+                f.seek(0)
+                out.addfile(info, f)
+            else:
+                # Small, and may be replaced while read: read whole first.
+                data = f.read()
+                info.size = len(data)
+                out.addfile(info, io.BytesIO(data))
+for rel in sorted(set(paths)):
+    add(rel)
+out.close()
+' "$@"
+fi
+
 # The proxy and its certificate, and the installation's commands.
 [ ! -r /usr/local/lib/agent-env ] || . /usr/local/lib/agent-env
 set -u
@@ -41,7 +111,7 @@ dump)
     ;;
 "") ;;
 *)
-    echo "usage: backup-state [list | dump NAME [COPY]]" >&2; exit 2
+    echo "usage: backup-state [list | dump NAME [COPY] | tree DIR [PATH...]]" >&2; exit 2
     ;;
 esac
 

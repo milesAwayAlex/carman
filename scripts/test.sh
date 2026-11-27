@@ -54,6 +54,9 @@ if command -v helm >/dev/null; then
 else
     echo "helm is not here: the chart's checks are skipped" >&2
 fi
+# The nightly backup keeps agents' sessions and kept conversations in a form
+# that comes back whole (ADR 0038, RECOVERY.md). Checked where restic is.
+scripts/check-backup-copy.sh
 # Nothing here needs a C compiler, and not every place that runs this has one.
 export CGO_ENABLED="${CGO_ENABLED:-0}"
 go vet ./...
