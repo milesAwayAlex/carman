@@ -37,6 +37,7 @@ func client() (*api.Client, error) {
 	c := &api.Client{URL: os.Getenv("DISPATCHER_URL"), Token: os.Getenv("DISPATCHER_TOKEN")}
 	if b, err := os.ReadFile(identityFile()); err == nil && len(strings.TrimSpace(string(b))) > 0 {
 		c.Token = strings.TrimSpace(string(b))
+		c.TokenFile = identityFile() // read again at each call: the cluster replaces it
 	}
 	if c.URL == "" || c.Token == "" {
 		return nil, errors.New("set DISPATCHER_URL, and DISPATCHER_TOKEN or a token for the dispatcher at DISPATCHER_IDENTITY")

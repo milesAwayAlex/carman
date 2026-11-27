@@ -88,7 +88,9 @@ and the owner can be written to with the dispatcher's client
 (`dispatcher peers|send|reply|inbox|read|message|watch`). A message and
 what became of it are events in the dispatcher's log. An agent's pod
 proves which agent it is with a token the cluster makes for it for the
-dispatcher; which session of its pod it is, is its word. A running session
+dispatcher; which session of its pod it is, is its word. That token lasts
+an hour and the cluster replaces its file before then, so the client reads
+the file at each call: the waiter and the watcher run for days. A running session
 gets messages through the harness's hooks: with the next tool results, at
 the end of its turn, or, idle, woken by an `asyncRewake` waiter that holds
 a long poll to the dispatcher (channels, the harness's own way, are not

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 )
 
@@ -15,7 +16,24 @@ import (
 type Client struct {
 	URL   string
 	Token string
-	HTTP  *http.Client
+	// TokenFile, when set, is read at each call and its content used in
+	// place of Token: a pod's token for the dispatcher is replaced by the
+	// cluster before it expires, and a command that runs for hours (a
+	// session's listener, the watcher) must not go on showing the first.
+	TokenFile string
+	HTTP      *http.Client
+}
+
+// token is what this call shows: the file's content now, else Token.
+func (c *Client) token() string {
+	if c.TokenFile != "" {
+		if b, err := os.ReadFile(c.TokenFile); err == nil {
+			if t := strings.TrimSpace(string(b)); t != "" {
+				return t
+			}
+		}
+	}
+	return c.Token
 }
 
 // Do sends body (when not nil) and decodes the answer into out (when not
@@ -51,7 +69,7 @@ func (c *Client) Raw(ctx context.Context, method, path string, query url.Values,
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Authorization", "Bearer "+c.token())
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
