@@ -92,7 +92,9 @@ Built so far:
   installation's `notify-owner` command, and a job's conversation is kept
   so that the owner can resume it as the agent that had it, in a pod of
   its own (`scripts/deploy.sh CONTEXT agent resume ID`, ADR 0040). The dreamer's too: a report of its with questions for the
-  owner sends one notice.
+  owner sends one notice, or, where the dispatcher is on, a message he
+  answers with `dispatch reply`; the dreamer is written to by name and
+  writes only to the owner and in answer (ADR new-the-dreamer-is-a-party).
 
 - The warm image (ADR 0041): agents' jobs start from the agent
   image with the harness already in it, made in the cluster by a job

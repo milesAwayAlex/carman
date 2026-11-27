@@ -12,6 +12,8 @@
 {{- range .Values.dreamer.commands }}
 {{- if not (regexMatch "^[a-z0-9][a-z0-9._-]*( [a-z0-9][a-z0-9._-]*){0,2} (view|list|ls|show|get|status|diff|log|describe|search|checks)$" .) }}{{ fail (printf "dreamer.commands: %q is not plainly a read: a program and one to three subcommands, lowercase, no flags or shell characters, ending in view, list, ls, show, get, status, diff, log, describe, search or checks" .) }}{{ end }}
 {{- end }}
+{{- /* A party to messages like any agent (ADR new-the-dreamer-is-a-party). */ -}}
+{{- $messages := and .Values.dispatcher.enabled (ne .Values.dreamer.messages false) }}
 {{- with .Values.dreamer.mcp }}
 ---
 {{ include "agent.mcpConfigMap" (dict "name" "dreamer-mcp" "mcp" . "root" $) }}
@@ -50,6 +52,11 @@ spec:
           labels:
             app: dreamer
             app.kubernetes.io/component: agent
+            {{- if $messages }}
+            # The dispatcher knows the dreamer by this: a message to it
+            # starts a Job from this template (ADR 0045).
+            agent: dreamer
+            {{- end }}
             {{- with (include "pod.labels" .) }}{{ . | trim | nindent 12 }}{{- end }}
         spec:
           restartPolicy: Never
@@ -118,6 +125,12 @@ spec:
                       name: {{ .Values.dispatcher.tokensSecret }}
                       key: agent
                 {{- end }}
+                {{- if $messages }}
+                # The memory hook stays off; the dispatcher's hooks are on,
+                # so that its sessions can be written to.
+                - name: DISPATCHER_HOOK
+                  value: "on"
+                {{- end }}
                 {{- if .Values.egress.enabled }}
                 # Everything outside the cluster is reached through the
                 # proxy; the memory service is beside it and reached directly.
@@ -166,6 +179,12 @@ spec:
                   mountPath: /etc/agent/egress
                   readOnly: true
                 {{- end }}
+                {{- if $messages }}
+                # Which agent is speaking, for the dispatcher (ADR 0045).
+                - name: dispatcher-identity
+                  mountPath: /var/run/secrets/dispatcher
+                  readOnly: true
+                {{- end }}
               resources:
                 {{- toYaml .Values.dreamer.resources | nindent 16 }}
               securityContext:
@@ -207,4 +226,13 @@ spec:
               configMap:
                 name: egress-ca
                 optional: true
+            {{- end }}
+            {{- if $messages }}
+            - name: dispatcher-identity
+              projected:
+                sources:
+                  - serviceAccountToken:
+                      audience: dispatcher
+                      expirationSeconds: 3600
+                      path: token
             {{- end }}

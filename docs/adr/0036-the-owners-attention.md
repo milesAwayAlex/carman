@@ -2,7 +2,8 @@
 
 Status: Accepted (2026-11-22), to be judged by how it holds up in use. Picking a job's
 conversation up from an interactive agent is superseded by ADR 0040. What a notice may
-say is narrowed by ADR 0048.
+say is narrowed by ADR 0048. The dreamer's questions, where it is a party to
+messages, go as a message: ADR new-the-dreamer-is-a-party.
 Built; running on the local cluster.
 
 ## Context

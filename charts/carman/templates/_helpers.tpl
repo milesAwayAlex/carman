@@ -175,6 +175,9 @@ A name there that is not an agent of the installation fails the render. */ -}}
 {{- range .Values.agents }}
 {{- $agent := .name }}
 {{- range (.writtenBy | default list) }}
+{{- if eq . "dreamer" }}
+{{- fail (printf "agents: %s: writtenBy names the dreamer, which reads all of memory and so writes only to the owner and answers what it is sent (ADR new-the-dreamer-is-a-party)" $agent) }}
+{{- end }}
 {{- if not (has . $names) }}
 {{- fail (printf "agents: %s: writtenBy names %q, which is not an agent here (the agents are %s)" $agent . (join ", " $names)) }}
 {{- end }}
