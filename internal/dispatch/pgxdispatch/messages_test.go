@@ -238,10 +238,10 @@ func TestR2MessageSleepingSession(t *testing.T) {
 	if err != nil || len(tk.Messages) != 2 {
 		t.Fatalf("the run takes: %+v, %v", tk, err)
 	}
-	if r, err := s.Answer(ctx, run, "sess-b", res.ID, "awake"); err != nil || r.To != "session/sess-a" {
+	if r, err := s.Answer(ctx, run, "sess-b", res.ID, "awake", false); err != nil || r.To != "session/sess-a" {
 		t.Errorf("the run's answer: %+v, %v", r, err)
 	}
-	if r, err := s.Answer(ctx, run, "sess-b", res.ID, "again"); err != nil || r.State != "answered" {
+	if r, err := s.Answer(ctx, run, "sess-b", res.ID, "again", false); err != nil || r.State != "answered" {
 		t.Errorf("a second answer: %+v, %v", r, err)
 	}
 
@@ -476,5 +476,155 @@ func TestR2MessageRunsPerSender(t *testing.T) {
 	// After the lift the count starts again.
 	if res, _ := s.Send(ctx, a, "sess-a", "agent/trial", "go", ""); strings.Contains(res.Detail, "held") {
 		t.Errorf("held after the lift: %+v", res)
+	}
+}
+
+// TestR2MessageRunAtLimit: a run started for a message that stops at the
+// plan's usage limit is recorded as that; the sender is told the work was
+// not done and when the limit resets; asked for, the dispatcher sends the
+// message again once after the reset, and not a third time.
+func TestR2MessageRunAtLimit(t *testing.T) {
+	s, cl, inst := messaging(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 27, 9, 0, 0, 0, time.UTC)
+	s.Now = func() time.Time { return now }
+	a := pod("trial", "pod-a")
+	start(t, s, cl, a, "sess-a", "alpha", message.Busy)
+	run := pod("trial", "pod-run")
+	cl.set("pod-run", true)
+	const words = "You've hit your 5-hour limit · resets 10:40am (UTC)"
+
+	// Not asked: told, not sent again.
+	plain, err := s.Send(ctx, a, "sess-a", "trial", "do one thing", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Take(ctx, run, "run-1", "start", []string{plain.ID}, 0); err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.Answer(ctx, run, "run-1", plain.ID, words, true)
+	if err != nil || r.To != "session/sess-a" {
+		t.Fatalf("the answer: %+v, %v", r, err)
+	}
+	told := body(t, inst, r.ID)
+	for _, want := range []string{"Not done", "2026-11-27 10:40 UTC", "not sent again by itself", words} {
+		if !strings.Contains(told, want) {
+			t.Errorf("the sender is told %q, without %q", told, want)
+		}
+	}
+	if recs, _ := inst.OfTypeAbout(ctx, message.TypeLimited, plain.ID); len(recs) != 1 {
+		t.Errorf("message.limited recorded %d times", len(recs))
+	}
+
+	// Asked: sent again once, after the reset.
+	asked, err := s.SendWith(ctx, a, "sess-a", "trial", "do another", "", message.SendOptions{AgainAfterLimit: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err = s.Answer(ctx, run, "run-2", asked.ID, words, true)
+	if err != nil || !strings.Contains(body(t, inst, r.ID), "again by itself, once, at about 10:45 UTC") {
+		t.Fatalf("the answer when asked: %+v, %v: %s", r, err, body(t, inst, r.ID))
+	}
+	if err := s.SendAgain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if recs, _ := inst.OfTypeAbout(ctx, message.TypeResent, asked.ID); len(recs) != 0 {
+		t.Fatal("sent again before the reset")
+	}
+	now = now.Add(2 * time.Hour)
+	for range 2 {
+		if err := s.SendAgain(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	recs, _ := inst.OfTypeAbout(ctx, message.TypeResent, asked.ID)
+	if len(recs) != 1 {
+		t.Fatalf("sent again %d times", len(recs))
+	}
+	var resent struct{ Again string }
+	_ = json.Unmarshal(recs[0].Data, &resent)
+	if _, err := inst.Explain(ctx, message.TaskPrefix+resent.Again); err != nil {
+		t.Errorf("no run started for the message sent again: %v", err)
+	}
+	if recs, _ := inst.OfTypeAbout(ctx, message.TypeResent, plain.ID); len(recs) != 0 {
+		t.Error("a message whose sender did not ask was sent again")
+	}
+	// At the limit again: told so, not sent a third time.
+	r, err = s.Answer(ctx, run, "run-3", resent.Again, words, true)
+	if err != nil || !strings.Contains(body(t, inst, r.ID), "already sent again once") {
+		t.Errorf("the second limit: %+v, %v", r, err)
+	}
+	now = now.Add(24 * time.Hour)
+	_ = s.SendAgain(ctx)
+	if recs, _ := inst.OfTypeAbout(ctx, message.TypeResent, resent.Again); len(recs) != 0 {
+		t.Error("sent a third time")
+	}
+	// The same words from a run that did not fail are its answer.
+	other, _ := s.Send(ctx, a, "sess-a", "trial", "quote it", "")
+	if r, _ := s.Answer(ctx, run, "run-4", other.ID, words, false); body(t, inst, r.ID) != words {
+		t.Errorf("a run that finished: %q", body(t, inst, r.ID))
+	}
+}
+
+func body(t *testing.T, inst *Dispatcher, id string) string {
+	t.Helper()
+	recs, err := inst.OfTypeAbout(context.Background(), message.TypeSent, id)
+	if err != nil || len(recs) == 0 {
+		return ""
+	}
+	var m message.Message
+	_ = json.Unmarshal(recs[0].Data, &m)
+	return m.Body
+}
+
+// TestR2MessageSessionAtLimit: a running session whose harness stopped at
+// the plan's usage limit, as its pod's watcher says: the sender of what it
+// took and has not answered, and whoever watches it, are told once and
+// when the limit resets; another pod may not say it.
+func TestR2MessageSessionAtLimit(t *testing.T) {
+	s, cl, inst := messaging(t)
+	ctx := context.Background()
+	s.Now = func() time.Time { return time.Date(2026, 11, 27, 9, 0, 0, 0, time.UTC) }
+	a, b, w := pod("trial", "pod-a"), pod("desk", "pod-b"), pod("trial", "pod-w")
+	start(t, s, cl, a, "sess-a", "alpha", message.Idle)
+	start(t, s, cl, b, "sess-b", "beta", message.Busy)
+	start(t, s, cl, w, "sess-w", "watcher", message.Idle)
+	s.Writers = map[string][]string{"desk": {"trial"}}
+	sent, err := s.Send(ctx, a, "sess-a", "desk/beta", "a long task", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Take(ctx, b, "sess-b", "tool", []string{sent.ID}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Watch(ctx, w, "sess-w", "desk/beta"); err != nil {
+		t.Fatal(err)
+	}
+	const words = "You've hit your 5-hour limit · resets 10:40am (UTC)"
+	if _, err := s.HarnessLimited(ctx, a, "sess-b", "u-stop", words); err == nil {
+		t.Error("another agent's pod says the session stopped")
+	}
+	n, err := s.HarnessLimited(ctx, b, "sess-b", "u-stop", words)
+	if err != nil || n != 2 {
+		t.Fatalf("told %d, %v; want the sender and the watcher", n, err)
+	}
+	if n, _ := s.HarnessLimited(ctx, b, "sess-b", "u-stop", words); n != 0 {
+		t.Errorf("the same stop told again: %d", n)
+	}
+	for _, to := range []string{"session/sess-a", "session/sess-w"} {
+		recs, _ := inst.Unmarked(ctx, []string{to}, "read", 10)
+		found := false
+		for _, r := range recs {
+			var m message.Message
+			_ = json.Unmarshal(r.Data, &m)
+			found = found || (m.From == "dispatcher" && strings.Contains(m.Body, "stopped at the plan's usage limit, which resets at 2026-11-27 10:40 UTC"))
+		}
+		if !found {
+			t.Errorf("%s is not told", to)
+		}
+	}
+	// A later stop: the message was told of already, the watcher again.
+	if n, _ := s.HarnessLimited(ctx, b, "sess-b", "u-stop-2", words); n != 1 {
+		t.Errorf("a second stop told %d, want the watcher only", n)
 	}
 }

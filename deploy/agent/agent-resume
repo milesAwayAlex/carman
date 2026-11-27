@@ -232,6 +232,9 @@ EOF
     # What it cost, as a routine's run records it (run.usage); never a failure.
     cmem routine --usage-of "$out" --message "$msg" --since "$since" ${model:+--models "$model"} \
         $([ $rc -eq 0 ] || echo --failed) || true
+    # The result, and whether the harness called it an error: a run that
+    # stopped at the plan's usage limit says so in both, and the dispatcher
+    # tells the sender that, not the words as an answer (ADR new-a-limit-is-an-outcome).
     result="$(python3 - "$out" <<'PY'
 import json, sys
 for line in reversed(open(sys.argv[1]).read().splitlines()):
@@ -240,13 +243,20 @@ for line in reversed(open(sys.argv[1]).read().splitlines()):
     except Exception:
         continue
     if isinstance(said, dict) and "result" in said:
-        print(said.get("result") or "")
+        print(("error " if said.get("is_error") else "ok ") + (said.get("result") or ""))
         break
 PY
 )"
+    failed=""
+    if [ "${result#error }" != "$result" ]; then
+        failed=--failed result="${result#error }"
+    else
+        result="${result#ok }"
+    fi
+    [ $rc -eq 0 ] || failed=--failed
     [ -n "$result" ] || result="(The run started for this message ended without an answer: $(tail -c 300 /tmp/harness.err | tr '\n' ' '))"
     tries=0
-    until printf '%s' "$result" | DISPATCHER_SESSION="$id" dispatcher answer "$msg" -; do
+    until printf '%s' "$result" | DISPATCHER_SESSION="$id" dispatcher answer "$msg" - $failed; do
         tries=$((tries + 1))
         [ $tries -lt 12 ] || { rc=1; break; }
         sleep 5

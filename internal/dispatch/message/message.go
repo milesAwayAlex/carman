@@ -79,6 +79,11 @@ type Message struct {
 	// Again is set on a message as it is handed over a second time, after
 	// a wake that reached a harness that had gone; never in the log.
 	Again bool `json:"again,omitempty"`
+	// AgainAfterLimit: the sender asks that, if its run stops at the plan's
+	// usage limit, the dispatcher send it again once after the reset.
+	AgainAfterLimit bool `json:"again_after_limit,omitempty"`
+	// Resends is the message this one sends again, after a limit.
+	Resends string `json:"resends,omitempty"`
 }
 
 // Delivery is how a message reached a session, or who read it.
@@ -231,6 +236,9 @@ type Service struct {
 	// zero, no limit).
 	RunsPerSender int
 	RunsPeriod    time.Duration
+	// AgainAfterLimit sends every message whose run stops at the plan's
+	// usage limit again once after the reset, as if its sender had asked.
+	AgainAfterLimit bool
 	// Writers are, for each agent, the other agents that may write to it
 	// and its sessions (ADR 0047). An agent not here has none.
 	Writers map[string][]string
@@ -390,7 +398,19 @@ type Result struct {
 
 // Send sends a message as the caller, from the session it names (if any).
 func (s *Service) Send(ctx context.Context, c Caller, session, given, body, answers string) (Result, error) {
-	return s.send(ctx, c, session, given, body, answers, false)
+	return s.send(ctx, c, session, given, body, answers, false, SendOptions{})
+}
+
+// SendOptions are what a sender may ask beside the message.
+type SendOptions struct {
+	// AgainAfterLimit: sent again once after the reset if its run stops at
+	// the plan's usage limit.
+	AgainAfterLimit bool
+}
+
+// SendWith is Send with options.
+func (s *Service) SendWith(ctx context.Context, c Caller, session, given, body, answers string, o SendOptions) (Result, error) {
+	return s.send(ctx, c, session, given, body, answers, false, o)
 }
 
 // SendVouched sends a message as the caller to an addressee the dispatcher
@@ -398,20 +418,20 @@ func (s *Service) Send(ctx context.Context, c Caller, session, given, body, answ
 // its one line for the owner (ADR 0058). The lists of who may write to an
 // agent (ADR 0047) are not asked; every other rule of Send holds.
 func (s *Service) SendVouched(ctx context.Context, c Caller, session, to, body string) (Result, error) {
-	return s.send(ctx, c, session, to, body, "", true)
+	return s.send(ctx, c, session, to, body, "", true, SendOptions{})
 }
 
 // NewID is an id for something in the log: when, and six random bytes.
 func NewID() string { return newID() }
 
-func (s *Service) send(ctx context.Context, c Caller, session, given, body, answers string, vouched bool) (Result, error) {
+func (s *Service) send(ctx context.Context, c Caller, session, given, body, answers string, vouched bool, o SendOptions) (Result, error) {
 	if strings.TrimSpace(body) == "" {
 		return Result{}, fmt.Errorf("%w: a message needs a body", ErrInvalid)
 	}
 	if len(body) > 64<<10 {
 		return Result{}, fmt.Errorf("%w: a message is at most 64 KiB; put more in a file or a repository and send where it is", ErrInvalid)
 	}
-	m := Message{ID: newID(), Given: given, Body: body, Answers: answers, Sent: s.now().UTC()}
+	m := Message{ID: newID(), Given: given, Body: body, Answers: answers, Sent: s.now().UTC(), AgainAfterLimit: o.AgainAfterLimit}
 	if c.Host && session == "" {
 		// The place is not an agent that a message starts: an answer to
 		// "the place" would wait for whichever session there read it first.
@@ -695,8 +715,9 @@ func (s *Service) openTaskFor(ctx context.Context, session string) (string, bool
 }
 
 // Answer sends what a run started for a message ended with, as the answer
-// to it, unless the session answered it by itself.
-func (s *Service) Answer(ctx context.Context, c Caller, session, id, body string) (Result, error) {
+// to it, unless the session answered it by itself. A failed run whose last
+// words are the plan's usage limit is told as that (limited).
+func (s *Service) Answer(ctx context.Context, c Caller, session, id, body string, failed bool) (Result, error) {
 	answers, err := s.Store.Answers(ctx, id)
 	if err != nil {
 		return Result{}, err
@@ -705,6 +726,11 @@ func (s *Service) Answer(ctx context.Context, c Caller, session, id, body string
 		var m Message
 		if json.Unmarshal(r.Data, &m) == nil && m.Agent == c.Agent {
 			return Result{ID: m.ID, To: m.To, State: "answered", Detail: "the session answered it by itself"}, nil
+		}
+	}
+	if failed {
+		if reset, ok := LimitReset(body, s.now()); ok {
+			return s.limited(ctx, c, session, id, body, reset)
 		}
 	}
 	if strings.TrimSpace(body) == "" {

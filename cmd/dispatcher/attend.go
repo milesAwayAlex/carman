@@ -162,6 +162,8 @@ type attender struct {
 	now   func() time.Time
 	gone  map[string]int // passes a session's harness was found gone in a row
 	tries map[string]*attempt
+	// limited is, by session, the stop at the plan's limit last told.
+	limited map[string]string
 }
 
 const (
@@ -188,7 +190,7 @@ func (a *attender) logf(format string, args ...any) {
 }
 
 func (a *attender) load() {
-	a.gone, a.tries = map[string]int{}, map[string]*attempt{}
+	a.gone, a.tries, a.limited = map[string]int{}, map[string]*attempt{}, map[string]string{}
 	if b, err := os.ReadFile(a.state); err == nil {
 		_ = json.Unmarshal(b, &a.tries)
 	}
@@ -223,6 +225,9 @@ func (a *attender) pass(ctx context.Context) error {
 	for _, x := range at.Running {
 		believed[x.ID] = true
 		known, alive := harnessAlive(x.ID)
+		if alive {
+			a.limit(ctx, x.ID, or(x.Name, "no name"))
+		}
 		if !known || alive {
 			// No record (a harness started before this, or not by the
 			// image's hooks): no verdict, as before.
@@ -388,4 +393,78 @@ func attendCmd(ctx context.Context, flags map[string][]string) error {
 		case <-time.After(every):
 		}
 	}
+}
+
+// projectsDir is where the harness keeps its sessions' transcripts.
+func projectsDir() string {
+	if d := os.Getenv("DISPATCHER_PROJECTS_DIR"); d != "" {
+		return d
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".claude", "projects")
+}
+
+// limitStop is the stop at the plan's usage limit a transcript ends with,
+// if it does: the harness's own entry for an error from the model (an
+// assistant entry of model <synthetic>, isApiErrorMessage), its key and its
+// words. Anything said after it means the session went on.
+func limitStop(file string) (key, words string, ok bool) {
+	f, err := os.Open(file)
+	if err != nil {
+		return "", "", false
+	}
+	defer f.Close()
+	if st, err := f.Stat(); err == nil && st.Size() > 256<<10 {
+		f.Seek(st.Size()-256<<10, io.SeekStart)
+	}
+	b, _ := io.ReadAll(f)
+	lines := strings.Split(string(b), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		var e struct {
+			Type     string `json:"type"`
+			UUID     string `json:"uuid"`
+			APIError bool   `json:"isApiErrorMessage"`
+			Message  struct {
+				Model   string `json:"model"`
+				Content []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"message"`
+		}
+		if json.Unmarshal([]byte(lines[i]), &e) != nil || (e.Type != "assistant" && e.Type != "user") {
+			continue
+		}
+		if e.Type == "user" || !(e.APIError || e.Message.Model == "<synthetic>") {
+			return "", "", false
+		}
+		for _, c := range e.Message.Content {
+			words += c.Text
+		}
+		if _, ok := message.LimitReset(words, time.Now()); !ok || e.UUID == "" {
+			return "", "", false
+		}
+		return e.UUID, words, true
+	}
+	return "", "", false
+}
+
+// limit tells the dispatcher, once, that a running session stopped at the
+// plan's usage limit, so that whoever waits on it hears (ADR 0053).
+func (a *attender) limit(ctx context.Context, session, name string) {
+	files, _ := filepath.Glob(filepath.Join(projectsDir(), "*", session+".jsonl"))
+	if len(files) == 0 {
+		return
+	}
+	key, words, ok := limitStop(files[0])
+	if !ok || a.limited[session] == key {
+		return
+	}
+	var res struct{ Told int }
+	if err := a.c.Do(ctx, http.MethodPost, "/v1/attend/limited", nil, api.LimitedRequest{Session: session, Key: key, Words: words}, &res); err != nil {
+		a.logf("could not say session %s (%s) stopped at the plan's limit: %v", session, name, err)
+		return
+	}
+	a.limited[session] = key
+	a.logf("session %s (%s) stopped at the plan's usage limit; %d told", session, name, res.Told)
 }

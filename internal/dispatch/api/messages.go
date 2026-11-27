@@ -48,6 +48,11 @@ type SendRequest struct {
 	Body    string `json:"body"`
 	Answers string `json:"answers,omitempty"`
 	Session string `json:"session,omitempty"` // the sender's own session, if it is one
+	// AgainAfterLimit: send it again once after the reset if its run stops
+	// at the plan's usage limit.
+	AgainAfterLimit bool `json:"again_after_limit,omitempty"`
+	// Failed, for an answer: the run did not finish.
+	Failed bool `json:"failed,omitempty"`
 }
 
 func (s *Server) send(_ http.ResponseWriter, r *http.Request, _ Role) (any, error) {
@@ -62,7 +67,7 @@ func (s *Server) send(_ http.ResponseWriter, r *http.Request, _ Role) (any, erro
 	if req.To == "" && req.Answers == "" {
 		return nil, fmt.Errorf("%w: say who it is to, or which message it answers", errBadRequest)
 	}
-	res, err := m.Send(r.Context(), c, req.Session, req.To, req.Body, req.Answers)
+	res, err := m.SendWith(r.Context(), c, req.Session, req.To, req.Body, req.Answers, message.SendOptions{AgainAfterLimit: req.AgainAfterLimit})
 	return res, messageErr(err)
 }
 
@@ -75,7 +80,7 @@ func (s *Server) answer(_ http.ResponseWriter, r *http.Request, _ Role) (any, er
 	if err := decode(r, &req); err != nil {
 		return nil, err
 	}
-	res, err := m.Answer(r.Context(), c, req.Session, r.PathValue("id"), req.Body)
+	res, err := m.Answer(r.Context(), c, req.Session, r.PathValue("id"), req.Body, req.Failed)
 	return res, messageErr(err)
 }
 
@@ -203,6 +208,26 @@ var _ = context.Background
 type GoneRequest struct {
 	Session string `json:"session"`
 	Why     string `json:"why,omitempty"`
+}
+
+// LimitedRequest: a session's harness stopped at the plan's usage limit.
+type LimitedRequest struct {
+	Session string `json:"session"`
+	Key     string `json:"key"`
+	Words   string `json:"words"`
+}
+
+func (s *Server) limited(_ http.ResponseWriter, r *http.Request, _ Role) (any, error) {
+	m, c, err := s.messaging(r)
+	if err != nil {
+		return nil, err
+	}
+	var req LimitedRequest
+	if err := decode(r, &req); err != nil {
+		return nil, err
+	}
+	n, err := m.HarnessLimited(r.Context(), c, req.Session, req.Key, req.Words)
+	return map[string]int{"told": n}, messageErr(err)
 }
 
 type HoldRequest struct {

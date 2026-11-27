@@ -347,6 +347,9 @@ func (r *Router) Run(ctx context.Context) {
 			if err := r.Sweep(ctx); err != nil && ctx.Err() == nil {
 				r.Logger.Warn("looking for sessions whose pod has gone", "error", err)
 			}
+			if err := r.Service.SendAgain(ctx); err != nil && ctx.Err() == nil {
+				r.Logger.Warn("sending again what stopped at the plan's limit", "error", err)
+			}
 			sweep = time.Now()
 		}
 		select {

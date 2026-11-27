@@ -96,7 +96,8 @@ func messages(ctx context.Context, c *api.Client, cmd string, pos []string, flag
 		if err != nil {
 			return err
 		}
-		req := api.SendRequest{To: pos[0], Body: body, Answers: one(flags, "answers", ""), Session: me}
+		again := has(flags, "again-after-limit")
+		req := api.SendRequest{To: pos[0], Body: body, Answers: one(flags, "answers", ""), Session: me, AgainAfterLimit: again}
 		if cmd == "reply" {
 			req.To, req.Answers = "", pos[0]
 		}
@@ -205,7 +206,7 @@ func messages(ctx context.Context, c *api.Client, cmd string, pos []string, flag
 			return err
 		}
 		var res message.Result
-		if err := c.Do(ctx, http.MethodPost, "/v1/messages/"+url.PathEscape(pos[0])+"/answer", nil, api.SendRequest{Body: body, Session: me}, &res); err != nil {
+		if err := c.Do(ctx, http.MethodPost, "/v1/messages/"+url.PathEscape(pos[0])+"/answer", nil, api.SendRequest{Body: body, Session: me, Failed: has(flags, "failed")}, &res); err != nil {
 			return err
 		}
 		fmt.Printf("%s %s: %s\n", res.ID, res.State, res.Detail)
@@ -529,4 +530,10 @@ func peerLine(p message.Peer, me string) string {
 		mine = "  (you)"
 	}
 	return fmt.Sprintf("%-28s %s: %s%s", addr, who, what, mine)
+}
+
+// has says whether a switch was given.
+func has(flags map[string][]string, name string) bool {
+	_, ok := flags[name]
+	return ok
 }
