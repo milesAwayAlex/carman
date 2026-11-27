@@ -19,7 +19,15 @@ import (
 // it answers a message in the API's own shapes, streamed or whole, with the
 // headers that carry the plan's standing (ADR 0064), so that a trial's
 // proxy and meter can be tried end to end with no model and no credential.
-// It knows nothing, and says so: every answer is the word "ok".
+// It knows nothing, and says so: every answer is the word "ok", unless the
+// conversation's first message scripts it. A line there of the form
+//
+//	stand-in: use TOOL {"an": "input"}
+//
+// is a tool for it to ask for: the first such line in its first answer, the
+// next once that tool's result is back, and "ok" when the lines are used
+// up. It is how a check makes a real harness do what a run does (start a
+// subagent, leave a command running behind it) with no model.
 //
 //	dispatcher stand-in                     the service
 //	dispatcher stand-in ask [--model M] [--stream] [--url URL]
@@ -45,6 +53,7 @@ type standIn struct {
 	windows  map[string]standWindow
 	requests int
 	byModel  map[string]int
+	tokens   map[string]map[string]int // by model: input_tokens, output_tokens, as answered
 	denied   int
 	lastUA   string
 }
@@ -56,7 +65,7 @@ type standWindow struct {
 }
 
 func newStandIn(tokenFile string) *standIn {
-	return &standIn{tokenFile: tokenFile, now: time.Now, status: "allowed", byModel: map[string]int{},
+	return &standIn{tokenFile: tokenFile, now: time.Now, status: "allowed", byModel: map[string]int{}, tokens: map[string]map[string]int{},
 		windows: map[string]standWindow{"5h": {Utilization: 0.1, ResetIn: 3 * 3600}, "7d": {Utilization: 0.2, ResetIn: 4 * 86400}}}
 }
 
@@ -118,7 +127,7 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"requests": s.requests, "by_model": s.byModel, "refused_for_the_credential": s.denied, "last_user_agent": s.lastUA})
+		_ = json.NewEncoder(w).Encode(map[string]any{"requests": s.requests, "by_model": s.byModel, "tokens": s.tokens, "refused_for_the_credential": s.denied, "last_user_agent": s.lastUA})
 		return
 	}
 	// The API's own paths take the credential.
@@ -144,8 +153,12 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<20))
 	var req struct {
-		Model  string `json:"model"`
-		Stream bool   `json:"stream"`
+		Model    string `json:"model"`
+		Stream   bool   `json:"stream"`
+		Messages []struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
 	}
 	if json.Unmarshal(body, &req) != nil || req.Model == "" {
 		apiError(w, http.StatusBadRequest, "invalid_request_error", "a message names its model")
@@ -169,11 +182,40 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// the API's own order, "type" first: what reads a stream as it passes
 	// (the meter) tells an event by its first bytes.
 	in := len(body) / 4
+	s.mu.Lock()
+	if s.tokens[req.Model] == nil {
+		s.tokens[req.Model] = map[string]int{}
+	}
+	s.tokens[req.Model]["input_tokens"] += in
+	s.tokens[req.Model]["output_tokens"] += 5
+	s.mu.Unlock()
 	id := "msg_standin_" + strconv.FormatInt(s.now().UnixNano(), 36)
+	// The script, if the conversation has one: the tool to ask for now.
+	var first string
+	asked := 0
+	for i, m := range req.Messages {
+		text, uses := standInContent(m.Content)
+		if i == 0 {
+			first = text
+		}
+		if m.Role == "assistant" {
+			asked += uses
+		}
+	}
+	block, blockStart, blockDelta, stop := `{"type":"text","text":"ok"}`, `{"type":"text","text":""}`, `{"type":"text_delta","text":"ok"}`, "end_turn"
+	if script := standInScript(first); asked < len(script) {
+		use := script[asked]
+		toolID := "toolu_standin_" + strconv.FormatInt(s.now().UnixNano(), 36)
+		block = fmt.Sprintf(`{"type":"tool_use","id":%q,"name":%q,"input":%s}`, toolID, use.tool, use.input)
+		blockStart = fmt.Sprintf(`{"type":"tool_use","id":%q,"name":%q,"input":{}}`, toolID, use.tool)
+		partial, _ := json.Marshal(string(use.input))
+		blockDelta = fmt.Sprintf(`{"type":"input_json_delta","partial_json":%s}`, partial)
+		stop = "tool_use"
+	}
 	const usage = `{"input_tokens":%d,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":%d,"service_tier":"standard"}`
 	if !req.Stream {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"id":%q,"type":"message","role":"assistant","model":%q,"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","stop_sequence":null,"usage":`+usage+"}\n", id, req.Model, in, 5)
+		fmt.Fprintf(w, `{"id":%q,"type":"message","role":"assistant","model":%q,"content":[%s],"stop_reason":%q,"stop_sequence":null,"usage":`+usage+"}\n", id, req.Model, block, stop, in, 5)
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -185,13 +227,55 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	event("message_start", fmt.Sprintf(`{"type":"message_start","message":{"id":%q,"type":"message","role":"assistant","model":%q,"content":[],"stop_reason":null,"stop_sequence":null,"usage":`+usage+`}}`, id, req.Model, in, 1))
-	event("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`)
+	event("content_block_start", `{"type":"content_block_start","index":0,"content_block":`+blockStart+`}`)
 	event("ping", `{"type":"ping"}`)
 	time.Sleep(50 * time.Millisecond) // a stream comes in pieces
-	event("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`)
+	event("content_block_delta", `{"type":"content_block_delta","index":0,"delta":`+blockDelta+`}`)
 	event("content_block_stop", `{"type":"content_block_stop","index":0}`)
-	event("message_delta", fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":%d,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5}}`, in))
+	event("message_delta", fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":%q,"stop_sequence":null},"usage":{"input_tokens":%d,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5}}`, stop, in))
 	event("message_stop", `{"type":"message_stop"}`)
+}
+
+// standInUse is one line of a conversation's script.
+type standInUse struct {
+	tool  string
+	input json.RawMessage
+}
+
+// standInScript is the script in a conversation's first message.
+func standInScript(text string) []standInUse {
+	var script []standInUse
+	for _, line := range strings.Split(text, "\n") {
+		rest, ok := strings.CutPrefix(strings.TrimSpace(line), "stand-in: use ")
+		if !ok {
+			continue
+		}
+		tool, input, _ := strings.Cut(rest, " ")
+		if input = strings.TrimSpace(input); !json.Valid([]byte(input)) || !strings.HasPrefix(input, "{") {
+			input = "{}"
+		}
+		script = append(script, standInUse{tool: tool, input: json.RawMessage(input)})
+	}
+	return script
+}
+
+// standInContent is a message's text and how many tools it asks for; its
+// content is a string or a list of blocks.
+func standInContent(raw json.RawMessage) (text string, uses int) {
+	if json.Unmarshal(raw, &text) == nil {
+		return text, 0
+	}
+	var blocks []struct{ Type, Text string }
+	_ = json.Unmarshal(raw, &blocks)
+	for _, b := range blocks {
+		switch b.Type {
+		case "text":
+			text += b.Text + "\n"
+		case "tool_use":
+			uses++
+		}
+	}
+	return text, uses
 }
 
 func standInCmd(ctx context.Context, args []string) error {

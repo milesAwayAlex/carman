@@ -39,36 +39,127 @@ type attempt struct {
 	// What the harness's result says the attempt used, and the last
 	// reading of the plan's limits it saw, when it says them.
 	usage     json.RawMessage
+	basis     string
 	rateLimit json.RawMessage
 }
 
+// How a run's count of tokens was made, from the most to the least whole.
+const (
+	// The harness's own count by model in its last result: every call its
+	// process made, a subagent's and its small model's among them.
+	basisWhole = "whole"
+	// A harness that gives no count by model: its results' counts added
+	// up, which leave out what a subagent used.
+	basisResults = "results"
+	// The run ended with no result after the calls counted (it was cut
+	// short): what its stream showed of each answer as it began, so less
+	// than it used.
+	basisStream = "stream"
+)
+
 // harnessResult reads what the harness printed: its result, as one JSON
 // object or as the last "result" line of a stream, and the stream's last
-// rate_limit_event.
+// rate_limit_event. Usage is what the whole run used, by kind of token,
+// and Basis how that was counted. A harness goes on after its result when
+// something it left running ends, and prints a result for each part: a
+// result's own usage is its part's, its count by model the process's.
 func harnessResult(out []byte) (result struct {
 	Result  string          `json:"result"`
 	Cost    float64         `json:"total_cost_usd"`
 	IsError bool            `json:"is_error"`
 	Usage   json.RawMessage `json:"usage"`
+	Models  map[string]struct {
+		In         int64 `json:"inputTokens"`
+		Out        int64 `json:"outputTokens"`
+		CacheRead  int64 `json:"cacheReadInputTokens"`
+		CacheWrite int64 `json:"cacheCreationInputTokens"`
+	} `json:"modelUsage"`
+	Basis string `json:"-"`
 }, rateLimit json.RawMessage, ok bool) {
-	if json.Unmarshal(bytes.TrimSpace(out), &result) == nil {
+	kinds := []string{"input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"}
+	add := func(to map[string]int64, raw json.RawMessage) {
+		var u map[string]any
+		if json.Unmarshal(raw, &u) != nil {
+			return
+		}
+		for _, k := range kinds {
+			if n, isNumber := u[k].(float64); isNumber {
+				to[k] += int64(n)
+			}
+		}
+	}
+	results := map[string]int64{} // the results' own counts, added up
+	after := map[string]int64{}   // the stream's answers since the last result
+	counted := map[string]bool{}
+	finish := func() {
+		total := map[string]int64{}
+		switch {
+		case ok && len(result.Models) > 0:
+			result.Basis = basisWhole
+			for _, m := range result.Models {
+				total[kinds[0]] += m.In
+				total[kinds[1]] += m.Out
+				total[kinds[2]] += m.CacheWrite
+				total[kinds[3]] += m.CacheRead
+			}
+		case ok:
+			result.Basis = basisResults
+			total = results
+		}
+		if len(after) > 0 {
+			result.Basis = basisStream
+			for k, n := range after {
+				total[k] += n
+			}
+		}
+		if len(total) == 0 {
+			result.Usage = nil
+			return
+		}
+		result.Usage, _ = json.Marshal(total)
+	}
+	// One object, and not a stream of one line that is no result.
+	var one struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(bytes.TrimSpace(out), &one) == nil && (one.Type == "" || one.Type == "result") &&
+		json.Unmarshal(bytes.TrimSpace(out), &result) == nil {
+		ok = true
+		add(results, result.Usage)
+		finish()
 		return result, nil, true
 	}
 	for _, line := range bytes.Split(out, []byte("\n")) {
 		var l struct {
 			Type      string          `json:"type"`
 			RateLimit json.RawMessage `json:"rate_limit_info"`
+			Message   struct {
+				ID    string          `json:"id"`
+				Usage json.RawMessage `json:"usage"`
+			} `json:"message"`
 		}
 		if json.Unmarshal(line, &l) != nil {
 			continue
 		}
 		switch l.Type {
 		case "result":
-			ok = json.Unmarshal(line, &result) == nil
+			result.Models, result.Usage = nil, nil
+			if ok = json.Unmarshal(line, &result) == nil; ok {
+				add(results, result.Usage)
+				after = map[string]int64{}
+			}
+		case "assistant":
+			// One answer is a line for each of its blocks, all with its
+			// id and its count.
+			if l.Message.ID != "" && !counted[l.Message.ID] {
+				counted[l.Message.ID] = true
+				add(after, l.Message.Usage)
+			}
 		case "rate_limit_event":
 			rateLimit = l.RateLimit
 		}
 	}
+	finish()
 	return result, rateLimit, ok
 }
 
@@ -105,7 +196,7 @@ var runHarness = func(c *command, model, prompt string) attempt {
 		// Not the harness's own report: take what was printed as it is.
 		result.Result = strings.TrimSpace(string(out))
 	}
-	a := attempt{report: result.Result, cost: result.Cost, failed: err != nil || result.IsError, usage: result.Usage, rateLimit: rateLimit}
+	a := attempt{report: result.Result, cost: result.Cost, failed: err != nil || result.IsError, usage: result.Usage, basis: result.Basis, rateLimit: rateLimit}
 	if a.failed && a.report == "" {
 		a.report = strings.TrimSpace(stderr.String())
 	}
@@ -565,19 +656,24 @@ type runUsage struct {
 	Agent string `json:"agent,omitempty"`
 	// The pod it ran in, where it ran in one: what the egress proxy's
 	// record of model use is kept by, to set the two side by side (ADR 0050).
-	Pod       string           `json:"pod,omitempty"`
-	Routine   string           `json:"routine"`
-	Task      string           `json:"task,omitempty"`
-	Message   string           `json:"message,omitempty"`
-	Models    []string         `json:"models"`
-	Attempts  int              `json:"attempts"`
-	Cost      float64          `json:"cost_usd"`
-	Tokens    map[string]int64 `json:"tokens,omitempty"`
-	RateLimit json.RawMessage  `json:"rate_limit,omitempty"`
-	Outcome   string           `json:"outcome"`
-	Error     string           `json:"error,omitempty"`
-	Started   time.Time        `json:"started"`
-	Ended     time.Time        `json:"ended"`
+	Pod      string           `json:"pod,omitempty"`
+	Routine  string           `json:"routine"`
+	Task     string           `json:"task,omitempty"`
+	Message  string           `json:"message,omitempty"`
+	Models   []string         `json:"models"`
+	Attempts int              `json:"attempts"`
+	Cost     float64          `json:"cost_usd"`
+	Tokens   map[string]int64 `json:"tokens,omitempty"`
+	// How the tokens were counted: whole (the harness's count of every
+	// call its process made), results (its results' own counts, which
+	// leave a subagent's out) or stream (it ended with no result: less
+	// than it used). The least whole of its attempts'.
+	Basis     string          `json:"basis,omitempty"`
+	RateLimit json.RawMessage `json:"rate_limit,omitempty"`
+	Outcome   string          `json:"outcome"`
+	Error     string          `json:"error,omitempty"`
+	Started   time.Time       `json:"started"`
+	Ended     time.Time       `json:"ended"`
 }
 
 func (u *runUsage) add(model string, a attempt) {
@@ -590,6 +686,9 @@ func (u *runUsage) add(model string, a attempt) {
 				u.Tokens[k] += int64(n)
 			}
 		}
+	}
+	if rank := map[string]int{basisWhole: 1, basisResults: 2, basisStream: 3}; rank[a.basis] > rank[u.Basis] {
+		u.Basis = a.basis
 	}
 	if len(a.rateLimit) > 0 {
 		u.RateLimit = a.rateLimit
@@ -618,7 +717,7 @@ func (c *command) recordRun(file, msg, model, since string, failed bool) {
 	} else if model = strings.TrimSpace(strings.Split(model, ",")[0]); model == "" {
 		model = "unknown"
 	}
-	used.add(model, attempt{cost: result.Cost, usage: result.Usage, rateLimit: rateLimit})
+	used.add(model, attempt{cost: result.Cost, usage: result.Usage, basis: result.Basis, rateLimit: rateLimit})
 	used.Cost = result.Cost
 	if failed || !ok || result.IsError {
 		used.Outcome = "not finished"

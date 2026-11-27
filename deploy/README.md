@@ -500,7 +500,17 @@ the pod has been quiet for `egress.model.idle` (2m) or has been asking for
     scripts/deploy.sh CONTEXT dispatch log --type model.usage --last 20
 
 `dispatch status` sets each run's own `run.usage` against the proxy's
-record of the pod it ran in, and shows both where they differ. Measured
+record of the pod it ran in, and shows both where they differ, with the
+kind of difference it is. A run counts every call its harness's process
+made (the count by model in the harness's last result: a subagent's calls
+and those after an earlier result are in it) and says how it counted
+(`basis`: `whole`; `results`, a harness with no count by model; `stream`,
+a run cut short before a result, which counts what its stream had shown).
+A difference that the way of counting explains is said as such (a run cut
+short; a run recorded before 2026-11-27, which counted the last result's
+own usage); `DISAGREES` is kept for one it does not: a run that counted
+the whole and differs, or one that counted more than the proxy saw. The
+proxy's record is the one to trust. Measured
 2026-11-26: they agreed to the token, for a consolidation run and for each
 trial request (the hourly reading reports a cost, not tokens). The model is reached only while the proxy and its meter are
 up, and the proxy's pod restarts when the dispatcher's image changes.

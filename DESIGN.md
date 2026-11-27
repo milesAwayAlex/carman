@@ -232,7 +232,9 @@ A trial (ADR 0054) may have the chart's egress proxy and meter, made
 from the checkout (`TRIAL_PROXY`), so that a change to either is tried in
 the sandbox. Its meter sends to a stand-in for the model's API
 (`dispatcher stand-in`: the API's shapes, the headers of ADR 0064, one
-credential, the word "ok"), or on to the installation's meter for trials
+credential, the word "ok", or a tool asked for where the conversation's
+first message scripts it, so that a real harness does what a run does with
+no model), or on to the installation's meter for trials
 (ADR 0065), where the trial's proxy is the caller.
 
 ### Triggers (ADR 0063, proposed)
@@ -626,7 +628,10 @@ which are the weakest parts. Three things are meant to keep that manageable:
   answers what each agent's pod used, by model and kind of token. Those
   records reach the dispatcher's log as `model.usage`, from the proxy's pod
   as the meter role, never through an agent; `dispatch status` shows them
-  by agent beside what runs say of themselves, and where the two disagree.
+  by agent beside what runs say of themselves, and where the two differ,
+  with the kind of difference: a run counts every call its harness's
+  process made and says how it counted (`basis`), so that one cut short,
+  or recorded the old way, is told from one that disagrees.
   An agent may be held there to a limit in weighted tokens a day or a pod
   (`proxyLimit`, the owner's `dispatcher limit`), a call over it refused
   with a 402 the harness shows as it is (ADR
