@@ -92,6 +92,8 @@ dispatcher limit [AGENT [--day N] [--pod N] | AGENT off | AGENT definition]
                                           the owner's: agents' limits at the proxy, in weighted tokens, and
                                           their standing; set, lift, or go back to the definition's
 dispatcher meter                          the egress proxy's meter of model use (ADR 0050)
+dispatcher ready [--for 20s] [-- COMMAND ARG...]   first in a pod: wait until the dispatcher, the memory and the proxy
+                                          answer (a pod just made is not known to the network at once), then run COMMAND
 dispatcher source [--print]               a watch's job (ADR 0063): ask the source WATCH describes and tell the dispatcher
                                           a digest of what was kept; --print only prints it
 
@@ -160,6 +162,9 @@ func run(ctx context.Context, args []string) error {
 			return err
 		}
 		return messages(ctx, mc, args[0], pos, flags)
+	}
+	if args[0] == "ready" {
+		return readyCmd(ctx, args[1:])
 	}
 	if args[0] == "source" {
 		_, flags, err := parse(args[1:])

@@ -158,7 +158,7 @@ if command -v helm >/dev/null; then
     watched=(helm template t charts/carman --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 --set backup.repository=r
         --set-json 'dispatcher.watches=[{"name":"page","cron":"*/30 * * * *","url":"https://example.com/"}]')
     job="$("${watched[@]}" --show-only templates/dispatched.yaml | awk '/name: watch-page$/,0')"
-    grep -q 'command: \["dispatcher", "source"\]' <<<"$job" && ! grep -qE 'CLAUDE_CODE_OAUTH_TOKEN|CMEM_TOKEN|secretKeyRef' <<<"$job" ||
+    grep -q 'command: \["dispatcher", "ready", "--", "dispatcher", "source"\]' <<<"$job" && ! grep -qE 'CLAUDE_CODE_OAUTH_TOKEN|CMEM_TOKEN|secretKeyRef' <<<"$job" ||
         { echo "a watch's job is not the watch alone: it has a credential, or does not run the watch" >&2; exit 1; }
     "${watched[@]}" --show-only templates/dispatcher.yaml | grep -F '\"class\":\"watch-page\"' >/dev/null || { echo "the chart does not schedule a watch" >&2; exit 1; }
     if "${watched[@]}" --set-json 'agents=[{"name":"watch-page","routines":["x"]}]' >/dev/null 2>&1; then
@@ -176,7 +176,7 @@ if command -v helm >/dev/null; then
     opened="$("${metered[@]}" --set egress.model.trials.enabled=true)"
     grep -A1 'name: METER_TRIAL_MODELS' <<<"$opened" | grep -qF "value: \"$(sed -n 's/^  model: \(claude-[a-z0-9-]*\)$/\1/p' charts/carman/values.yaml | head -1)\"" ||
         { echo "trials are not kept to the cheapest model by default" >&2; exit 1; }
-    [ "$(grep -c 'name: egress-meter-reads-trials' <<<"$opened")" = 3 ] && grep -q 'name: trial-agents-reach-the-model' <<<"$opened" && grep -q 'name: trial-agents-reach-the-meter' <<<"$opened" ||
+    [ "$(grep -c 'name: egress-meter-reads-trials' <<<"$opened")" = 3 ] && grep -q 'name: trial-agents-reach-the-model' <<<"$opened" && awk '/name: proxy-admits-only-agents/,/^---/' <<<"$opened" | grep -q 'reaches-the-model' ||
         { echo "the meter's right over the sandbox's pods, or the trials' way to it, is not rendered" >&2; exit 1; }
     awk '/name: trial-agents-reach-the-model/,/^---/' <<<"$opened" | grep -q 'port: 3131' && ! awk '/name: trial-agents-reach-the-model/,/^---/' <<<"$opened" | grep -q 3128 ||
         { echo "trials are let out to more than the meter's port for them" >&2; exit 1; }
@@ -184,6 +184,22 @@ if command -v helm >/dev/null; then
         echo "the chart opens the model to trials with no credential at the proxy" >&2
         exit 1
     fi
+    # R5, who comes in (ADR new-who-comes-in-and-a-new-pods-first-second): the
+    # proxy admits only the pods that leave through it, isolated or not; an
+    # isolated namespace with a service behind a load balancer names who
+    # that is; and the local cluster's values are isolated.
+    for iso in true false; do
+        helm template t charts/carman --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 --set isolated=$iso --show-only templates/egress.yaml |
+            awk '/name: proxy-admits-only-agents/,/^---/' | grep -q 'app.kubernetes.io/component: agent' || { echo "the proxy is open to more than agents (isolated: $iso)" >&2; exit 1; }
+    done
+    if helm template t charts/carman --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 --set memory.service.type=LoadBalancer >/dev/null 2>&1; then
+        echo "the chart renders an isolated memory service reached from outside with nobody admitted" >&2
+        exit 1
+    fi
+    local_rules="$(helm template t charts/carman -f deploy/values/local.yaml --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 --set backup.repository=r | awk '/^kind: NetworkPolicy/{getline; getline; print $2}' | sort | tr '\n' ' ')"
+    for rule in only-this-namespace-comes-in memory-admits-the-owners-machine dispatcher-admits-the-owners-machine proxy-admits-only-agents dispatcher-db-admits-only-the-dispatcher; do
+        case " $local_rules " in *" $rule "*) ;; *) echo "the local cluster's values do not render the rule $rule" >&2; exit 1 ;; esac
+    done
     helm template t charts/carman -f deploy/values/trial.yaml -f deploy/values/trial-agents.yaml --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 >/dev/null ||
         { echo "the trial's values for agents that reach the model do not render" >&2; exit 1; }
     helm template t charts/carman -f deploy/values/trial.yaml -f deploy/values/trial-triggers.yaml --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 |

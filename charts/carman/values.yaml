@@ -8,9 +8,11 @@ podLabels: {}
 # Which nodes every pod runs on. Empty leaves it to the cluster.
 nodeSelector: {}
 tolerations: []
-# Pods in this namespace accept connections only from one another. Whatever
-# comes from outside the cluster has to arrive inside a pod (a tunnel's
-# container beside the memory service) or this has to be off.
+# Pods in this namespace accept connections only from one another, and by
+# the ways in that are named: a service's admitFrom, for one reached through
+# a load balancer; the proxy's port for trials. Off, every pod here but the
+# database and the proxy is open to whatever else runs on the cluster. The
+# proxy admits only the pods that leave through it, either way.
 isolated: true
 
 memory:
@@ -29,6 +31,11 @@ memory:
     # the cluster's load balancer is how a laptop reaches the service.
     type: ClusterIP
     port: 8377
+    # Where the namespace is isolated, who a LoadBalancer's traffic comes
+    # from, as the pod sees it: CIDRs, or pods of another namespace by their
+    # labels ({namespace: N, podLabels: {...}}: a cluster's load balancer
+    # that runs as pods). Required then.
+    admitFrom: []
   resources:
     requests: {cpu: 10m, memory: 32Mi}
     limits: {memory: 256Mi}
@@ -233,9 +240,11 @@ dispatcher:
     # the sessions there (ADR 0049).
     type: ClusterIP
     port: 8379
-    # Where the cluster isolates this namespace (`isolated`), the addresses
-    # a LoadBalancer is reached from (CIDRs, as the dispatcher sees them).
-    # Required then; nothing outside the namespace comes in otherwise.
+    # Where the cluster isolates this namespace (`isolated`), who a
+    # LoadBalancer's traffic comes from, as the dispatcher sees it: CIDRs,
+    # or pods of another namespace by their labels ({namespace: N,
+    # podLabels: {...}}). Required then; nothing outside the namespace comes
+    # in otherwise.
     admitFrom: []
   # Sessions on the owner's own machine (ADR 0049): they hold the host
   # role's token, and are PLACE/NAME to everyone else. `place` names the

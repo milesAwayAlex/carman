@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -113,11 +112,7 @@ func sourceCmd(ctx context.Context, flags map[string][]string) error {
 	if err := dec.Decode(&w); err != nil || w.Name == "" {
 		return fmt.Errorf("WATCH is a JSON object: name, url or command, keep, atLeast, timeout (%v)", err)
 	}
-	// A pod just made may be refused its first connections, until the
-	// cluster's network knows it: a look that could not connect is tried
-	// again for a little while. A source that answers badly is not.
-	var ob trigger.Observation
-	err := retry(ctx, func() (err error) { ob, err = look(ctx, w); return err })
+	ob, err := look(ctx, w)
 	if err != nil {
 		return fmt.Errorf("watch %s: %w", w.Name, err)
 	}
@@ -130,9 +125,7 @@ func sourceCmd(ctx context.Context, flags map[string][]string) error {
 		return err
 	}
 	var out struct{ Changed bool }
-	if err := retry(ctx, func() error {
-		return c.Do(ctx, http.MethodPost, "/v1/watches/"+url.PathEscape(w.Name), nil, ob, &out)
-	}); err != nil {
+	if err := c.Do(ctx, http.MethodPost, "/v1/watches/"+url.PathEscape(w.Name), nil, ob, &out); err != nil {
 		return err
 	}
 	said := "as it was"
@@ -157,22 +150,4 @@ func sourceClient() *http.Client {
 		}
 	}
 	return &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, TLSClientConfig: &tls.Config{RootCAs: pool}}}
-}
-
-// retry runs f again, a few times two seconds apart, while it fails for
-// not connecting.
-func retry(ctx context.Context, f func() error) error {
-	var err error
-	for try := 0; try < 6; try++ {
-		var netErr *net.OpError
-		if err = f(); err == nil || !errors.As(err, &netErr) || netErr.Op != "dial" {
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			return err
-		case <-time.After(2 * time.Second):
-		}
-	}
-	return err
 }

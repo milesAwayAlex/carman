@@ -95,6 +95,10 @@ PY
 }
 
 agent_setup() {
+    # A pod just made is not known to the cluster's network at once, and
+    # what it asks first is refused: wait here, once, until the dispatcher,
+    # the memory and the proxy answer (seconds at most; it goes on anyway).
+    ! command -v dispatcher >/dev/null || dispatcher ready || true
     # A cloud provider's command-line tools take their identity from a file
     # the chart mounts when the agent has one (ADR 0031): no key, a token
     # exchanged for the pod's own.

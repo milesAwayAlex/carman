@@ -138,15 +138,18 @@ spec:
               app: egress
       ports:
         - {protocol: TCP, port: {{ .Values.egress.model.trials.port }}}
-{{- if .Values.isolated }}
+{{- end }}
 ---
-# And into the installation's namespace, which nothing outside otherwise
-# enters: those pods, to that port of the proxy's pod. The namespace's own
-# pods reach the proxy as before.
+# Who reaches the proxy, which puts a credential on what it passes: the
+# pods that leave through it (agents and the jobs beside them), on its
+# port, and nobody else, in this namespace or outside it. Whether or not
+# the namespace is isolated: this is the one pod here that must never be
+# open to the cluster.{{ if $trials }} And agents of trials in the sandbox, on the
+# meter's port for them, which serves the model only.{{ end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: trial-agents-reach-the-meter
+  name: proxy-admits-only-agents
   namespace: {{ .Release.Namespace }}
 spec:
   podSelector:
@@ -155,7 +158,12 @@ spec:
   policyTypes: ["Ingress"]
   ingress:
     - from:
-        - podSelector: {}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: agent
+      ports:
+        - {protocol: TCP, port: 3128}
+    {{- if $trials }}
     - from:
         - namespaceSelector:
             matchLabels:
@@ -165,8 +173,7 @@ spec:
               reaches-the-model: "true"
       ports:
         - {protocol: TCP, port: {{ .Values.egress.model.trials.port }}}
-{{- end }}
-{{- end }}
+    {{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment

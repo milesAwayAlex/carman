@@ -6,14 +6,22 @@
 memory:
   service:
     type: LoadBalancer
+    # k3s's service load balancer is a pod per service in kube-system,
+    # which passes the laptop's connection on: that pod is what the
+    # service's pod sees. (scripts/check-ingress.sh CONTEXT source says what
+    # a pod sees on the cluster at hand; a CIDR can stand here instead.)
+    admitFrom:
+      - {namespace: kube-system, podLabels: {svccontroller.k3s.cattle.io/svcname: cmem}}
 # The dispatcher too, on port 8379, for the sessions on the owner's own
 # machine (ADR 0049): http://127.0.0.1:8379.
 dispatcher:
   service:
     type: LoadBalancer
-# The laptop comes in through the cluster's load balancer, which is not a pod
-# of this namespace.
-isolated: false
+    admitFrom:
+      - {namespace: kube-system, podLabels: {svccontroller.k3s.cattle.io/svcname: dispatcher}}
+# The namespace is isolated (the chart's default): nothing else on the
+# cluster, the agents' sandbox included, reaches the memory, the dispatcher
+# or an agent's pod. The laptop comes in by the load balancer, named above.
 
 # On a laptop the proxy's way out is the laptop's own, private networks
 # included (a VPN's routes, for one), and an agent may need them. What stays

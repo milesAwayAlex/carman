@@ -1,20 +1,45 @@
 {{- if .Values.isolated }}
-# On a cluster shared with other workloads the role tokens should not be the
-# only thing between them and the memory: nothing outside this namespace
-# connects to a pod in it.
+# The role tokens should not be the only thing between the memory, the
+# dispatcher and whatever else runs on the cluster: nothing outside this
+# namespace connects to a pod in it, but by a way in that is named (a
+# service's admitFrom, the trials' port of the proxy).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: only-this-namespace-comes-in
   namespace: {{ .Release.Namespace }}
 spec:
-  # The dispatcher's database admits only the dispatcher (dispatcher.yaml);
-  # this would widen that to the whole namespace.
+  # The dispatcher's database admits only the dispatcher (dispatcher.yaml),
+  # and the proxy only agents (egress.yaml); this would widen both to the
+  # whole namespace.
   podSelector:
     matchExpressions:
-      - {key: app, operator: NotIn, values: [dispatcher-db]}
+      - {key: app, operator: NotIn, values: [dispatcher-db, egress]}
   policyTypes: ["Ingress"]
   ingress:
     - from:
         - podSelector: {}
+{{- if ne .Values.memory.service.type "ClusterIP" }}
+{{- if not .Values.memory.service.admitFrom }}
+{{- fail "memory.service.admitFrom: this namespace is isolated, so a memory service reached from outside the cluster needs who it is reached from (or isolated: false, which leaves every pod here open to the cluster)" }}
+{{- end }}
+---
+# The owner's machine reaches the memory through the load balancer, from
+# these only, on the service's port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: memory-admits-the-owners-machine
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: cmem
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        {{- include "admit.peers" .Values.memory.service.admitFrom | nindent 8 }}
+      ports:
+        - {protocol: TCP, port: {{ .Values.memory.service.port }}}
+{{- end }}
 {{- end }}

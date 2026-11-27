@@ -81,7 +81,8 @@ spec:
           containers:
             - name: watch
               {{- include "agent.jobImage" $ | nindent 14 }}
-              command: ["dispatcher", "source"]
+              # First, until the network knows this pod; then the look.
+              command: ["dispatcher", "ready", "--", "dispatcher", "source"]
               env:
                 - name: AGENT_NAME
                   value: watch-{{ .name }}

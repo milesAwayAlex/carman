@@ -223,3 +223,22 @@ named as a watch's job is: the dispatcher knows a watch's job by that name. */ -
 {{- end }}
 {{- join "," $names }}
 {{- end -}}
+
+{{- /* The peers a service reached from outside the namespace admits
+(SERVICE.service.admitFrom): each a CIDR, as the pod sees the caller, or
+pods of another namespace by their labels ({namespace, podLabels}), which
+is what a cluster's own load balancer is where it runs as pods. */ -}}
+{{- define "admit.peers" -}}
+{{- range . }}
+{{- if kindIs "string" . }}
+- ipBlock: {cidr: {{ . | quote }}}
+{{- else }}
+- namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: {{ required "an admitFrom entry that is not a CIDR names a namespace" .namespace | quote }}
+  podSelector:
+    matchLabels:
+      {{- toYaml (required "an admitFrom entry that names a namespace names the pods' labels" .podLabels) | nindent 6 }}
+{{- end }}
+{{- end }}
+{{- end -}}

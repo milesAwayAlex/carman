@@ -409,9 +409,7 @@ spec:
   policyTypes: ["Ingress"]
   ingress:
     - from:
-        {{- range .Values.dispatcher.service.admitFrom }}
-        - ipBlock: {cidr: {{ . | quote }}}
-        {{- end }}
+        {{- include "admit.peers" .Values.dispatcher.service.admitFrom | nindent 8 }}
       ports:
         - {protocol: TCP, port: 8379}
 {{- end }}
