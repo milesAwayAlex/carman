@@ -96,7 +96,9 @@ available to the agents' credential). A message for a session that is not
 running becomes a task that resumes it as its agent, headless, under
 ADR 0040's one-writer lock, and its last words go back as the answer; one
 for an agent by name starts a new conversation; one for the owner is a
-notice. The owner writes with `scripts/deploy.sh CONTEXT dispatch send`.
+notice. The owner writes with `scripts/deploy.sh CONTEXT dispatch send`,
+which runs the client on the owner's machine with the owner's token; the
+token is kept only there, and the dispatcher knows its SHA-256 (ADR 0051).
 (2026-11-25) Such a run has its agent's time limit (the Job's deadline,
 plus ten minutes; thirty minutes where there is none) and records its cost
 as `run.usage`, as a routine's run does.
@@ -590,7 +592,8 @@ Decisions are recorded one per file in `docs/adr/`. The index,
    and a first admission rule. Then (ADR 0045): messages between
    sessions, agents and the owner, each pod known by a token of its own.
    Then (ADR 0049): the owner's own sessions, as a place with a
-   token of its own, through the same hooks.
+   token of its own, through the same hooks. Then (ADR 0051, proposed): the
+   owner's token off the cluster, which holds only its hash.
    Next: move the scheduled agents onto the dispatcher one by one, switch
    notices on, and pace by a curve to reset.
 

@@ -11,7 +11,9 @@
 //	dispatcher meter                      the egress proxy's meter of model use (ADR 0050; settings in meter.go)
 //
 // The client reads DISPATCHER_URL and DISPATCHER_TOKEN. The service reads
-// DISPATCHER_TOKENS (role=token,...), DISPATCHER_LISTEN (:8379), the
+// DISPATCHER_TOKENS (role=token,..., every role but the owner),
+// DISPATCHER_OWNER_SHA256 (the hex SHA-256 of the owner's token, ADR 0051),
+// DISPATCHER_LISTEN (:8379), the
 // database from DISPATCHER_DATABASE_URL or else libpq's PG* variables,
 // DISPATCHER_MAX_RUNNING (1), DISPATCHER_RETENTION (720h, task history),
 // DISPATCHER_RETENTION_UNOWNED (4320h, events that belong to no task),
@@ -31,6 +33,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -367,6 +371,10 @@ func serve(ctx context.Context) error {
 	if t := os.Getenv("DISPATCHER_HOST_TOKEN"); t != "" {
 		tokens[t] = api.RoleHost
 	}
+	ownerSHA256, err := ownerHash(tokens, os.Getenv("DISPATCHER_OWNER_SHA256"))
+	if err != nil {
+		return err
+	}
 	maxRunning := 1
 	if v := os.Getenv("DISPATCHER_MAX_RUNNING"); v != "" {
 		if maxRunning, err = strconv.Atoi(v); err != nil || maxRunning < 1 {
@@ -515,7 +523,7 @@ func serve(ctx context.Context) error {
 		go (&message.Router{Service: messages, Logger: logger}).Run(work)
 	}
 
-	srv := &api.Server{Store: d, Tokens: tokens, Check: check, Log: logger, Messages: messages, Verify: verify,
+	srv := &api.Server{Store: d, Tokens: tokens, OwnerSHA256: ownerSHA256, Check: check, Log: logger, Messages: messages, Verify: verify,
 		Dump: func(ctx context.Context, f *os.File) error {
 			args := []string{"--no-owner", "--no-privileges", "--format=plain"}
 			if dbURL != "" {
@@ -568,4 +576,22 @@ type messageCluster struct {
 
 func (m messageCluster) Agents(ctx context.Context) (map[string]message.AgentInfo, error) {
 	return m.agents.Agents(ctx)
+}
+
+// ownerHash reads the owner's token's SHA-256 (ADR 0051), and refuses the
+// owner's token in the clear among the others.
+func ownerHash(tokens map[string]api.Role, hexSum string) ([]byte, error) {
+	for _, role := range tokens {
+		if role == api.RoleOwner {
+			return nil, errors.New("DISPATCHER_TOKENS holds an owner token; the service takes only its hash, in DISPATCHER_OWNER_SHA256 (ADR 0051)")
+		}
+	}
+	if hexSum == "" {
+		return nil, nil
+	}
+	sum, err := hex.DecodeString(strings.TrimSpace(hexSum))
+	if err != nil || len(sum) != sha256.Size {
+		return nil, errors.New("DISPATCHER_OWNER_SHA256 is a SHA-256 in hex, 64 characters")
+	}
+	return sum, nil
 }

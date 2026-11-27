@@ -47,6 +47,13 @@
 #                                       to a session, an agent or the owner, the owner's inbox
 #   scripts/deploy.sh CONTEXT dispatch dump > FILE      its database, as SQL
 #   scripts/deploy.sh CONTEXT dispatch restore FILE     put a dump in place of its database, which is kept aside
+#   scripts/deploy.sh CONTEXT dispatch owner-token new  make a new owner token, here, and give the cluster its hash
+#   scripts/deploy.sh CONTEXT dispatch owner-token back put the owner token back on the cluster, for going back
+#                                       to a commit from before ADR 0051 (deploy/RECOVERY.md)
+#
+# The dispatch commands run the dispatcher's client built from this checkout,
+# on this machine, as the owner, with the token in .local/dispatcher-owner.token
+# (ADR 0051). The cluster holds only that token's SHA-256.
 #
 # What is applied is the chart in charts/carman, rendered with the values in
 # deploy/values/NAME.yaml; NAME is `local` unless CARMAN_VALUES names another.
@@ -60,7 +67,8 @@
 # and set CARMAN_IMAGE to its name.
 #
 # Tokens are made once, on the first deploy, and live only in the cluster's
-# secret and in the files `env` writes. They are never printed.
+# secret and in the files `env` writes. They are never printed. The
+# dispatcher's owner token is the exception: it lives only on this machine.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -165,11 +173,61 @@ build_dispatcher() {
     echo "built $DISPATCHER_IMAGE" >&2
 }
 
-# Runs the dispatcher's client inside its pod, as the owner: no port of
-# this machine is needed.
+# The dispatcher's owner token (ADR 0051): on this machine only, readable
+# by this user only. The cluster holds its SHA-256.
+owner_token_file=.local/dispatcher-owner.token
+sha256_hex() { shasum -a 256 | cut -d' ' -f1; }
+# Makes a new owner token and writes it to the file; prints its hash.
+new_owner_token() {
+    local token
+    token="$(openssl rand -hex 24)"
+    mkdir -p .local
+    (umask 077 && printf '%s\n' "$token" > "$owner_token_file.new") && mv "$owner_token_file.new" "$owner_token_file" ||
+        die "could not write $owner_token_file"
+    printf '%s' "$token" | sha256_hex
+}
+owner_token_hash() { tr -d '\n' < "$owner_token_file" | sha256_hex; }
+# The hash the cluster holds, or nothing.
+cluster_owner_hash() { "${kube[@]}" get secret dispatcher-tokens -o 'jsonpath={.data.owner-sha256}' 2>/dev/null | base64 -d; }
+cluster_has_owner_token() { [ -n "$("${kube[@]}" get secret dispatcher-tokens -o 'jsonpath={.data.owner}' 2>/dev/null)" ]; }
+
+# Runs the dispatcher's client, built from this checkout, on this machine,
+# as the owner (ADR 0051): against the service's LoadBalancer where it
+# answers here, else through a port forwarded for the length of the command.
 dispatch_client() {
     "${kube[@]}" get deployment dispatcher >/dev/null 2>&1 || die "this installation runs no dispatcher (dispatcher.enabled)"
-    "${kube[@]}" exec -i deployment/dispatcher -- dispatcher "$@"
+    [ -s "$owner_token_file" ] || die "no owner token at $owner_token_file: deploy, or make a new one with: scripts/deploy.sh $context dispatch owner-token new"
+    local bin="$build_root/dispatcher-client" build=(go build) port durl="" forward="" log="" status=0
+    mkdir -p "$build_root"
+    command -v go >/dev/null || build=(nix develop -c go build)
+    CGO_ENABLED=0 "${build[@]}" -o "$bin" ./cmd/dispatcher || die "the dispatcher's client did not build"
+    port="$("${kube[@]}" get service dispatcher -o 'jsonpath={.spec.ports[0].port}')"
+    if [ "$("${kube[@]}" get service dispatcher -o 'jsonpath={.spec.type}')" = LoadBalancer ]; then
+        durl="${DISPATCHER_URL:-http://127.0.0.1:$port}"
+        curl -fsS -m 3 -o /dev/null "$durl/healthz" 2>/dev/null || durl=""
+    fi
+    if [ -z "$durl" ]; then
+        log="$(mktemp)"
+        "${kube[@]}" port-forward service/dispatcher ":$port" > "$log" 2>&1 &
+        forward=$!
+        for _ in $(seq 50); do
+            durl="$(sed -n 's|^Forwarding from 127\.0\.0\.1:\([0-9]*\) .*|http://127.0.0.1:\1|p' "$log" | head -1)"
+            [ -z "$durl" ] && kill -0 "$forward" 2>/dev/null || break
+            sleep 0.2
+        done
+        [ -n "$durl" ] || { kill "$forward" 2>/dev/null; cat "$log" >&2; rm -f "$log"; die "could not forward a port to the dispatcher"; }
+    fi
+    # As the owner, not as a session this shell may be in; the token goes
+    # through the environment, never a command line.
+    (
+        unset DISPATCHER_SESSION CLAUDE_CODE_SESSION_ID DISPATCHER_PLACE
+        export DISPATCHER_IDENTITY=/dev/null DISPATCHER_URL="$durl"
+        DISPATCHER_TOKEN="$(tr -d '\n' < "$owner_token_file")"
+        export DISPATCHER_TOKEN
+        exec "$bin" "$@"
+    ) || status=$?
+    [ -z "$forward" ] || { kill "$forward" 2>/dev/null; wait "$forward" 2>/dev/null; rm -f "$log"; }
+    return "$status"
 }
 
 # The egress proxy answers in the name of each host it holds a credential
@@ -448,22 +506,26 @@ EOF
     # The dispatcher's tokens and its database's password: random values,
     # through standard input, never printed. The password is made even for
     # a database the installation gives, where it is replaced by its own.
+    # The owner's token is not among them: it is written on this machine,
+    # and the cluster gets its hash (ADR 0051).
     if ! "${kube[@]}" get secret dispatcher-tokens >/dev/null 2>&1; then
-        owner="$(openssl rand -hex 24)" agent="$(openssl rand -hex 24)" backup="$(openssl rand -hex 24)" host="$(openssl rand -hex 24)"
-        "${kube[@]}" apply -f - >/dev/null <<EOF
+        agent="$(openssl rand -hex 24)" backup="$(openssl rand -hex 24)" host="$(openssl rand -hex 24)"
+        owner_sha256="$(new_owner_token)"
+        # Created, not applied: an applied secret keeps a copy of its values in an annotation.
+        "${kube[@]}" create -f - >/dev/null <<EOF
 apiVersion: v1
 kind: Secret
 metadata:
   name: dispatcher-tokens
   namespace: $namespace
 stringData:
-  DISPATCHER_TOKENS: "owner=$owner,agent=$agent,backup=$backup"
-  owner: "$owner"
+  DISPATCHER_TOKENS: "agent=$agent,backup=$backup"
+  owner-sha256: "$owner_sha256"
   agent: "$agent"
   backup: "$backup"
   host: "$host"
 EOF
-        echo "made the dispatcher's token secret"
+        echo "made the dispatcher's token secret, and the owner's token in $owner_token_file"
     elif [ -z "$("${kube[@]}" get secret dispatcher-tokens -o 'jsonpath={.data.host}')" ]; then
         # A secret made before the owner's machine had a role (ADR 0049).
         # The host token is a key of its own, not in DISPATCHER_TOKENS,
@@ -552,6 +614,40 @@ EOF
                 die "could not point $warm_ref at $CARMAN_AGENT_IMAGE"
             echo "pointed $warm_ref at $CARMAN_AGENT_IMAGE until the warm image is made"
         fi
+    fi
+    # A secret from before ADR 0051 holds the owner's token. It has been on
+    # the cluster, so a new one is made here, and the secret is replaced by
+    # one with its hash and every other token as it was. Replaced, not
+    # patched: that also drops the copy an apply kept in an annotation.
+    # Done just before the apply, which restarts the dispatcher on it.
+    if cluster_has_owner_token; then
+        tokens_data() { "${kube[@]}" get secret dispatcher-tokens -o "jsonpath={.data.$1}"; }
+        kept="$(tokens_data DISPATCHER_TOKENS | base64 -d | tr ',' '\n' | { grep -v '^ *owner=' || true; } | paste -sd, -)"
+        [ -n "$kept" ] || die "the dispatcher's token secret holds no token but the owner's; not moving it"
+        agent_data="$(tokens_data agent)" backup_data="$(tokens_data backup)" host_data="$(tokens_data host)"
+        [ -n "$agent_data" ] && [ -n "$backup_data" ] && [ -n "$host_data" ] || die "the dispatcher's token secret lacks agent, backup or host; not moving it"
+        owner_sha256="$(new_owner_token)"
+        "${kube[@]}" replace -f - >/dev/null <<EOF || die "could not replace the dispatcher's token secret; it is as it was, and $owner_token_file holds a token the cluster does not know"
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dispatcher-tokens
+  namespace: $namespace
+type: Opaque
+stringData:
+  DISPATCHER_TOKENS: "$kept"
+  owner-sha256: "$owner_sha256"
+data:
+  agent: "$agent_data"
+  backup: "$backup_data"
+  host: "$host_data"
+EOF
+        dispatcher_restart=1
+        echo "moved the owner's token off the cluster: a new one is in $owner_token_file, and the cluster holds its hash (ADR 0051)"
+    elif [ -n "$(cluster_owner_hash)" ] && [ ! -s "$owner_token_file" ]; then
+        echo "deploy: the cluster holds the hash of an owner token this machine does not have ($owner_token_file); to make a new one: scripts/deploy.sh $context dispatch owner-token new" >&2
+    elif [ -s "$owner_token_file" ] && [ "$(cluster_owner_hash)" != "$(owner_token_hash)" ]; then
+        echo "deploy: the owner token in $owner_token_file is not the one the cluster knows; to make a new one: scripts/deploy.sh $context dispatch owner-token new" >&2
     fi
     printf '%s\n' "$rendered" | kubectl --context "$context" apply -f -   # every object names its namespace; one is not this one
     # Applying does not remove what the values no longer ask for.
@@ -861,7 +957,38 @@ dispatch)
         sleep 3
         dispatch_client status
         ;;
-    *) die "say: dispatch status [ID], dispatch log, dispatch submit CLASS [ID], dispatch dump > FILE, dispatch restore FILE, or for messages: dispatch peers, send TO 'TEXT', reply ID 'TEXT', inbox [--read], read ID, message ID, watch SESSION" ;;
+    owner-token)
+        "${kube[@]}" get secret dispatcher-tokens >/dev/null 2>&1 || die "the cluster has no dispatcher token secret yet: deploy first"
+        case "${4:-}" in
+        new)
+            # Whoever may deploy may do this, as they could always read the token.
+            ! cluster_has_owner_token || die "the cluster still holds an owner token from before ADR 0051: deploy, which moves it"
+            owner_sha256="$(new_owner_token)"
+            "${kube[@]}" patch secret dispatcher-tokens --type merge --patch-file /dev/stdin >/dev/null <<EOF
+{"stringData": {"owner-sha256": "$owner_sha256"}}
+EOF
+            "${kube[@]}" rollout restart deployment/dispatcher >/dev/null
+            "${kube[@]}" rollout status deployment/dispatcher --timeout=180s >/dev/null
+            echo "made a new owner token in $owner_token_file; the dispatcher knows its hash, and the token before it no longer works"
+            ;;
+        back)
+            # A build from before ADR 0051 takes the owner's token in the
+            # clear: the key owner, and in DISPATCHER_TOKENS. The current
+            # build refuses to start on that, so the older commit is
+            # deployed straight after (deploy/RECOVERY.md).
+            [ -s "$owner_token_file" ] || die "no owner token at $owner_token_file to put back"
+            ! cluster_has_owner_token || die "the cluster holds an owner token already"
+            owner="$(tr -d '\n' < "$owner_token_file")"
+            tokens="$("${kube[@]}" get secret dispatcher-tokens -o 'jsonpath={.data.DISPATCHER_TOKENS}' | base64 -d)"
+            "${kube[@]}" patch secret dispatcher-tokens --type merge --patch-file /dev/stdin >/dev/null <<EOF
+{"stringData": {"owner": "$owner", "DISPATCHER_TOKENS": "owner=$owner,$tokens"}}
+EOF
+            echo "the owner's token is on the cluster again, for a build from before ADR 0051: deploy that commit now. A later deploy of this one makes a new token."
+            ;;
+        *) die "say: dispatch owner-token new, or dispatch owner-token back" ;;
+        esac
+        ;;
+    *) die "say: dispatch status [ID], dispatch log, dispatch submit CLASS [ID], dispatch dump > FILE, dispatch restore FILE, dispatch owner-token new|back, or for messages: dispatch peers, send TO 'TEXT', reply ID 'TEXT', inbox [--read], read ID, message ID, watch SESSION" ;;
     esac
     ;;
 *)

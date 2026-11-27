@@ -32,7 +32,7 @@ if command -v helm >/dev/null; then
     render=(helm template t charts/carman --set memory.image=m:0 --set agent.image=a:0
         --set dispatcher.image=d:0 --set backup.repository=r --show-only templates/dispatcher.yaml)
     "${render[@]}" --set-json 'agents=[{"name":"a","routines":["x"]},{"name":"b","routines":["x"],"writtenBy":["a"]}]' |
-        grep -qF 'value: "{\"b\":[\"a\"]}"' || { echo "the chart does not hand the dispatcher agent b's writtenBy" >&2; exit 1; }
+        grep -F 'value: "{\"b\":[\"a\"]}"' >/dev/null || { echo "the chart does not hand the dispatcher agent b's writtenBy" >&2; exit 1; }
     if "${render[@]}" --set-json 'agents=[{"name":"b","routines":["x"],"writtenBy":["nobody"]}]' >/dev/null 2>&1; then
         echo "the chart renders a writtenBy that names no agent" >&2
         exit 1
@@ -40,7 +40,7 @@ if command -v helm >/dev/null; then
     # The owner's machine (ADR 0049): its writtenBy, a name of its own, and
     # a way in from outside only where the addresses are given.
     "${render[@]}" --set-json 'agents=[{"name":"a","routines":["x"]}]' --set-json 'dispatcher.host.writtenBy=["a"]' |
-        grep -qF 'value: "{\"host\":[\"a\"]}"' || { echo "the chart does not hand the dispatcher the host's writtenBy" >&2; exit 1; }
+        grep -F 'value: "{\"host\":[\"a\"]}"' >/dev/null || { echo "the chart does not hand the dispatcher the host's writtenBy" >&2; exit 1; }
     if "${render[@]}" --set-json 'agents=[{"name":"host","routines":["x"]}]' >/dev/null 2>&1; then
         echo "the chart renders a place for the owner's machine named for an agent" >&2
         exit 1
@@ -50,7 +50,15 @@ if command -v helm >/dev/null; then
         exit 1
     fi
     "${render[@]}" --set dispatcher.service.type=LoadBalancer --set-json 'dispatcher.service.admitFrom=["10.0.0.0/8"]' |
-        grep -qF 'cidr: "10.0.0.0/8"' || { echo "the chart does not admit the owner's machine to the dispatcher" >&2; exit 1; }
+        grep -F 'cidr: "10.0.0.0/8"' >/dev/null || { echo "the chart does not admit the owner's machine to the dispatcher" >&2; exit 1; }
+    # R2: no pod is given the owner's token, and the dispatcher gets its hash (ADR 0051).
+    whole="$(helm template t charts/carman --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 --set backup.repository=r \
+        --set-json 'agents=[{"name":"a","routines":["x"],"interactive":true}]')"
+    if grep -qE '^ *key: owner$' <<<"$whole"; then
+        echo "the chart gives a pod the owner's token" >&2
+        exit 1
+    fi
+    grep -qE '^ *key: owner-sha256$' <<<"$whole" || { echo "the chart does not give the dispatcher the owner's token's hash" >&2; exit 1; }
 else
     echo "helm is not here: the chart's checks are skipped" >&2
 fi

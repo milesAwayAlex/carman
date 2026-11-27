@@ -181,6 +181,18 @@ are needed by the deploy and a second copy would lack them:
 
 Whoever runs the way back does both; nobody edits the definition in between.
 
+Going back to a commit from before ADR 0051 (the owner's token off the
+cluster) needs one command first, from the current checkout: that
+commit's dispatcher takes the owner's token in the clear, and refuses to
+start without it. This puts the token from `.local/dispatcher-owner.token`
+back into the cluster's secret:
+
+    nix develop -c scripts/deploy.sh CONTEXT dispatch owner-token back
+
+then deploy the older commit as above, at once (the current dispatcher
+would not start again on that secret). Coming forward again, the next
+deploy makes a new owner token and takes it off the cluster.
+
 Then check: `status` says the service answers and names the commit you
 deployed, and the memory service, the proxy and the dispatcher are Running.
 Tried from outside by a session that had no part in the change, on
