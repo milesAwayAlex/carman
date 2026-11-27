@@ -319,6 +319,18 @@ else
     skip "agent-open --reopen over a window that runs something: no /proc"
 fi
 kill "$idle" "$job" "$harness" 2>/dev/null || true
+# agent-open --model: remembered with the session, kept when it is opened
+# again without one, given to the harness when its window runs, and cleared.
+printf '#!/bin/sh\necho "$*" >> "$FAKE/harness"\n' > "$fake/claude"
+mkdir -p "$fake/home"
+open() { FAKE="$fake" AGENT_TMUX="$fake/tmux" AGENT_SESSIONS_FILE="$fake/list" HOME="$fake/home" sh deploy/agent/agent-open "$@" >/dev/null 2>&1; }
+run() { (cd "$fake" && FAKE="$fake" PATH="$fake:$PATH" SHELL=/bin/true AGENT_ENV_FILE=/dev/null AGENT_TMUX="$fake/tmux" AGENT_SESSIONS_FILE="$fake/list" HOME="$fake/home" \
+    sh "$OLDPWD/deploy/agent/agent-open" --run trial >/dev/null 2>&1); }
+open --model cheap-model trial "$fake" && open trial "$fake" && [ "$(awk -F '\t' '$1 == "trial" {print $3}' "$fake/list")" = cheap-model ] ||
+    { rm -rf "$fake"; echo "agent-open does not remember a session's model, or loses it when the session is opened again" >&2; exit 1; }
+run; grep -qx -- '--name trial --model cheap-model' "$fake/harness" || { rm -rf "$fake"; echo "agent-open does not give the harness the session's model: $(cat "$fake/harness" 2>/dev/null)" >&2; exit 1; }
+open --model default trial "$fake" && : > "$fake/harness" && run && grep -qx -- '--name trial' "$fake/harness" ||
+    { rm -rf "$fake"; echo "agent-open --model default does not give the session back the pod's model" >&2; exit 1; }
 rm -rf "$fake"
 go vet ./...
 [ -n "${DISPATCH_TEST_DATABASE_URL:-}" ] ||

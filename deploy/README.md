@@ -907,7 +907,11 @@ starts again every remembered session is opened again on its conversation
 leaving a session's window with `exit` once the harness has ended). Named
 sessions in one pod can find and message each other. A conversation brought
 from another machine is opened once with its id, `agent-open NAME DIR ID`,
-after its transcript has been copied into the home. A session `agent-open`
+after its transcript has been copied into the home. `agent-open --model
+MODEL NAME [DIR]` opens one on a model other than the pod's default (for a
+cheap trial); the model is remembered with the session, so a restart of the
+pod and a message that opens it again use it too, and `--model default`
+gives it the pod's again. A session `agent-open`
 starts goes straight to the harness's prompt: the pod's set-up marks the
 harness's first-start screens as seen, and `agent-open` marks the directory
 it was asked to open as trusted, and no other. A `claude` started by hand in
