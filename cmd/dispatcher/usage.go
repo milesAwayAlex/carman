@@ -189,9 +189,9 @@ type budgetRule struct {
 	Soon     time.Duration
 	MaxAge   time.Duration
 	Readings func(ctx context.Context) ([]dispatch.Record, error)
-	// Models is a class's ladder, first model first; nil, or an error,
+	// Models is the ladder a task starts with, first model first; nil, or an error,
 	// and no model is looked at.
-	Models func(ctx context.Context, class string) ([]string, error)
+	Models func(ctx context.Context, task dispatch.TaskSpec) ([]string, error)
 	Now    func() time.Time
 }
 
@@ -206,7 +206,7 @@ func (b budgetRule) admit(ctx context.Context, task dispatch.TaskSpec, _ []dispa
 	}
 	var ladder []string
 	if b.Models != nil {
-		if l, err := b.Models(ctx, task.Class); err == nil && len(l) > 0 {
+		if l, err := b.Models(ctx, task); err == nil && len(l) > 0 {
 			ladder = l
 			if r, ok := latestByModel(rs)[ladder[0]]; ok {
 				var rd reading

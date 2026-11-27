@@ -31,7 +31,8 @@ func curveRule(now *time.Time, rs *[]dispatch.Record) budgetRule {
 	return budgetRule{Below: 50, Mode: "curve", Target: 0.95, Soon: time.Hour, MaxAge: 2 * time.Hour,
 		Now:      func() time.Time { return *now },
 		Readings: func(context.Context) ([]dispatch.Record, error) { return *rs, nil },
-		Models: func(_ context.Context, class string) ([]string, error) {
+		Models: func(_ context.Context, task dispatch.TaskSpec) ([]string, error) {
+			class := task.Class
 			return map[string][]string{"deep": {"strong", "cheap"}, "light": {"cheap"}}[class], nil
 		}}
 }
