@@ -314,6 +314,17 @@ func TestEvidenceShowsWordsOnlyOfListedSenders(t *testing.T) {
 	if len(ev.Lines) != 4 || ev.Through != 7 || ev.More {
 		t.Fatalf("the evidence: %+v", ev)
 	}
+	// A routine's report is an agent's words, under the same rule.
+	b, _ := json.Marshal(map[string]string{"agent": "platform", "routine": "consolidate", "report": "What it had no tool for:\n- the tracker"})
+	l.Emit(ctx, dispatch.Event{ID: "rp1", Type: TypeRoutineReport, Source: "agent/platform/routine", Data: b})
+	b, _ = json.Marshal(map[string]string{"agent": "platform", "routine": "consolidate", "report": "a customer's name"})
+	l.Emit(ctx, dispatch.Event{ID: "rp2", Type: TypeRoutineReport, Source: "agent/desk/routine", Data: b})
+	if one, err := s.EvidenceAt(ctx, surveyor, 8); err != nil || !strings.Contains(one.Text, "the tracker") || !strings.Contains(one.Text, "text an agent wrote") {
+		t.Errorf("a listed agent's report: %+v, %v", one, err)
+	}
+	if one, err := s.EvidenceAt(ctx, surveyor, 9); err != nil || strings.Contains(one.Text, "customer") || !strings.Contains(one.Text, "desk's routine") {
+		t.Errorf("a report its pod proved is another agent's: %+v, %v", one, err)
+	}
 	if d := ev.Lines[3].Text; !strings.Contains(d, "is now 111111111111") || !strings.Contains(d, "5 commit(s) since: abc1234 A fix; def5678 Another") {
 		t.Errorf("what was deployed: %q", d)
 	}
@@ -332,7 +343,7 @@ func TestEvidenceShowsWordsOnlyOfListedSenders(t *testing.T) {
 	}
 	// The next survey starts where this one read to.
 	must[Survey](t)(s.Surveyed(ctx, surveyor, "", ev.Through, ""))
-	if ev = must[Evidence](t)(s.Evidence(ctx, surveyor, -1, 0, 0)); len(ev.Lines) != 2 || ev.After != 3 {
+	if ev = must[Evidence](t)(s.Evidence(ctx, surveyor, -1, 0, 0)); len(ev.Lines) != 4 || ev.After != 3 {
 		t.Errorf("after a survey through 3: %+v", ev)
 	}
 }

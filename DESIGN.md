@@ -191,8 +191,9 @@ schedule: it reads the evidence since the last survey through one call
 of the dispatcher (failed and missed runs, refusals, each run's cost,
 what each deploy deployed (`installation.deployed`, written by the deploy
 script: the commit and the subjects of the commits since the one before),
-and messages, with their words only from the senders the installation
-lists), brings the list up to date, and asks for at most one brief. The
+and messages and the part of a routine's report that says what it had no
+tool for and asks the owner (`routine.report`, from `cmem routine`), with
+their words only from the senders the installation lists), brings the list up to date, and asks for at most one brief. The
 dispatcher decides, calling no model: the item is agreed by the owner or
 of a kind and size the installation lets start by itself (none, by
 default), no brief was written for it, the addressee is named, the day's

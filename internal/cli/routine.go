@@ -18,6 +18,7 @@ import (
 
 	"carman/internal/dispatch/api"
 	"carman/internal/memory"
+	"carman/internal/secret"
 )
 
 // A routine is a prompt file that an agent carries out. `cmem routine FILE`
@@ -445,7 +446,7 @@ func (c *command) routine(args []string) (err error) {
 	// A routine may need to know how old something is, and a model does not
 	// know what day it is.
 	today := "\n\nToday's date is " + started.Format("2006-01-02") + " (UTC).\n"
-	spent, carried := 0.0, ""
+	spent, carried, report := 0.0, "", ""
 	used := runUsage{Agent: c.getenv("AGENT_NAME"), Pod: c.podName(), Routine: strings.TrimSuffix(filepath.Base(c.flags.Arg(0)), ".md"),
 		Task: c.getenv("TASK_ID"), Started: started, Tokens: map[string]int64{}}
 	defer func() {
@@ -454,6 +455,7 @@ func (c *command) routine(args []string) (err error) {
 			used.Outcome, used.Error = "not finished", err.Error()
 		}
 		c.emitUsage(used)
+		c.emitReport(used, report)
 	}()
 	for rung := 0; rung < len(ladder); rung++ {
 		model := ladder[rung]
@@ -466,6 +468,9 @@ func (c *command) routine(args []string) (err error) {
 		spent += a.cost
 		used.add(model, a)
 		fmt.Fprintf(c.stdout, "%s\n", strings.TrimSpace(a.report))
+		if !a.failed {
+			report = a.report
+		}
 		if a.failed && usageLimit.MatchString(a.report) {
 			// Nothing was attempted, so this rung is not used up.
 			need := untilReset(a.report, time.Now())
@@ -651,4 +656,102 @@ func (c *command) emitUsage(u runUsage) {
 		return
 	}
 	fmt.Fprintf(c.stdout, "Usage recorded: $%.2f in %d attempt(s).\n", u.Cost, u.Attempts)
+}
+
+// TypeRoutineReport is the part of a routine's report the improvement loop
+// reads (ADR 0058): what it would have checked and had no tool for, and
+// its questions for the owner. It is text an agent wrote.
+const TypeRoutineReport = "routine.report"
+
+// reportMax bounds the part recorded, in characters.
+const reportMax = 2000
+
+var (
+	questionsHeading = regexp.MustCompile(`(?im)^[#*\s]*Questions for the owner[*:\s]*$`)
+	listItem         = regexp.MustCompile(`^\s*([-*]|\d+[.)])\s`)
+	noTool           = regexp.MustCompile(`(?i)\bno (tool|access)\b|had no\b|without (a |the )?tool|would have (checked|liked|needed)`)
+)
+
+// reportPart is the part of a report the loop reads: each paragraph or
+// item that says what the routine had no tool for, and the section headed
+// "Questions for the owner"; empty when it has neither.
+func reportPart(report string) string {
+	var parts []string
+	body := report
+	if loc := questionsHeading.FindStringIndex(report); loc != nil {
+		if q := section(report[loc[1]:]); q != "" {
+			parts = append(parts, "Questions for the owner:\n"+q)
+		}
+		body = report[:loc[0]]
+	}
+	var wanted []string
+	for _, p := range regexp.MustCompile(`\n\s*\n|\n\s*[-*] `).Split(body, -1) {
+		if p = strings.TrimSpace(p); p != "" && noTool.MatchString(p) {
+			wanted = append(wanted, "- "+strings.TrimPrefix(strings.TrimPrefix(p, "- "), "* "))
+		}
+	}
+	if len(wanted) > 0 {
+		parts = append([]string{"What it had no tool for:\n" + strings.Join(wanted, "\n")}, parts...)
+	}
+	out := strings.Join(parts, "\n\n")
+	if r := []rune(out); len(r) > reportMax {
+		out = string(r[:reportMax]) + "…"
+	}
+	return out
+}
+
+// section is the text under a heading: its items, up to a heading or a
+// blank line that is not followed by another item.
+func section(rest string) string {
+	var out []string
+	lines := strings.Split(rest, "\n")
+	for i, l := range lines {
+		if strings.HasPrefix(strings.TrimSpace(l), "#") {
+			break
+		}
+		if strings.TrimSpace(l) == "" {
+			if len(out) == 0 {
+				continue
+			}
+			next := ""
+			for _, m := range lines[i+1:] {
+				if strings.TrimSpace(m) != "" {
+					next = m
+					break
+				}
+			}
+			if !listItem.MatchString(next) {
+				break
+			}
+			continue
+		}
+		out = append(out, strings.TrimRight(l, " "))
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
+}
+
+// emitReport records the part of the run's last report the loop reads,
+// when there is one. Like emitUsage, it never fails the run.
+func (c *command) emitReport(u runUsage, report string) {
+	part := reportPart(report)
+	url, token := c.getenv("DISPATCHER_URL"), c.getenv("DISPATCHER_TOKEN")
+	if part == "" || url == "" || token == "" {
+		return
+	}
+	if kind, found := secret.Find(part); found {
+		part = "[withheld: it looks like it contains " + kind + "]"
+	}
+	who := u.Agent
+	if who == "" {
+		who = "routine"
+	}
+	data, _ := json.Marshal(map[string]any{"agent": u.Agent, "routine": u.Routine, "task": u.Task, "started": u.Started,
+		"written_by": "agent", "report": part})
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 10*time.Second)
+	defer cancel()
+	req := api.EmitRequest{ID: TypeRoutineReport + "/" + who + "/" + u.Routine + "/" + u.Started.Format(time.RFC3339Nano),
+		Type: TypeRoutineReport, Source: "routine", Subject: who, Data: data}
+	if err := (&api.Client{URL: url, Token: token}).Do(ctx, http.MethodPost, "/v1/events", nil, req, nil); err != nil {
+		fmt.Fprintf(c.stderr, "cmem routine: this run's report is not recorded: %v\n", err)
+	}
 }

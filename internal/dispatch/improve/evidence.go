@@ -23,9 +23,14 @@ import (
 var EvidenceTypes = []string{
 	"job.ended", "run.missed", "task.failed", "task.overran", "task.not-started", "schedule.missed",
 	message.TypeSent, message.TypeRefused, message.TypeUndelivered, message.TypeWaiting,
-	"usage.observed", "run.usage",
+	"usage.observed", "run.usage", TypeRoutineReport,
 	TypeDeployed,
 }
+
+// TypeRoutineReport is the part of a routine's report that says what it had
+// no tool for and what it asks the owner (cmem routine): text an agent
+// wrote, shown under the rule for a message's words.
+const TypeRoutineReport = "routine.report"
 
 // TypeDeployed is what a deploy records (scripts/deploy.sh, as the owner):
 // the commit of the platform now running and the subjects of the commits
@@ -168,6 +173,22 @@ func (s *Service) line(r dispatch.Record, width int) (string, bool) {
 			return fit(fmt.Sprintf("%s (%d characters; this sender's words are not evidence here)", head, len(m.Body))), true
 		}
 		return fit(head + ": " + m.Body), true
+	case TypeRoutineReport:
+		var rp struct{ Agent, Routine, Report string }
+		if json.Unmarshal(r.Data, &rp) != nil {
+			return "", false
+		}
+		// The agent the dispatcher saw emit it, where its pod proved one
+		// (Source agent/NAME/routine); else the one it names.
+		who := rp.Agent
+		if parts := strings.Split(r.Source, "/"); len(parts) == 3 && parts[0] == "agent" {
+			who = parts[1]
+		}
+		head := fmt.Sprintf("the report of %s's routine %s, text an agent wrote", or(who, "an agent"), rp.Routine)
+		if !s.reads(message.Message{Agent: who}) {
+			return fit(fmt.Sprintf("%s (%d characters; this sender's words are not evidence here)", head, len(rp.Report))), true
+		}
+		return fit(head + ": " + rp.Report), true
 	case "job.ended":
 		var j struct {
 			Job, Template, Outcome, Reason string
