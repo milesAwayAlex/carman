@@ -383,6 +383,22 @@ harness:
 One run of each arm on the cheapest model says nothing that should be
 read as the answer, and is not reported as one.
 
+**Going on after a stop.** The run on Sonnet is hours long and shares the
+plan's windows with everything else, so a run can be refused in the middle.
+The runner now tells the two ways a session comes to use nothing: where the
+dispatcher says the task's run stopped at the plan's usage limit (ADR 0067),
+it waits for the reset and gives the same ticket to a fresh session, by
+itself; where it does not (the installation's limit for trials, or a night
+that fails three times), it stops with its place kept and the trial left
+up, and `run ARM --resume DIR` goes on from that task. Tried on the
+cheapest model: a run stopped after its fourth task and gone on with ran
+the night and the last two tasks and was scored whole. The wait for a
+reset is tried only as far as reading the dispatcher's word of it; no run
+has yet met the plan's limit. A task given more than once says so in its
+result. `scripts/stream.sh CONTEXT all` runs every arm so many times, two
+at a time, and starts nothing more once the runs' own count of cost passes
+a budget.
+
 Not built yet: nothing the design names.
 
 ## Consequences

@@ -13,6 +13,9 @@ helping, and what the pilot showed are in
 - `stream.go`, `stream.json`, `stream.seeds.json`: the stream's world, its
   forty tasks over five days, and the two wrong notes memory starts with.
   They are fixed: an arm with memory has run on them.
+- `all.py`, `limit.py`: every arm so many times, two at a time, under a
+  budget (`scripts/stream.sh CONTEXT all`); and whether a task's run stopped
+  at the plan's limit, for the runner's wait.
 - `collect.py`, `report.py`: what a run showed, from what the agent did not
   write, and runs set side by side by arm.
 - `ops`: the agent's command for the world, put on its path in the trial.
