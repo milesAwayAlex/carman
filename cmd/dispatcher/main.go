@@ -35,7 +35,8 @@
 // DISPATCHER_PACE_ROOM (on to record usage.room) and
 // DISPATCHER_PACE_ROOM_MIN (0.1); DISPATCHER_RESERVE_PLACES (0) of
 // DISPATCHER_MAX_RUNNING kept for work of priority DISPATCHER_RESERVE_FROM
-// (60) or more (ADR 0059).
+// (60) or more (ADR 0059); and DISPATCHER_IMPROVEMENT (a JSON object: the
+// improvement loop's settings, ADR 0058; everything off when empty).
 package main
 
 import (
@@ -60,6 +61,7 @@ import (
 
 	"carman/internal/dispatch"
 	"carman/internal/dispatch/api"
+	"carman/internal/dispatch/improve"
 	"carman/internal/dispatch/kube"
 	"carman/internal/dispatch/message"
 	"carman/internal/dispatch/notice"
@@ -99,7 +101,10 @@ dispatcher watch SESSION                  be told, by a message, when it next go
 dispatcher whoami                         what the dispatcher makes of this caller
 dispatcher attend [--every 10s] [--once]  in a standing agent's pod: say when a session's harness has gone, and open
                                           again a remembered session a message waits for (ADR 0053)
-dispatcher hook claude-code [--wait D]    the harness's hook that carries messages into a running session`
+dispatcher hook claude-code [--wait D]    the harness's hook that carries messages into a running session
+
+The list of improvements to the platform (ADR 0058):
+` + improveUsage
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
@@ -143,6 +148,21 @@ func run(ctx context.Context, args []string) error {
 			return err
 		}
 		return messages(ctx, mc, args[0], pos, flags)
+	}
+	if args[0] == "improve" {
+		if slices.Contains(args[1:], "--help") || slices.Contains(args[1:], "-h") || slices.Contains(args[1:], "help") {
+			fmt.Println(improveUsage)
+			return nil
+		}
+		pos, flags, err := parse(args[1:])
+		if err != nil {
+			return err
+		}
+		mc, err := client()
+		if err != nil {
+			return err
+		}
+		return improveCmd(ctx, mc, pos, flags)
 	}
 	c := &api.Client{URL: os.Getenv("DISPATCHER_URL"), Token: os.Getenv("DISPATCHER_TOKEN")}
 	if c.URL == "" || c.Token == "" {
@@ -424,6 +444,18 @@ func serve(ctx context.Context) error {
 		opts.RetentionByType[t] = messagesKept
 	}
 	opts.RetentionByType["message.task"] = messagesKept
+	// The list of improvements (ADR 0058) is kept as long as the log is.
+	for _, t := range improve.Types {
+		opts.RetentionByType[t] = 0
+	}
+	improving, err := improve.ParseConfig(os.Getenv("DISPATCHER_IMPROVEMENT"))
+	if err != nil {
+		return fmt.Errorf("DISPATCHER_IMPROVEMENT: %w", err)
+	}
+	roomAge, err := parseDuration(improving.Usage.MaxAge, 2*time.Hour)
+	if err != nil {
+		return fmt.Errorf("DISPATCHER_IMPROVEMENT: usage.maxAge: %w", err)
+	}
 	build := os.Getenv("DISPATCHER_BUILD")
 	if build == "" {
 		build = "unnamed"
@@ -590,7 +622,17 @@ func serve(ctx context.Context) error {
 		go (&message.Router{Service: messages, Logger: logger}).Run(work)
 	}
 
-	srv := &api.Server{Store: d, Tokens: tokens, OwnerSHA256: ownerSHA256, Check: check, Log: logger, Messages: messages, Verify: verify,
+	list := &improve.Service{Store: d, Config: improving, Context: contextName}
+	if messages != nil {
+		list.Sender = messages
+	}
+	switch {
+	case improving.Usage.Rule == "room":
+		list.Room = paceRoom(readings, func(ctx context.Context) ([]dispatch.Record, error) { return d.Last(ctx, TypeUsageRoom, 50) }, roomAge, time.Now)
+	case improving.Usage.Below > 0:
+		list.Room = usageRoom(readings, improving.Usage.Below, roomAge, time.Now)
+	}
+	srv := &api.Server{Store: d, Tokens: tokens, OwnerSHA256: ownerSHA256, Check: check, Log: logger, Messages: messages, Verify: verify, Improve: list,
 		Dump: func(ctx context.Context, f *os.File) error {
 			args := []string{"--no-owner", "--no-privileges", "--format=plain"}
 			if dbURL != "" {

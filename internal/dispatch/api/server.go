@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"carman/internal/dispatch"
+	"carman/internal/dispatch/improve"
 	"carman/internal/dispatch/message"
 )
 
@@ -97,7 +98,9 @@ type Server struct {
 	// are no messages.
 	Messages *message.Service
 	Verify   func(context.Context, string) (message.Caller, error)
-	Log      *slog.Logger
+	// Improve is the list of improvements to the platform (ADR 0058).
+	Improve *improve.Service
+	Log     *slog.Logger
 }
 
 // Reserved are the prefixes of the types only the dispatcher, its job
@@ -137,6 +140,13 @@ func (s *Server) routes() []route {
 		{http.MethodGet, "/v1/attend", []Role{RoleAgent}, s.attending},
 		{http.MethodPost, "/v1/attend/gone", []Role{RoleAgent}, s.gone},
 		{http.MethodPost, "/v1/attend/hold", []Role{RoleAgent}, s.hold},
+		{http.MethodGet, "/v1/improvements", messengers, s.improvements},
+		{http.MethodPost, "/v1/improvements", messengers, s.improvementAdd},
+		{http.MethodGet, "/v1/improvements/evidence", messengers, s.evidence},
+		{http.MethodPost, "/v1/improvements/survey", messengers, s.surveyed},
+		{http.MethodGet, "/v1/improvements/{id}", messengers, s.improvement},
+		{http.MethodPost, "/v1/improvements/{id}", messengers, s.improvementChange},
+		{http.MethodPost, "/v1/improvements/{id}/brief", messengers, s.improvementBrief},
 	}
 }
 
@@ -154,6 +164,8 @@ var (
 	errForbidden    = errors.New("this role may not do that")
 	errBadRequest   = errors.New("bad request")
 	errWritten      = errors.New("the answer was written")
+	// errHeld: a rule holds back what was asked, for now (409).
+	errHeld = errors.New("held")
 )
 
 func (s *Server) serve(rt route) http.HandlerFunc {
@@ -193,6 +205,8 @@ func statusFor(err error) int {
 		return http.StatusForbidden
 	case errors.Is(err, dispatch.ErrNotFound):
 		return http.StatusNotFound
+	case errors.Is(err, errHeld):
+		return http.StatusConflict
 	case errors.Is(err, errBadRequest), errors.Is(err, dispatch.ErrInvalid):
 		return http.StatusBadRequest
 	}

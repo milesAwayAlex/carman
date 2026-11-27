@@ -24,6 +24,49 @@ memory:
   # The secret holding the role tokens (keys CMEM_TOKENS, laptop, worker,
   # dreamer). scripts/deploy.sh makes it on the first deploy.
   tokensSecret: cmem-tokens
+  # The improvement loop (ADR 0058): the list of what should be improved in
+  # the platform itself is kept in the dispatcher's log, and read with
+  # `scripts/deploy.sh CONTEXT dispatch improve`. The owner and the owner's
+  # machine read and write it always. Everything that spends by itself or
+  # writes to the owner is off until `send` and `notify` say otherwise: off,
+  # a brief that passed and the line for the owner are recorded with what
+  # they would have said, to be read for a few days first.
+  improvement:
+    # Agents that may read the list, add to it and say what they build.
+    agents: []
+    # The agent that reads the evidence since it last looked, adds to the
+    # list, and asks for briefs: one with the routine `improve`. It needs
+    # no writtenBy anywhere: a brief that passes is vouched for here.
+    surveyor: ""
+    # Whose messages' words the surveyor reads as evidence: agents by name,
+    # the owner's machine by its place, `owner`. Of every other message it
+    # sees who wrote to whom, when, and how long it was.
+    messagesOf: []
+    # Where a brief may be handed: addresses as `dispatcher send` takes
+    # them (agent/NAME, NAME/SESSION, PLACE/SESSION).
+    to: []
+    # What may start with no word from the owner: an item nobody has
+    # decided on whose kind (fault, friction, gap, cost) and size (small,
+    # medium, large) are both listed. Empty: only what the owner agreed
+    # (`improve agree ID`).
+    auto:
+      kinds: []
+      sizes: []
+    # How many briefs pass in 24 hours, sent or withheld.
+    briefsPerDay: 1
+    # Room in the plan's usage, by one of two rules. `below`: every shared
+    # window of the latest reading is below `below`, or has reset (0 does
+    # not look). `room`: pacing expects every shared window to leave room
+    # unused at its reset (usage.room, ADR 0060; needs dispatcher.pace.room).
+    # Under either, a reading older than maxAge, or none, is not room.
+    usage:
+      rule: below
+      below: 0.5
+      maxAge: 2h
+    # Hand a brief that passed to its addressee; and tell the owner, in one
+    # line and at most once a day, that items wait for a decision.
+    send: false
+    notify: false
   service:
     # ClusterIP inside a cluster that has another way in. LoadBalancer where
     # the cluster's load balancer is how a laptop reaches the service.
@@ -122,6 +165,49 @@ dispatcher:
     soon: 1h
     room: false
     roomMin: 0.1
+  # The improvement loop (ADR 0058): the list of what should be improved in
+  # the platform itself is kept in the dispatcher's log, and read with
+  # `scripts/deploy.sh CONTEXT dispatch improve`. The owner and the owner's
+  # machine read and write it always. Everything that spends by itself or
+  # writes to the owner is off until `send` and `notify` say otherwise: off,
+  # a brief that passed and the line for the owner are recorded with what
+  # they would have said, to be read for a few days first.
+  improvement:
+    # Agents that may read the list, add to it and say what they build.
+    agents: []
+    # The agent that reads the evidence since it last looked, adds to the
+    # list, and asks for briefs: one with the routine `improve`. It needs
+    # no writtenBy anywhere: a brief that passes is vouched for here.
+    surveyor: ""
+    # Whose messages' words the surveyor reads as evidence: agents by name,
+    # the owner's machine by its place, `owner`. Of every other message it
+    # sees who wrote to whom, when, and how long it was.
+    messagesOf: []
+    # Where a brief may be handed: addresses as `dispatcher send` takes
+    # them (agent/NAME, NAME/SESSION, PLACE/SESSION).
+    to: []
+    # What may start with no word from the owner: an item nobody has
+    # decided on whose kind (fault, friction, gap, cost) and size (small,
+    # medium, large) are both listed. Empty: only what the owner agreed
+    # (`improve agree ID`).
+    auto:
+      kinds: []
+      sizes: []
+    # How many briefs pass in 24 hours, sent or withheld.
+    briefsPerDay: 1
+    # Room in the plan's usage, by one of two rules. `below`: every shared
+    # window of the latest reading is below `below`, or has reset (0 does
+    # not look). `room`: pacing expects every shared window to leave room
+    # unused at its reset (usage.room, ADR 0060; needs dispatcher.pace.room).
+    # Under either, a reading older than maxAge, or none, is not room.
+    usage:
+      rule: below
+      below: 0.5
+      maxAge: 2h
+    # Hand a brief that passed to its addressee; and tell the owner, in one
+    # line and at most once a day, that items wait for a decision.
+    send: false
+    notify: false
   service:
     # ClusterIP inside a cluster that has another way in. LoadBalancer where
     # the cluster's load balancer is how the owner's machine reaches it, for
