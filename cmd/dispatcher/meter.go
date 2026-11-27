@@ -138,41 +138,13 @@ func meterCmd(ctx context.Context) error {
 	// the sandbox. It serves the model and nothing else, knows a caller by
 	// the address its connection comes from, looked up among the sandbox's
 	// pods, and passes what the installation allows trials.
+	// Nothing here may stop the meter: every agent's way to the model is
+	// through it. What is wrong with the trials' settings is said, and the
+	// trials' listener is then not there.
 	if tl := os.Getenv("METER_TRIAL_LISTEN"); tl != "" {
-		ns := os.Getenv("METER_TRIAL_NAMESPACE")
-		if ns == "" {
-			return errors.New("METER_TRIAL_LISTEN needs METER_TRIAL_NAMESPACE, where trials stand")
+		if err := serveTrials(ctx, tl, proxy, cred.Get, ledger, log); err != nil {
+			log.Error("no listener for trials", "error", err)
 		}
-		tkc, err := kube.InCluster(ns)
-		if err != nil {
-			return err
-		}
-		taddrs := &kube.Addresses{Client: tkc, Log: log, Trials: true}
-		go taddrs.Run(ctx)
-		limits := &meter.TrialLimits{Per: 24 * time.Hour}
-		for _, m := range strings.Split(os.Getenv("METER_TRIAL_MODELS"), ",") {
-			if m = strings.TrimSpace(m); m != "" {
-				limits.Models = append(limits.Models, m)
-			}
-		}
-		if _, err := fmt.Sscan(envOr("METER_TRIAL_REQUESTS", "0"), &limits.Requests); err != nil || limits.Requests < 0 {
-			return errors.New("METER_TRIAL_REQUESTS is how many requests trials may make in a day, a whole number")
-		}
-		trials := &meter.Proxy{Upstream: up, Transport: proxy.Transport, Credential: cred.Get, Identify: taddrs.Lookup,
-			CallerHeader: proxy.CallerHeader, Direct: true, Admit: limits.Admit, Ledger: ledger, Log: log, Shapes: proxy.Shapes}
-		tsrv := &http.Server{Addr: tl, Handler: trials, ReadHeaderTimeout: 30 * time.Second}
-		go func() {
-			<-ctx.Done()
-			shut, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
-			defer cancel()
-			_ = tsrv.Shutdown(shut)
-		}()
-		go func() {
-			if err := tsrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Error("the trials' listener stopped", "error", err)
-			}
-		}()
-		log.Info("meter listening for trials", "listen", tl, "namespace", ns, "models", limits.Models, "requests_a_day", limits.Requests)
 	}
 	// It answers at once: a request before the pods are listed lists them.
 	srv := &http.Server{Addr: listen, Handler: proxy, ReadHeaderTimeout: 30 * time.Second}
@@ -276,4 +248,44 @@ func standingLoop(ctx context.Context, b *meter.Budget, dispatcher func() (*api.
 		case <-time.After(every):
 		}
 	}
+}
+
+// serveTrials is the meter's listener for agents of trial installations.
+func serveTrials(ctx context.Context, tl string, proxy *meter.Proxy, credential func() (string, error), ledger *meter.Ledger, log *slog.Logger) error {
+	up := proxy.Upstream
+	ns := os.Getenv("METER_TRIAL_NAMESPACE")
+	if ns == "" {
+		return errors.New("METER_TRIAL_LISTEN needs METER_TRIAL_NAMESPACE, where trials stand")
+	}
+	tkc, err := kube.InCluster(ns)
+	if err != nil {
+		return err
+	}
+	taddrs := &kube.Addresses{Client: tkc, Log: log, Trials: true}
+	go taddrs.Run(ctx)
+	limits := &meter.TrialLimits{Per: 24 * time.Hour}
+	for _, m := range strings.Split(os.Getenv("METER_TRIAL_MODELS"), ",") {
+		if m = strings.TrimSpace(m); m != "" {
+			limits.Models = append(limits.Models, m)
+		}
+	}
+	if _, err := fmt.Sscan(envOr("METER_TRIAL_REQUESTS", "0"), &limits.Requests); err != nil || limits.Requests < 0 {
+		return errors.New("METER_TRIAL_REQUESTS is how many requests trials may make in a day, a whole number")
+	}
+	trials := &meter.Proxy{Upstream: up, Transport: proxy.Transport, Credential: credential, Identify: taddrs.Lookup,
+		CallerHeader: proxy.CallerHeader, Direct: true, Admit: limits.Admit, Ledger: ledger, Log: log, Shapes: proxy.Shapes}
+	tsrv := &http.Server{Addr: tl, Handler: trials, ReadHeaderTimeout: 30 * time.Second}
+	go func() {
+		<-ctx.Done()
+		shut, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+		defer cancel()
+		_ = tsrv.Shutdown(shut)
+	}()
+	go func() {
+		if err := tsrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("the trials' listener stopped", "error", err)
+		}
+	}()
+	log.Info("meter listening for trials", "listen", tl, "namespace", ns, "models", limits.Models, "requests_a_day", limits.Requests)
+	return nil
 }
