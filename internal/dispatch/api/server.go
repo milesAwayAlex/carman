@@ -104,8 +104,9 @@ type Server struct {
 }
 
 // Reserved are the prefixes of the types only the dispatcher, its job
-// watcher and the owner write; and, for model.*, the meter.
-var Reserved = []string{"task.", "job.", "schedule.", MeterPrefix}
+// watcher and the owner write (installation.*: what a deploy says it
+// deployed); and, for model.*, the meter.
+var Reserved = []string{"task.", "job.", "schedule.", "installation.", MeterPrefix}
 
 // MeterPrefix is the prefix of the types the meter writes, and the only
 // ones it may.

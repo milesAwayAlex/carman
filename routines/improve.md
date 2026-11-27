@@ -54,6 +54,31 @@ same distinctions the platform's memory makes.
   item says why. Do not write a declined item down again under another id;
   if there is new evidence the owner did not have, add it to that item and
   say so in your report.
+- **What the reporter did to itself.** "I cut the output and lost the
+  reason" is not a fault of the platform unless the platform made the
+  mistake easy; say which, or leave it.
+
+## How you know what is done
+
+You cannot see the repository. Two things tell you that something is done,
+and nothing else does:
+
+- the list shows the item as `done`, with its commit;
+- a line of the evidence of type `installation.deployed`: a deploy records
+  the commit now running and the subject of each commit since the one
+  before. A subject that plainly is the change is the change, merged and
+  deployed. Subjects here often end with the decision record the change
+  came with, "(ADR 0061, proposed)": that is the record's status, and the
+  subject's own words still say what was built.
+
+A message is not that. "Pushed as slice/55", "fixed on my branch", "the
+slice is ready for review" mean somebody built something that is not yet
+merged, and may never be as it stands. Do not give a branch named in a
+message as the reason a thing is settled, and do not call a gap "known"
+or "fixed" on a message's word. When a report says a fault was fixed and
+no deploy line since shows it, the fault is still evidence: add it to its
+item or write it down, and say in the item that a fix was reported on
+that branch.
 
 ## Steps
 
@@ -66,6 +91,8 @@ same distinctions the platform's memory makes.
    left waiting, calls refused for a usage limit, what each run cost, and
    the messages sessions sent. Of a message you see the words only when the
    installation lists its sender; otherwise who wrote to whom and how much.
+   Lines of type `installation.deployed` say what was merged and deployed
+   (see above); read each whole.
    Read a line whole with `dispatcher improve evidence --event SEQ` when its
    cut text suggests an agent's report: reports usually end with what was
    awkward, what was left open, or a fault found on the way, and that is
@@ -73,7 +100,13 @@ same distinctions the platform's memory makes.
    pages in one run, and stop there: the next run carries on.
 3. For each thing the evidence shows:
    - **the list has it**: add what is new with `dispatcher improve add ID
-     --evidence 'WHERE: "WORDS"'`. If the evidence shows the item was done
+     --evidence 'WHERE: "WORDS"'`. Add a piece only when it would help
+     somebody decide on that item: a new occurrence, a cost, a
+     consequence. Words that only say again what the item says are not
+     new. And a different trouble met at the same place is a different
+     item: a session that had to set a credential by hand is not evidence
+     for an item about removing a switch, though both are about the
+     credential. If the evidence shows the item was done
      (a report that names the commit), say so in your report; whoever built
      it marks it done, not you;
    - **the list does not have it**: write it down with `dispatcher improve
@@ -140,6 +173,8 @@ Plain text, short, in this order; leave out a part that is empty.
 - What you saw and did not write down, and why, in a line each: it helps
   the owner see what the list is not catching.
 - The brief: for which item, to whom, and what the dispatcher answered.
-- Items that look done or out of date, for whoever keeps the list.
+- Items that a deploy line shows done (the commit and its subject), for
+  whoever built them to mark; and, apart, what a message says was built
+  on a branch and no deploy line shows yet.
 
 Then print the same report as your last words.

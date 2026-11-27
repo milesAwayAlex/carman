@@ -280,6 +280,58 @@ it stands. Two runs on made-up evidence show that the routine can be
 followed, not how it does on a month of a real installation's log; that
 is what the mode that only records is for.
 
+## After the first real survey (2026-11-27)
+
+The surveyor's first run on a real installation read 1,316 events for
+$0.28, wrote six items and added to five. Reviewed against the list:
+
+- **Right**: four of the six new items are well supported and were not on
+  the list (a failed job says no cause; `agent-open` cannot choose a
+  model; no order between tasks; the test script skips its database tests
+  silently). It left out a refusal for a plan's limit as a cause outside
+  the platform and a builder's settled decision, and its brief for an item
+  nobody had agreed was held, once.
+- **Wrong, from messages standing in for the repository**: it called a
+  fault "a known gap" and four others "fixed on slice/55", from what
+  messages said. The first was fixed and deployed, the others merged: it
+  cannot see the repository, and a branch named in a message is neither
+  merged nor deployed.
+- **Wrong evidence on a right item**: a session that had to set the
+  model's credential for a child harness was added to the item about
+  removing the credential's switch, which it says nothing about. And
+  words that only repeat an item were added as evidence twice.
+- **An item that was the reporter's own doing**: a failed build whose
+  reason the reporter had cut off.
+
+Changed for it:
+
+- **A deploy says what it deployed, in the log.** `scripts/deploy.sh`
+  records `installation.deployed` when the commit changes: the commit, the
+  one before, and the subject of each commit between (`dispatcher
+  deployed`, as the owner; `installation.*` is the owner's to write, so no
+  agent can say something was deployed). It is evidence. This is how the
+  surveyor knows what is merged and deployed without a checkout or a
+  credential for the code host, and it is true of the installation: what
+  is merged and not deployed is not yet running.
+- **The routine** says how it knows something is done (the list, or a
+  deploy line; never a message), that a reported fix with no deploy line
+  leaves the fault as evidence, that a piece of evidence must bear on its
+  item and say something new, and that what a reporter did to itself is
+  not an item.
+
+Run again in a trial on those cases (11 turns, $0.08): it no longer took
+a branch for a fix and wrote the fault down; it did not attach the
+credential complaint to the wrong item; it left the self-inflicted
+failure out. It still added a restatement as evidence, and it read a
+deployed commit whose subject ends "(ADR NNNN, proposed)" as only a
+record, not the change; the routine now says what that ending means, and
+that wording has not been run.
+
+Also seen: evidence cannot be taken off an item (the list is append-only),
+so a wrong piece is answered by a later one that says so; and items done
+on the same day the list began had no item to mark, so five were written
+down and marked done at once, for the record.
+
 ## Proposed wording for R9
 
 R9 is open: "To be written after observing unattended runs". Only the

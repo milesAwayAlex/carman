@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -369,4 +371,36 @@ func paceRoom(readings func(context.Context) ([]dispatch.Record, error), rooms f
 		}
 		return true, fmt.Sprintf("%s is expected to end near %.0f%%, %.0f points unused", windowName(least.Window), least.AtReset*100, least.Unused*100)
 	}
+}
+
+// deployed records what a deploy deployed (scripts/deploy.sh runs it as
+// the owner): the commit, the one before, and on standard input the
+// commits between, a line each, newest first.
+func deployed(ctx context.Context, c *api.Client, pos []string, flags map[string][]string, in io.Reader) error {
+	if len(pos) != 1 {
+		return errors.New("say: git log --oneline PREVIOUS..COMMIT | dispatcher deployed COMMIT [--previous PREVIOUS]")
+	}
+	d := improve.Deployed{Commit: pos[0], Previous: one(flags, "previous", "")}
+	sc := bufio.NewScanner(io.LimitReader(in, 1<<20))
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		switch {
+		case line == "":
+		case len(d.Commits) < 60:
+			if len(line) > 200 {
+				line = line[:200]
+			}
+			d.Commits = append(d.Commits, line)
+		default:
+			d.More++
+		}
+	}
+	data, _ := json.Marshal(d)
+	req := api.EmitRequest{Type: improve.TypeDeployed, Subject: d.Commit, Source: "deploy", Data: data}
+	var out struct{ ID string }
+	if err := c.Do(ctx, http.MethodPost, "/v1/events", nil, req, &out); err != nil {
+		return err
+	}
+	fmt.Printf("recorded in the dispatcher's log: %s is deployed, %d commit(s) since the one before\n", d.Commit, len(d.Commits)+d.More)
+	return nil
 }

@@ -67,7 +67,13 @@ owner emit job.ended --id "check-$stamp-bad" --subject agent-example --data '{"j
 owner emit job.ended --id "check-$stamp-good" --subject agent-example --data '{"job":"agent-example-2","template":"agent-example","started_by":"cronjob","outcome":"succeeded","ended":"2026-01-01T00:00:00Z"}' >/dev/null
 as platform send owner "The slice is pushed. What was awkward: the check $stamp had to be run twice because the first port-forward died." >/dev/null
 as other send owner "words of $stamp that are nobody's evidence" >/dev/null
+# And what a deploy says it deployed, which only the owner's side may say.
+printf '%s\n' "abc1234 The client retries its port-forward once" "def5678 An earlier change" | owner deployed "1111111111111111111111111111111111111111" --previous "2222222222222222222222222222222222222222" >/dev/null
+! as platform emit installation.deployed --data '{"commit":"forged"}' >/dev/null 2>&1 || die "an agent recorded a deploy"
 ev="$(as watch improve evidence)"
+has "$ev" "the platform deployed is now 111111111111"
+has "$ev" "abc1234 The client retries its port-forward once"
+lacks "$ev" "forged"
 has "$ev" "agent-example-1 (agent-example) failed: DeadlineExceeded"
 lacks "$ev" "agent-example-2"
 has "$ev" "the check $stamp had to be run twice"
@@ -75,7 +81,7 @@ lacks "$ev" "nobody's evidence"
 has "$ev" "this sender's words are not evidence here"
 through="$(sed -n 's/.* read through \([0-9]*\);.*/\1/p' <<<"$ev" | tail -1)"
 [ -n "$through" ] || die "the evidence does not say where it read to: $ev"
-step "the surveyor reads the evidence through $through: a failure, a listed sender's words, and of another sender only that it wrote"
+step "the surveyor reads the evidence through $through: a failure, what was deployed, a listed sender's words, and of another sender only that it wrote"
 
 # Who may: an agent the installation does not name reads nothing; an agent
 # of the list reads the list and not the evidence.
