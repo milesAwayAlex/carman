@@ -100,6 +100,9 @@ context="${1:-}"
 action="${2:-deploy}"
 # The namespace everything lives in; CARMAN_NAMESPACE names another.
 namespace="${CARMAN_NAMESPACE:-carman}"
+# CARMAN_OBJECT_PREFIX: a prefix on the names of the objects this script
+# reads and makes, for a trial whose objects carry its name (ADR 0054).
+pre="${CARMAN_OBJECT_PREFIX:-}"
 kube=(kubectl --context "$context" --namespace "$namespace")
 # CARMAN_KUBE_SERVER overrides the API address, for reaching it through a tunnel.
 [ -z "${CARMAN_KUBE_SERVER:-}" ] || kube+=(--server "$CARMAN_KUBE_SERVER")
@@ -128,7 +131,7 @@ from_store() {
     return "$status"
 }
 
-secret() { "${kube[@]}" get secret cmem-tokens -o "jsonpath={.data.$1}" | base64 -d; }
+secret() { "${kube[@]}" get secret ${pre}cmem-tokens -o "jsonpath={.data.$1}" | base64 -d; }
 
 # Waits until a Job has finished one way or the other, and says which.
 finished() {
@@ -213,7 +216,7 @@ put_definition() {
     bundle="$(mktemp)"
     # Branches and tags, not --all: a stash is a ref too, and holds what was not committed.
     if git -C "$installation" bundle create "$bundle" HEAD --branches --tags >/dev/null 2>&1 && [ "$(wc -c < "$bundle")" -lt 900000 ] &&
-        "${kube[@]}" create configmap installation "--from-file=definition.bundle=$bundle" --dry-run=client -o json |
+        "${kube[@]}" create configmap ${pre}installation "--from-file=definition.bundle=$bundle" --dry-run=client -o json |
         "${kube[@]}" replace --force -f - >/dev/null 2>&1; then
         rm -f "$bundle"
         echo "the cluster holds a copy of the installation's definition, as of $(git -C "$installation" log -1 --format='%h %s' | cut -c1-70)"
@@ -313,7 +316,7 @@ owner_token_file="${CARMAN_OWNER_TOKEN_FILE:-.local/dispatcher-owner.token}"
 # The accounts for the model that this installation has (model-account):
 # NAME, then the command that prints its credential, one to a line, in the
 # installation's definition; and the one chosen, a word in a file there.
-model_secret="${CARMAN_MODEL_SECRET:-model-credential}"
+model_secret="${CARMAN_MODEL_SECRET:-${pre}model-credential}"
 model_accounts_file="${CARMAN_INSTALLATION:-.local}/model-accounts"
 model_account_file="${CARMAN_INSTALLATION:-.local}/model-account"
 model_accounts() { [ -s "$model_accounts_file" ] || die "this installation lists no accounts for the model: $model_accounts_file has a line for each, NAME then the command that prints its credential"; }
@@ -340,27 +343,27 @@ new_owner_token() {
 }
 owner_token_hash() { tr -d '\n' < "$owner_token_file" | sha256_hex; }
 # The hash the cluster holds, or nothing.
-cluster_owner_hash() { "${kube[@]}" get secret dispatcher-tokens -o 'jsonpath={.data.owner-sha256}' 2>/dev/null | base64 -d; }
-cluster_has_owner_token() { [ -n "$("${kube[@]}" get secret dispatcher-tokens -o 'jsonpath={.data.owner}' 2>/dev/null)" ]; }
+cluster_owner_hash() { "${kube[@]}" get secret ${pre}dispatcher-tokens -o 'jsonpath={.data.owner-sha256}' 2>/dev/null | base64 -d; }
+cluster_has_owner_token() { [ -n "$("${kube[@]}" get secret ${pre}dispatcher-tokens -o 'jsonpath={.data.owner}' 2>/dev/null)" ]; }
 
 # Runs the dispatcher's client, built from this checkout, on this machine,
 # as the owner (ADR 0051): against the service's LoadBalancer where it
 # answers here, else through a port forwarded for the length of the command.
 dispatch_client() {
-    "${kube[@]}" get deployment dispatcher >/dev/null 2>&1 || die "this installation runs no dispatcher (dispatcher.enabled)"
+    "${kube[@]}" get deployment ${pre}dispatcher >/dev/null 2>&1 || die "this installation runs no dispatcher (dispatcher.enabled)"
     [ -s "$owner_token_file" ] || die "no owner token at $owner_token_file: deploy, or make a new one with: scripts/deploy.sh $context dispatch owner-token new"
     local bin="$build_root/dispatcher-client" build=(go build) port durl="" forward="" log="" status=0
     mkdir -p "$build_root"
     command -v go >/dev/null || build=(nix develop -c go build)
     CGO_ENABLED=0 "${build[@]}" -o "$bin" ./cmd/dispatcher || die "the dispatcher's client did not build"
-    port="$("${kube[@]}" get service dispatcher -o 'jsonpath={.spec.ports[0].port}')"
-    if [ "$("${kube[@]}" get service dispatcher -o 'jsonpath={.spec.type}')" = LoadBalancer ]; then
+    port="$("${kube[@]}" get service ${pre}dispatcher -o 'jsonpath={.spec.ports[0].port}')"
+    if [ "$("${kube[@]}" get service ${pre}dispatcher -o 'jsonpath={.spec.type}')" = LoadBalancer ]; then
         durl="${DISPATCHER_URL:-http://127.0.0.1:$port}"
         curl -fsS -m 3 -o /dev/null "$durl/healthz" 2>/dev/null || durl=""
     fi
     if [ -z "$durl" ]; then
         log="$(mktemp)"
-        "${kube[@]}" port-forward service/dispatcher ":$port" > "$log" 2>&1 &
+        "${kube[@]}" port-forward service/${pre}dispatcher ":$port" > "$log" 2>&1 &
         forward=$!
         for _ in $(seq 50); do
             durl="$(sed -n 's|^Forwarding from 127\.0\.0\.1:\([0-9]*\) .*|http://127.0.0.1:\1|p' "$log" | head -1)"
@@ -621,14 +624,14 @@ only_data() { printf '{"data":'; cat; printf '}'; }
 # The secrets a deploy makes when they are missing: the memory's role
 # tokens, the dispatcher's, and its database's password.
 make_secrets() {
-    if ! "${kube[@]}" get secret cmem-tokens >/dev/null 2>&1; then
+    if ! "${kube[@]}" get secret ${pre}cmem-tokens >/dev/null 2>&1; then
         laptop="$(openssl rand -hex 24)" worker="$(openssl rand -hex 24)" dreamer="$(openssl rand -hex 24)"
         # Through standard input, so the tokens are never on a command line.
         "${kube[@]}" apply -f - >/dev/null <<EOF
 apiVersion: v1
 kind: Secret
 metadata:
-  name: cmem-tokens
+  name: ${pre}cmem-tokens
   namespace: $namespace
 stringData:
   CMEM_TOKENS: "laptop=$laptop,worker=$worker,dreamer=$dreamer"
@@ -643,7 +646,7 @@ EOF
     # a database the installation gives, where it is replaced by its own.
     # The owner's token is not among them: it is written on this machine,
     # and the cluster gets its hash (ADR 0051).
-    if ! "${kube[@]}" get secret dispatcher-tokens >/dev/null 2>&1; then
+    if ! "${kube[@]}" get secret ${pre}dispatcher-tokens >/dev/null 2>&1; then
         agent="$(openssl rand -hex 24)" backup="$(openssl rand -hex 24)" host="$(openssl rand -hex 24)"
         owner_sha256="$(new_owner_token)"
         # Created, not applied: an applied secret keeps a copy of its values in an annotation.
@@ -651,7 +654,7 @@ EOF
 apiVersion: v1
 kind: Secret
 metadata:
-  name: dispatcher-tokens
+  name: ${pre}dispatcher-tokens
   namespace: $namespace
 stringData:
   DISPATCHER_TOKENS: "agent=$agent,backup=$backup"
@@ -661,19 +664,19 @@ stringData:
   host: "$host"
 EOF
         echo "made the dispatcher's token secret, and the owner's token in $owner_token_file"
-    elif [ -z "$("${kube[@]}" get secret dispatcher-tokens -o 'jsonpath={.data.host}')" ]; then
+    elif [ -z "$("${kube[@]}" get secret ${pre}dispatcher-tokens -o 'jsonpath={.data.host}')" ]; then
         # A secret made before the owner's machine had a role (ADR 0049).
         # The host token is a key of its own, not in DISPATCHER_TOKENS,
         # which a build from before it would refuse.
         host="$(openssl rand -hex 24)"
-        "${kube[@]}" patch secret dispatcher-tokens --type merge --patch-file /dev/stdin >/dev/null <<EOF
+        "${kube[@]}" patch secret ${pre}dispatcher-tokens --type merge --patch-file /dev/stdin >/dev/null <<EOF
 {"stringData": {"host": "$host"}}
 EOF
         dispatcher_restart=1
         echo "added the host role's token to the dispatcher's token secret"
     fi
-    if ! "${kube[@]}" get secret dispatcher-db >/dev/null 2>&1; then
-        openssl rand -hex 24 | tr -d '\n' | "${kube[@]}" create secret generic dispatcher-db --from-file=password=/dev/stdin >/dev/null
+    if ! "${kube[@]}" get secret ${pre}dispatcher-db >/dev/null 2>&1; then
+        openssl rand -hex 24 | tr -d '\n' | "${kube[@]}" create secret generic ${pre}dispatcher-db --from-file=password=/dev/stdin >/dev/null
         echo "made the dispatcher's database password"
     fi
 }
@@ -687,7 +690,7 @@ move_owner_token() {
     # patched: that also drops the copy an apply kept in an annotation.
     # Done just before the apply, which restarts the dispatcher on it.
     if cluster_has_owner_token; then
-        tokens_data() { "${kube[@]}" get secret dispatcher-tokens -o "jsonpath={.data.$1}"; }
+        tokens_data() { "${kube[@]}" get secret ${pre}dispatcher-tokens -o "jsonpath={.data.$1}"; }
         kept="$(tokens_data DISPATCHER_TOKENS | base64 -d | tr ',' '\n' | { grep -v '^ *owner=' || true; } | paste -sd, -)"
         [ -n "$kept" ] || die "the dispatcher's token secret holds no token but the owner's; not moving it"
         agent_data="$(tokens_data agent)" backup_data="$(tokens_data backup)" host_data="$(tokens_data host)"
@@ -697,7 +700,7 @@ move_owner_token() {
 apiVersion: v1
 kind: Secret
 metadata:
-  name: dispatcher-tokens
+  name: ${pre}dispatcher-tokens
   namespace: $namespace
 type: Opaque
 stringData:
@@ -719,6 +722,7 @@ EOF
 
 case "$action" in
 deploy)
+    [ -z "$pre" ] || die "the chart is applied with its own names; a trial with a prefix applies it with scripts/trial.sh"
     if [ -z "${CARMAN_IMAGE:-}" ]; then
         root="$build_root/service"
         mkdir -p "$root"
@@ -821,12 +825,12 @@ EOF
     # (grep reads to the end: one that stops early fails the pipe.)
     printf '%s\n' "$rendered" | grep '^  name: egress-meter$' >/dev/null ||
         "${kube[@]}" delete rolebinding/egress-meter role/egress-meter --ignore-not-found >/dev/null
-    "${kube[@]}" rollout status statefulset/cmem --timeout=120s
-    if "${kube[@]}" get deployment dispatcher >/dev/null 2>&1; then
-        ! "${kube[@]}" get statefulset dispatcher-db >/dev/null 2>&1 || "${kube[@]}" rollout status statefulset/dispatcher-db --timeout=180s
+    "${kube[@]}" rollout status statefulset/${pre}cmem --timeout=120s
+    if "${kube[@]}" get deployment ${pre}dispatcher >/dev/null 2>&1; then
+        ! "${kube[@]}" get statefulset ${pre}dispatcher-db >/dev/null 2>&1 || "${kube[@]}" rollout status statefulset/${pre}dispatcher-db --timeout=180s
         # Its tokens are read when it starts.
-        [ "${dispatcher_restart:-0}" = 0 ] || "${kube[@]}" rollout restart deployment/dispatcher >/dev/null
-        "${kube[@]}" rollout status deployment/dispatcher --timeout=180s
+        [ "${dispatcher_restart:-0}" = 0 ] || "${kube[@]}" rollout restart deployment/${pre}dispatcher >/dev/null
+        "${kube[@]}" rollout status deployment/${pre}dispatcher --timeout=180s
     fi
     if "${kube[@]}" get deployment egress >/dev/null 2>&1; then
         "${kube[@]}" annotate deployment egress "renewal-source=$renewal_source" --overwrite >/dev/null
@@ -911,8 +915,8 @@ env)
     printf 'export CMEM_URL=%s\nexport CMEM_DREAMER_TOKEN=%s\n' "$url" "$(secret dreamer)" > .local/cmem-dreamer.env
     echo "wrote .local/cmem.env (the laptop role) and .local/cmem-dreamer.env (the consolidation role)"
     # The owner's machine's sessions, for the dispatcher's hooks (ADR 0049).
-    host_token="$("${kube[@]}" get secret dispatcher-tokens -o 'jsonpath={.data.host}' 2>/dev/null | base64 -d || true)"
-    place="$("${kube[@]}" get deployment dispatcher -o 'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="DISPATCHER_PLACE")].value}' 2>/dev/null || true)"
+    host_token="$("${kube[@]}" get secret ${pre}dispatcher-tokens -o 'jsonpath={.data.host}' 2>/dev/null | base64 -d || true)"
+    place="$("${kube[@]}" get deployment ${pre}dispatcher -o 'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="DISPATCHER_PLACE")].value}' 2>/dev/null || true)"
     if [ -n "$host_token" ] && [ -n "$place" ]; then
         printf 'export DISPATCHER_URL=%s\nexport DISPATCHER_TOKEN=%s\nexport DISPATCHER_PLACE=%s\n' \
             "${DISPATCHER_URL:-http://127.0.0.1:8379}" "$host_token" "$place" > .local/dispatcher.env
@@ -944,15 +948,15 @@ secrets)
     [ "${dispatcher_restart:-0}" = 0 ] || echo "the dispatcher's secret changed; it needs a restart, after the chart is applied"
     ;;
 check)
-    "${kube[@]}" exec cmem-0 -- cmem check --library /data/library
-    "${kube[@]}" exec cmem-0 -- git -C /data/library fsck --strict --no-dangling >/dev/null && echo "git finds the repository whole"
-    echo "notes: $("${kube[@]}" exec cmem-0 -- sh -c 'find /data/library/entries -name "*.md" | wc -l') entries; last write: $("${kube[@]}" exec cmem-0 -- git -C /data/library log -1 --format='%cd  %s' --date=iso)"
+    "${kube[@]}" exec ${pre}cmem-0 -- cmem check --library /data/library
+    "${kube[@]}" exec ${pre}cmem-0 -- git -C /data/library fsck --strict --no-dangling >/dev/null && echo "git finds the repository whole"
+    echo "notes: $("${kube[@]}" exec ${pre}cmem-0 -- sh -c 'find /data/library/entries -name "*.md" | wc -l') entries; last write: $("${kube[@]}" exec ${pre}cmem-0 -- git -C /data/library log -1 --format='%cd  %s' --date=iso)"
     ;;
 backup)
     file="${3:-}"
     [ -n "$file" ] || die "name the file to write, for example cmem-library-$(date +%Y%m%d).tar"
     [ ! -e "$file" ] || die "$file already exists"
-    "${kube[@]}" exec cmem-0 -- tar -C /data -cf - library > "$file" || { rm -f "$file"; die "the copy failed"; }
+    "${kube[@]}" exec ${pre}cmem-0 -- tar -C /data -cf - library > "$file" || { rm -f "$file"; die "the copy failed"; }
     # Asked for by name: piping the listing into grep -q would stop tar early
     # on a large archive, and that reads as a failure.
     tar -tf "$file" library/.git/HEAD >/dev/null 2>&1 || { rm -f "$file"; die "what came back is not a library"; }
@@ -987,7 +991,7 @@ restore)
         die "$file is not a backup: neither a file made by cmem backup nor one made by this script"
     fi
     # The library in place is moved aside, never deleted.
-    "${kube[@]}" exec -i cmem-0 -- sh -c '
+    "${kube[@]}" exec -i ${pre}cmem-0 -- sh -c '
         set -e
         rm -rf /data/restoring /data/restoring.bundle && mkdir /data/restoring
         '"$how"'
@@ -999,10 +1003,10 @@ restore)
         echo "the library that was in place is kept as $aside in the volume"' < "$file"
     [ -z "$fetched" ] || rm -f "$fetched"
     # The service holds the old library in memory; restarting makes it read the restored one.
-    "${kube[@]}" delete pod cmem-0 --wait=true >/dev/null
-    "${kube[@]}" rollout status statefulset/cmem --timeout=120s >/dev/null
+    "${kube[@]}" delete pod ${pre}cmem-0 --wait=true >/dev/null
+    "${kube[@]}" rollout status statefulset/${pre}cmem --timeout=120s >/dev/null
     sleep 3
-    echo "restored: $("${kube[@]}" exec cmem-0 -- sh -c 'find /data/library/entries -name "*.md" | wc -l') entries"
+    echo "restored: $("${kube[@]}" exec ${pre}cmem-0 -- sh -c 'find /data/library/entries -name "*.md" | wc -l') entries"
     if answers; then echo "the service answers at $url"; else echo "the service does not answer at $url from this machine"; fi
     ;;
 token)
@@ -1050,21 +1054,23 @@ model-account)
     done
     # The meter reads the mounted secret again when the cluster changes it,
     # and logs each change with a count; a new pod reads it as it starts.
-    meter_changes() { "${kube[@]}" logs deployment/egress -c meter 2>/dev/null | sed -n 's/.*the model.s credential changed.*changes=\([0-9][0-9]*\).*/\1/p' | tail -1; }
-    meter_pod() { "${kube[@]}" get pods -l app=egress --field-selector=status.phase=Running -o 'jsonpath={.items[0].metadata.name}' 2>/dev/null; }
+    meter_changes() { { "${kube[@]}" logs "deployment/${pre}egress" -c meter 2>/dev/null || true; } | sed -n 's/.*the model.s credential changed.*changes=\([0-9][0-9]*\).*/\1/p' | tail -1; }
+    meter_pod() { "${kube[@]}" get pods -l "app=egress${pre:+,trial=${pre%-}}" --field-selector=status.phase=Running -o 'jsonpath={.items[*].metadata.name}' 2>/dev/null | cut -d' ' -f1; }
     restart_proxy() {
         if [ -z "$now" ]; then
             busy="$("${kube[@]}" get pods -l app.kubernetes.io/component=agent --field-selector=status.phase=Running -o 'jsonpath={range .items[?(@.metadata.ownerReferences[0].kind=="Job")]}{.metadata.name}{" "}{end}')"
             [ -z "$busy" ] || die "these jobs are running and the proxy's restart would cut their answers: $busy. Wait, or add --now"
         fi
-        "${kube[@]}" rollout restart deployment/egress >/dev/null
-        "${kube[@]}" rollout status deployment/egress --timeout=180s >/dev/null || die "the egress proxy did not come back; see: kubectl --context $context -n $namespace get pods"
+        "${kube[@]}" rollout restart "deployment/${pre}egress" >/dev/null
+        "${kube[@]}" rollout status "deployment/${pre}egress" --timeout=180s >/dev/null || die "the egress proxy did not come back; see: kubectl --context $context -n $namespace get pods"
     }
     changes_before="$(meter_changes)" pod_before="$(meter_pod)"
     # From the command to the cluster's API, and nowhere else.
     sh -c "$command" | tr -d '\n' | "$0" "$context" secret "$model_secret" token >/dev/null || die "the credential of account $want did not reach the cluster; the proxy holds what it held"
     [ "$(model_account_at_proxy)" = "$want" ] || die "the secret does not hold account $want's credential after the change"
-    if [ -n "$restart" ]; then
+    if ! "${kube[@]}" get "deployment/${pre}egress" >/dev/null 2>&1; then
+        echo "there is no egress proxy here (a trial's); the secret $model_secret holds the credential"
+    elif [ -n "$restart" ]; then
         restart_proxy
     elif [ "$at_proxy" != "$want" ]; then
         # The cluster updates the mounted file some tens of seconds after the secret.
@@ -1206,38 +1212,38 @@ dispatch)
         file="${4:-}"
         [ -f "$file" ] || die "name the dump to restore, a file made by: dispatch dump > FILE"
         grep -q '^-- PostgreSQL database dump complete' "$file" || die "$file is not a whole dump: its last line is missing"
-        "${kube[@]}" get statefulset dispatcher-db >/dev/null 2>&1 || die "the dispatcher's database is the installation's own here; restore it there"
+        "${kube[@]}" get statefulset ${pre}dispatcher-db >/dev/null 2>&1 || die "the dispatcher's database is the installation's own here; restore it there"
         # The service stops, so that nothing writes while the database is
         # replaced; the database in place is renamed, never dropped.
-        "${kube[@]}" scale deployment/dispatcher --replicas=0 >/dev/null
+        "${kube[@]}" scale deployment/${pre}dispatcher --replicas=0 >/dev/null
         "${kube[@]}" wait --for=delete pod -l app=dispatcher --timeout=120s >/dev/null 2>&1 || true
         aside="dispatcher_replaced_$(date +%Y%m%d%H%M%S)"
         status=0
-        "${kube[@]}" exec -i dispatcher-db-0 -- sh -c '
+        "${kube[@]}" exec -i ${pre}dispatcher-db-0 -- sh -c '
             set -e
             db="$POSTGRES_DB"
             psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres -c "ALTER DATABASE \"$db\" RENAME TO '"$aside"'"
             createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$db"
             psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$db" >/dev/null
             echo "the database that was in place is kept as '"$aside"'"' < "$file" || status=1
-        "${kube[@]}" scale deployment/dispatcher --replicas=1 >/dev/null
-        "${kube[@]}" rollout status deployment/dispatcher --timeout=180s >/dev/null
+        "${kube[@]}" scale deployment/${pre}dispatcher --replicas=1 >/dev/null
+        "${kube[@]}" rollout status deployment/${pre}dispatcher --timeout=180s >/dev/null
         [ "$status" -eq 0 ] || die "the restore failed; the service runs on what is in place now"
         sleep 3
         dispatch_client status
         ;;
     owner-token)
-        "${kube[@]}" get secret dispatcher-tokens >/dev/null 2>&1 || die "the cluster has no dispatcher token secret yet: deploy first"
+        "${kube[@]}" get secret ${pre}dispatcher-tokens >/dev/null 2>&1 || die "the cluster has no dispatcher token secret yet: deploy first"
         case "${4:-}" in
         new)
             # Whoever may deploy may do this, as they could always read the token.
             ! cluster_has_owner_token || die "the cluster still holds an owner token from before ADR 0051: deploy, which moves it"
             owner_sha256="$(new_owner_token)"
-            "${kube[@]}" patch secret dispatcher-tokens --type merge --patch-file /dev/stdin >/dev/null <<EOF
+            "${kube[@]}" patch secret ${pre}dispatcher-tokens --type merge --patch-file /dev/stdin >/dev/null <<EOF
 {"stringData": {"owner-sha256": "$owner_sha256"}}
 EOF
-            "${kube[@]}" rollout restart deployment/dispatcher >/dev/null
-            "${kube[@]}" rollout status deployment/dispatcher --timeout=180s >/dev/null
+            "${kube[@]}" rollout restart deployment/${pre}dispatcher >/dev/null
+            "${kube[@]}" rollout status deployment/${pre}dispatcher --timeout=180s >/dev/null
             echo "made a new owner token in $owner_token_file; the dispatcher knows its hash, and the token before it no longer works"
             ;;
         back)
@@ -1248,8 +1254,8 @@ EOF
             [ -s "$owner_token_file" ] || die "no owner token at $owner_token_file to put back"
             ! cluster_has_owner_token || die "the cluster holds an owner token already"
             owner="$(tr -d '\n' < "$owner_token_file")"
-            tokens="$("${kube[@]}" get secret dispatcher-tokens -o 'jsonpath={.data.DISPATCHER_TOKENS}' | base64 -d)"
-            "${kube[@]}" patch secret dispatcher-tokens --type merge --patch-file /dev/stdin >/dev/null <<EOF
+            tokens="$("${kube[@]}" get secret ${pre}dispatcher-tokens -o 'jsonpath={.data.DISPATCHER_TOKENS}' | base64 -d)"
+            "${kube[@]}" patch secret ${pre}dispatcher-tokens --type merge --patch-file /dev/stdin >/dev/null <<EOF
 {"stringData": {"owner": "$owner", "DISPATCHER_TOKENS": "owner=$owner,$tokens"}}
 EOF
             echo "the owner's token is on the cluster again, for a build from before ADR 0051: deploy that commit now. A later deploy of this one makes a new token."

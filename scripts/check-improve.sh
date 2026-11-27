@@ -8,18 +8,19 @@
 #   TRIAL_VALUES=deploy/values/trial-improve.yaml scripts/trial.sh CONTEXT up
 #   scripts/check-improve.sh CONTEXT
 #
-# TRIAL_NAME and TRIAL_NAMESPACE as scripts/trial.sh takes them.
+# TRIAL_NAME and TRIAL_NAMESPACE as scripts/trial.sh takes them; the trial's
+# objects carry its name as a prefix.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 die() { echo "check-improve: $*" >&2; exit 1; }
 context="${1:-}"
 [ -n "$context" ] || die "say: scripts/check-improve.sh CONTEXT"
-name="${TRIAL_NAME:-trial}"
+name="$(scripts/trial.sh "$context" name)" pre="$name-"
 namespace="${TRIAL_NAMESPACE:-$(kubectl config view --minify --context "$context" -o 'jsonpath={..namespace}')}"
 kube=(kubectl --context "$context" --namespace "$namespace")
-image="$("${kube[@]}" get deployment dispatcher -o 'jsonpath={.spec.template.spec.containers[0].image}')" || die "no trial dispatcher in $namespace"
-[ "$("${kube[@]}" get deployment dispatcher -o 'jsonpath={.metadata.labels.trial}')" = "$name" ] || die "the dispatcher in $namespace is not the trial $name"
+image="$("${kube[@]}" get deployment ${pre}dispatcher -o 'jsonpath={.spec.template.spec.containers[0].image}')" || die "no trial dispatcher in $namespace"
+[ "$("${kube[@]}" get deployment ${pre}dispatcher -o 'jsonpath={.metadata.labels.trial}')" = "$name" ] || die "the dispatcher in $namespace is not the trial $name"
 
 owner() { scripts/trial.sh "$context" deploy dispatch "$@"; }
 
@@ -30,7 +31,7 @@ for agent in watch platform other; do
 apiVersion: v1
 kind: Pod
 metadata:
-  name: stand-in-$agent
+  name: ${pre}stand-in-$agent
   labels: {trial: "$name", agent: "$agent"}
 spec:
   restartPolicy: Never
@@ -39,7 +40,7 @@ spec:
       image: $image
       command: ["sleep", "3600"]
       env:
-        - {name: DISPATCHER_URL, value: "http://dispatcher:8379"}
+        - {name: DISPATCHER_URL, value: "http://${pre}dispatcher:8379"}
         - {name: AGENT_NAME, value: "$agent"}
       volumeMounts: [{name: identity, mountPath: /var/run/secrets/dispatcher, readOnly: true}]
   volumes:
@@ -48,8 +49,8 @@ spec:
         sources: [{serviceAccountToken: {audience: dispatcher, path: token, expirationSeconds: 3600}}]
 YAML
 done
-"${kube[@]}" wait --for=condition=ready pod/stand-in-watch pod/stand-in-platform pod/stand-in-other --timeout=120s >/dev/null
-as() { local agent="$1"; shift; "${kube[@]}" exec -i "stand-in-$agent" -- dispatcher "$@"; }
+"${kube[@]}" wait --for=condition=ready pod/${pre}stand-in-watch pod/${pre}stand-in-platform pod/${pre}stand-in-other --timeout=120s >/dev/null
+as() { local agent="$1"; shift; "${kube[@]}" exec -i "${pre}stand-in-$agent" -- dispatcher "$@"; }
 step() { echo "ok: $*"; }
 has() { grep -qF -- "$2" <<<"$1" || die "expected \"$2\" in:
 $1"; }
@@ -159,5 +160,5 @@ lacks "$log" '"to":"agent/builder"'
 lacks "$log" "wait for your decision"
 shown="$(owner improve show "$item")"; has "$shown" "agreed"; has "$shown" "not sent"
 step "nothing was sent: the item is still agreed, its brief is on the list for the owner to read"
-"${kube[@]}" delete pod stand-in-watch stand-in-platform stand-in-other --wait=false >/dev/null
+"${kube[@]}" delete pod ${pre}stand-in-watch ${pre}stand-in-platform ${pre}stand-in-other --wait=false >/dev/null
 echo "the improvement loop works end to end in the trial $name"
