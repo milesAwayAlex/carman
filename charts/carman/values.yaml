@@ -357,6 +357,27 @@ backup:
   # and switches this on, and the job copies it with the rest. Whoever
   # deploys another way makes that config map (key definition.bundle).
   installation: false
+  # Conversations: the volume jobs keep theirs on (agent.sessionStorage), as
+  # the copy `conversations`, and each interactive agent's sessions from its
+  # home, as `sessions-NAME`. The job mounts those volumes read-only, which a
+  # cluster of one node allows; on several nodes see deploy/README.md.
+  conversations: true
+  # What of an interactive agent's home is its sessions: the harness's
+  # transcripts, the list agent-open reopens at start, the harness's state
+  # and settings, and the user-level instructions, skills, subagents and
+  # commands a session may lean on. Checkouts, caches and plugins are not.
+  sessionPaths:
+    - .claude/projects
+    - .claude/todos
+    - .claude/plans
+    - .claude/history.jsonl
+    - .claude/settings.json
+    - .claude/CLAUDE.md
+    - .claude/agents
+    - .claude/commands
+    - .claude/skills
+    - .claude.json
+    - .config/agent/sessions
   # More of the job's environment, such as a store's region.
   env: {}
   # A store on the installation's own network is reached directly and not
