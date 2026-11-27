@@ -116,7 +116,9 @@ Built so far:
   (`run.usage`), shown first by `dispatch status`, each model's standing
   most constrained first. An admission rule that holds low-priority work
   while a usage window is high, and a task whose ladder starts with a
-  refused model, is built and off.
+  refused model, is built and off; with `mode: curve` it holds it while a
+  window is ahead of a line to its reset (ADR 0060, proposed), and
+  `usage.room` says what a window will leave unused.
 
 - Messages (ADR 0045): sessions, agents by name and the owner
   write to each other with `dispatcher peers|send|reply|inbox|message`
@@ -165,7 +167,7 @@ do work outside memory: triggers other than a schedule, and a way for the
 owner to answer an agent's message where it arrives (today: `dispatch reply`
 from the laptop). The scheduled agents
 are not yet moved onto the dispatcher, notices are not yet switched on, and
-pacing is a threshold, not yet a curve to the window's reset. The build
+nothing yet acts on the room a window will leave unused. The build
 order is in DESIGN.md, section 11.
 
 ## Read first
