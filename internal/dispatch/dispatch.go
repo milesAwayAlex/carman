@@ -66,6 +66,27 @@ type TaskSpec struct {
 	// AttemptTimeout limits how long one attempt may run, counted from its
 	// task.started event. Required, positive.
 	AttemptTimeout time.Duration `json:"attempt_timeout"`
+	// After, when set, is a class. The task's first attempt does not start
+	// while a task of that class submitted before it is pending, running or
+	// waiting, however that task ends; Explain says ReasonAfter with the
+	// task's ID. A task submitted later never holds it, so two tasks cannot
+	// hold each other. Once AfterWithin has passed since the task was
+	// submitted it is no longer held: the dispatcher emits one
+	// task.after-lapsed event and the task starts as any other would.
+	After string `json:"after,omitempty"`
+	// AfterWithin is required, positive, when After is set.
+	AfterWithin time.Duration `json:"after_within,omitempty"`
+}
+
+// Check says whether a task can be submitted.
+func (t TaskSpec) Check() error {
+	if t.ID == "" || t.Class == "" || t.AttemptTimeout <= 0 {
+		return fmt.Errorf("%w: task needs id, class and a positive attempt timeout", ErrInvalid)
+	}
+	if (t.After != "") != (t.AfterWithin > 0) || t.AfterWithin < 0 {
+		return fmt.Errorf("%w: a task after another needs a class and a positive wait, together", ErrInvalid)
+	}
+	return nil
 }
 
 // State is where a task is in its life.
@@ -186,6 +207,11 @@ func (s Schedule) Check() error {
 	if s.Template.Class == "" || s.Template.AttemptTimeout <= 0 {
 		return fmt.Errorf("%w: schedule template needs a class and a positive attempt timeout", ErrInvalid)
 	}
+	tmpl := s.Template
+	tmpl.ID = s.Name
+	if err := tmpl.Check(); err != nil {
+		return err
+	}
 	if (s.Interval != 0) == (s.Cron != "") {
 		return fmt.Errorf("%w: a schedule has an interval or a cron expression, not both or neither", ErrInvalid)
 	}
@@ -283,6 +309,10 @@ const (
 	ReasonWaiting ReasonKind = "waiting"
 	// ReasonStartFailed: the last start call returned an error; Detail is it.
 	ReasonStartFailed ReasonKind = "start-failed"
+	// ReasonAfter: a task of the class After names, submitted before this
+	// one, has not ended; Detail is its ID. It is checked before the limit
+	// and admission, and is shown while it holds whatever else would.
+	ReasonAfter ReasonKind = "after"
 )
 
 // Reason is the explanation Explain gives.
@@ -350,15 +380,16 @@ const (
 	// start before its end.
 	TypeFinished = "task.finished"
 
-	TypeSubmitted  = "task.submitted"   // key "": data has Spec
-	TypeStarted    = "task.started"     // key attempt name
-	TypeDone       = "task.done"        // key attempt name; data has Event
-	TypeFailed     = "task.failed"      // key attempt name; data has Event, or Overran
-	TypeOverran    = "task.overran"     // key attempt name; precedes its task.failed
-	TypeWaiting    = "task.waiting"     // key attempt name; data has Wait
-	TypeWoken      = "task.woken"       // key the woken attempt's name; data has Wake
-	TypeNotStarted = "task.not-started" // key ""; data has StartBy
-	TypeMissed     = "schedule.missed"  // subject schedule name; key the tick fired; data has Tick, Skipped
+	TypeSubmitted   = "task.submitted"    // key "": data has Spec
+	TypeStarted     = "task.started"      // key attempt name
+	TypeDone        = "task.done"         // key attempt name; data has Event
+	TypeFailed      = "task.failed"       // key attempt name; data has Event, or Overran
+	TypeOverran     = "task.overran"      // key attempt name; precedes its task.failed
+	TypeWaiting     = "task.waiting"      // key attempt name; data has Wait
+	TypeWoken       = "task.woken"        // key the woken attempt's name; data has Wake
+	TypeNotStarted  = "task.not-started"  // key ""; data has StartBy
+	TypeMissed      = "schedule.missed"   // subject schedule name; key the tick fired; data has Tick, Skipped
+	TypeAfterLapsed = "task.after-lapsed" // key ""; data has After, the ID of the task still not ended
 )
 
 // Source is the source of the dispatcher's own events.
@@ -399,4 +430,5 @@ type Transition struct {
 	StartBy *time.Time `json:"start_by,omitempty"`
 	Tick    *time.Time `json:"tick,omitempty"`
 	Skipped int        `json:"skipped,omitempty"`
+	After   string     `json:"after,omitempty"`
 }

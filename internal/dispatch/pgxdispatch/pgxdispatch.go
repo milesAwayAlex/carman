@@ -438,8 +438,8 @@ func scanRecord(row pgx.CollectableRow) (dispatch.Record, error) {
 }
 
 func (d *Dispatcher) Submit(ctx context.Context, t dispatch.TaskSpec) error {
-	if t.ID == "" || t.Class == "" || t.AttemptTimeout <= 0 {
-		return fmt.Errorf("%w: task needs id, class and a positive attempt timeout", dispatch.ErrInvalid)
+	if err := t.Check(); err != nil {
+		return err
 	}
 	err := d.write(ctx, func(w *wtx) error { return w.submit(t) })
 	d.poke()
