@@ -178,10 +178,15 @@ func (rd reading) refusedLimit() string {
 // priority is below Below is held while the latest reading of the shared
 // windows has one at or above Above that has not yet reset. A shared
 // reading older than MaxAge, or none, is unknown, and unknown admits; a
-// refusal stands until the time it gave.
+// refusal stands until the time it gave. With Mode "curve" a window is
+// held against its line to Target at its reset instead of Above (ADR
+// 0060, pace.go).
 type budgetRule struct {
 	Below    int
 	Above    float64
+	Mode     string // "threshold" (or empty), or "curve"
+	Target   float64
+	Soon     time.Duration
 	MaxAge   time.Duration
 	Readings func(ctx context.Context) ([]dispatch.Record, error)
 	// Models is a class's ladder, first model first; nil, or an error,
@@ -199,8 +204,10 @@ func (b budgetRule) admit(ctx context.Context, task dispatch.TaskSpec, _ []dispa
 	if b.Now != nil {
 		now = b.Now()
 	}
+	var ladder []string
 	if b.Models != nil {
-		if ladder, err := b.Models(ctx, task.Class); err == nil && len(ladder) > 0 {
+		if l, err := b.Models(ctx, task.Class); err == nil && len(l) > 0 {
+			ladder = l
 			if r, ok := latestByModel(rs)[ladder[0]]; ok {
 				var rd reading
 				_ = json.Unmarshal(r.Data, &rd)
@@ -213,6 +220,9 @@ func (b budgetRule) admit(ctx context.Context, task dispatch.TaskSpec, _ []dispa
 	}
 	if task.Priority >= b.Below {
 		return true, ""
+	}
+	if b.Mode == "curve" {
+		return b.curve(rs, ladder, now)
 	}
 	r, rd, ok := latestShared(rs)
 	if !ok || now.Sub(r.Time) > b.MaxAge {
@@ -369,6 +379,11 @@ func standing(ctx context.Context, c *api.Client) error {
 	}
 	for _, l := range usageLines(rs, now) {
 		fmt.Println(l)
+	}
+	if pc, err := paceSettings(); err == nil {
+		for _, l := range paceLines(rs, now, pc.target) {
+			fmt.Println(l)
+		}
 	}
 	var runs []api.Record
 	if err := c.Do(ctx, http.MethodGet, "/v1/events", url.Values{"type": {TypeRunUsage}, "last": {"2000"}}, nil, &runs); err != nil {
