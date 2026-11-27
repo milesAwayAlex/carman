@@ -469,6 +469,10 @@ which are the weakest parts. Three things are meant to keep that manageable:
   interactive agent keeps its own copy.
 - Agents leave the cluster only through the egress proxy, which holds every
   credential and puts it on the request for its own host (ADR 0031, 0035).
+  An installation may have several accounts for the model, their
+  credentials on the owner's machine; one is at the proxy, changed with
+  `scripts/deploy.sh CONTEXT model-account NAME`, and usage readings count
+  only since the latest change (ADR 0055, proposed).
   The model's credential is held by a meter beside the proxy (ADR 0050):
   the proxy hands it every request to the model's API with the
   caller's address, the meter refuses an address that is no agent's pod of

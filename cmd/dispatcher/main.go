@@ -506,7 +506,15 @@ func serve(ctx context.Context) error {
 	}
 	defer d.Kill() // nothing is flushed: the dispatcher is safe to stop at any moment
 	readings = func(ctx context.Context) ([]dispatch.Record, error) {
-		return d.Last(ctx, TypeUsageObserved, readingsKept)
+		rs, err := d.Last(ctx, TypeUsageObserved, readingsKept)
+		if err != nil {
+			return nil, err
+		}
+		changed, err := d.Last(ctx, TypeModelAccount, 1)
+		if err != nil {
+			return nil, err
+		}
+		return sinceAccount(rs, changed), nil
 	}
 
 	// The schedules are the ones the installation lists, and no others.

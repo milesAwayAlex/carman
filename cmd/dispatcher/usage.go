@@ -95,6 +95,26 @@ func sortedWindows(ws map[string]window) []string {
 	return names
 }
 
+// TypeModelAccount is recorded when the account whose credential the proxy
+// holds is changed (its subject is the account's name): an installation may
+// have more than one, and a reading taken on one says nothing of another.
+const TypeModelAccount = "model.account"
+
+// sinceAccount is the readings taken since the account was last changed.
+func sinceAccount(rs, changed []dispatch.Record) []dispatch.Record {
+	if len(changed) == 0 {
+		return rs
+	}
+	at := changed[len(changed)-1].Seq
+	var out []dispatch.Record
+	for _, r := range rs {
+		if r.Seq > at {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // latestByModel is the newest reading of each model among records in the
 // log's order (oldest first).
 func latestByModel(rs []dispatch.Record) map[string]dispatch.Record {
@@ -337,6 +357,15 @@ func standing(ctx context.Context, c *api.Client) error {
 	rs := make([]dispatch.Record, len(last))
 	for i, r := range last {
 		rs[i] = dispatch.Record{Seq: r.Seq, Event: r.Event}
+	}
+	var account []api.Record
+	if err := c.Do(ctx, http.MethodGet, "/v1/events", url.Values{"type": {TypeModelAccount}, "last": {"1"}}, nil, &account); err != nil {
+		return err
+	}
+	if len(account) > 0 {
+		a := account[len(account)-1]
+		fmt.Printf("model account: %s, since %s; readings from before are of another account and are left out\n", a.Subject, a.Time.UTC().Format("2006-01-02 15:04 UTC"))
+		rs = sinceAccount(rs, []dispatch.Record{{Seq: a.Seq, Event: a.Event}})
 	}
 	for _, l := range usageLines(rs, now) {
 		fmt.Println(l)
@@ -611,7 +640,9 @@ func dueModels(spec string, hour int) ([]string, error) {
 		}
 		h := fnv.New32a()
 		h.Write([]byte(model))
-		if (hour+int(h.Sum32()%uint32(n)))%n == 0 {
+		// USAGE_ALL: every model now, whatever the hour (a reading taken
+		// by hand, or after the account at the proxy was changed).
+		if os.Getenv("USAGE_ALL") != "" || (hour+int(h.Sum32()%uint32(n)))%n == 0 {
 			due = append(due, model+"="+hours)
 		}
 	}

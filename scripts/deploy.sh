@@ -29,6 +29,10 @@
 #                                       or each kept run's line (ADR 0041)
 #   scripts/deploy.sh CONTEXT routine FILE      put a routine of this installation's own in the cluster
 #   scripts/deploy.sh CONTEXT tool FILE         put a command of this installation's own on agents' PATH
+#   scripts/deploy.sh CONTEXT model-account      which account for the model the egress proxy holds, where the
+#                                       installation has more than one (its definition lists them)
+#   scripts/deploy.sh CONTEXT model-account NAME [--now]   put that account's credential at the proxy, restart
+#                                       the proxy, record the choice, and take a usage reading on it
 #   scripts/deploy.sh CONTEXT signin KEY URL    sign in, in a browser, to a service a renewal keeps a sign-in for
 #   scripts/deploy.sh CONTEXT agent run NAME    run an agent once now and show what it reported
 #   scripts/deploy.sh CONTEXT agent log NAME    the report of its latest run
@@ -179,6 +183,25 @@ build_dispatcher() {
 # by this user only. The cluster holds its SHA-256.
 # CARMAN_OWNER_TOKEN_FILE names another, for a trial installation's own.
 owner_token_file="${CARMAN_OWNER_TOKEN_FILE:-.local/dispatcher-owner.token}"
+
+# The accounts for the model that this installation has (model-account):
+# NAME, then the command that prints its credential, one to a line, in the
+# installation's definition; and the one chosen, a word in a file there.
+model_secret="${CARMAN_MODEL_SECRET:-model-credential}"
+model_accounts_file="${CARMAN_INSTALLATION:-.local}/model-accounts"
+model_account_file="${CARMAN_INSTALLATION:-.local}/model-account"
+model_accounts() { [ -s "$model_accounts_file" ] || die "this installation lists no accounts for the model: $model_accounts_file has a line for each, NAME then the command that prints its credential"; }
+model_account_command() { awk -v n="$1" '$1 == n {sub(/^[^ \t]+[ \t]+/, ""); print; exit}' "$model_accounts_file"; }
+# The account whose credential the proxy's secret holds, by comparing
+# digests; nothing, if it is none of those listed.
+model_account_at_proxy() {
+    local held name command
+    held="$("${kube[@]}" get secret "$model_secret" -o 'jsonpath={.data.token}' 2>/dev/null | base64 -d | tr -d '\n' | sha256_hex)"
+    while read -r name command; do
+        case "$name" in "" | \#*) continue ;; esac
+        if [ "$(sh -c "$command" 2>/dev/null | tr -d '\n' | sha256_hex)" = "$held" ]; then echo "$name"; return 0; fi
+    done < "$model_accounts_file"
+}
 sha256_hex() { shasum -a 256 | cut -d' ' -f1; }
 # Makes a new owner token and writes it to the file; prints its hash.
 new_owner_token() {
@@ -665,6 +688,13 @@ EOF
         fi
     fi
     move_owner_token
+    # The account for the model that the installation's definition chooses
+    # is the one at the proxy; a deploy says when it is not, and changes nothing.
+    if [ -s "$model_accounts_file" ] && [ -s "$model_account_file" ] && "${kube[@]}" get secret "$model_secret" >/dev/null 2>&1; then
+        at_proxy="$(model_account_at_proxy)"
+        [ "$at_proxy" = "$(cat "$model_account_file")" ] ||
+            echo "deploy: the proxy holds ${at_proxy:-a credential of no listed account}, and the installation's definition chooses $(cat "$model_account_file"); to put it there: scripts/deploy.sh $context model-account $(cat "$model_account_file")" >&2
+    fi
     printf '%s\n' "$rendered" | kubectl --context "$context" apply -f -   # every object names its namespace; one is not this one
     # Applying does not remove what the values no longer ask for.
     [ -n "$warm_ref" ] || "${kube[@]}" delete cronjob/agent-warm networkpolicy/warm-job-reaches-the-registry serviceaccount/agent-warm --ignore-not-found >/dev/null
@@ -743,6 +773,7 @@ status)
     "${kube[@]}" get statefulset,pod,pvc,service -o wide
     "${kube[@]}" get configmap deployed -o 'jsonpath=deployed: {.data.commit}, at {.data.at}{"\n"}before it: {.data.previous}{"\n"}the installation'"'"'s definition: {.data.installation}; before it: {.data.previous-installation}{"\n"}' 2>/dev/null || true
     if answers; then echo "the service answers at $url"; else echo "the service does not answer at $url from this machine"; fi
+    [ ! -s "$model_accounts_file" ] || echo "the model's account at the proxy: $(model_account_at_proxy || true)"
     ;;
 env)
     mkdir -p .local
@@ -852,6 +883,46 @@ secret)
     # The egress proxy reads its credentials when it starts.
     if [ "$name" = egress-credentials ] && "${kube[@]}" get deployment egress >/dev/null 2>&1; then
         "${kube[@]}" rollout restart deployment/egress >/dev/null && echo "restarted the egress proxy to read it"
+    fi
+    ;;
+model-account)
+    # An installation may have more than one account for the model. Their
+    # credentials stay on this machine, each printed by a command of its
+    # own; the proxy holds one. The choice is kept in the installation's
+    # definition, and each change is in the dispatcher's log, since a usage
+    # reading taken on one account says nothing of another.
+    want="${3:-}"
+    model_accounts
+    at_proxy="$(model_account_at_proxy)"
+    chosen="$(cat "$model_account_file" 2>/dev/null || true)"
+    if [ -z "$want" ]; then
+        echo "at the proxy: ${at_proxy:-the credential of no account listed in $model_accounts_file}; chosen in the installation's definition: ${chosen:-none}"
+        awk '$1 !~ /^#/ && NF {print "  " $1}' "$model_accounts_file"
+        exit 0
+    fi
+    command="$(model_account_command "$want")"
+    [ -n "$command" ] || die "no account named $want in $model_accounts_file; it lists: $(awk '$1 !~ /^#/ && NF {printf "%s ", $1}' "$model_accounts_file")"
+    if [ "${4:-}" != --now ]; then
+        busy="$("${kube[@]}" get pods -l app.kubernetes.io/component=agent --field-selector=status.phase=Running -o 'jsonpath={range .items[?(@.metadata.ownerReferences[0].kind=="Job")]}{.metadata.name}{" "}{end}')"
+        [ -z "$busy" ] || die "these jobs are running and the proxy's restart would cut their answers: $busy. Wait, or add --now"
+    fi
+    # From the command to the cluster's API, and nowhere else.
+    sh -c "$command" | tr -d '\n' | "$0" "$context" secret "$model_secret" token >/dev/null || die "the credential of account $want did not reach the cluster; the proxy holds what it held"
+    [ "$(model_account_at_proxy)" = "$want" ] || die "the secret does not hold account $want's credential after the change"
+    "${kube[@]}" rollout restart deployment/egress >/dev/null
+    "${kube[@]}" rollout status deployment/egress --timeout=180s >/dev/null || die "the egress proxy did not come back; see: kubectl --context $context -n $namespace get pods"
+    printf '%s\n' "$want" > "$model_account_file"
+    dispatch_client emit model.account --subject "$want" --source deploy >/dev/null 2>&1 ||
+        echo "deploy: the change was not recorded in the dispatcher's log; its usage readings from before are of the other account" >&2
+    echo "the proxy holds account $want's credential (it held ${at_proxy:-an unlisted one}); recorded in $model_account_file: commit it there"
+    # A reading of every model on the new account, so that its standing is known at once.
+    if "${kube[@]}" get cronjob agent-usage >/dev/null 2>&1; then
+        job="usage-account-$(date -u +%H%M%S)"
+        "${kube[@]}" create job "$job" --from=cronjob/agent-usage --dry-run=client -o json |
+            "${kube[@]}" set env --local -f - USAGE_ALL=1 -o json | "${kube[@]}" create -f - >/dev/null &&
+            "${kube[@]}" wait --for=condition=complete "job/$job" --timeout=180s >/dev/null 2>&1 &&
+            "${kube[@]}" logs "job/$job" 2>/dev/null | grep '^recorded' || echo "deploy: no reading could be taken on account $want; see: scripts/deploy.sh $context dispatch status" >&2
+        "${kube[@]}" delete job "$job" --wait=false >/dev/null 2>&1 || true
     fi
     ;;
 agent-image)

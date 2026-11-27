@@ -417,6 +417,19 @@ as an MCP server by its address.
 
 ### The model's credential, and what each agent used
 
+**More than one account for the model** (ADR 0055). List each in the
+installation's definition, in a file `model-accounts`: a name, then the
+command that prints its credential on the machine that deploys, one line
+each (lines starting with `#` are comments). `scripts/deploy.sh CONTEXT
+model-account` says which the proxy holds; `model-account NAME` puts
+another there, restarts the proxy, writes the choice to `model-account`
+in the definition (commit it), records the change in the dispatcher's
+log as `model.account`, and takes a usage reading of every model on it.
+Readings from before the latest change are of another account: `dispatch
+status` and the admission rule leave them out. A deploy says when the
+proxy holds another account than the definition chooses, and changes
+nothing. `deploy/RECOVERY.md` has the same by hand.
+
 The model's credential can be held at the proxy too (ADR 0050), by one
 switch in the values:
 

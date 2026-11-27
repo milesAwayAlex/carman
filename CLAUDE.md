@@ -64,6 +64,12 @@ Built so far:
   and can be given plugins, MCP servers, a cloud
   identity and commands of the installation's own.
 
+- Several accounts for the model (ADR 0055, proposed): the installation's
+  definition lists them by name with the command that prints each one's
+  credential on the owner's machine; `scripts/deploy.sh CONTEXT
+  model-account [NAME]` says or changes which one the proxy holds, and
+  usage readings count since the latest change.
+
 - The model's credential at the proxy (ADR 0050): with
   `agent.modelCredential: proxy` agent pods hold a placeholder, and a meter
   beside the proxy puts the credential on each request to the model. It

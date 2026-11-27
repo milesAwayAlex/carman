@@ -273,3 +273,24 @@ func TestR10ModelStanding(t *testing.T) {
 		t.Errorf("d-1 agrees, summed over its runs and models:\n%s", got)
 	}
 }
+
+// TestR7ReadingsOfAnotherAccount: when the account at the proxy is changed,
+// readings from before the change are of another account: they are not used
+// for the standing or for admission.
+func TestR7ReadingsOfAnotherAccount(t *testing.T) {
+	rd := func(seq int64) dispatch.Record {
+		return dispatch.Record{Seq: seq, Event: dispatch.Event{Type: TypeUsageObserved}}
+	}
+	rs := []dispatch.Record{rd(3), rd(7), rd(12)}
+	if got := sinceAccount(rs, nil); len(got) != 3 {
+		t.Errorf("no change recorded: %d readings, want all 3", len(got))
+	}
+	changed := []dispatch.Record{{Seq: 9, Event: dispatch.Event{Type: TypeModelAccount, Subject: "b"}}}
+	got := sinceAccount(rs, changed)
+	if len(got) != 1 || got[0].Seq != 12 {
+		t.Errorf("after a change at 9: %+v, want only the reading at 12", got)
+	}
+	if lines := usageLines(sinceAccount(rs[:2], changed), time.Now()); len(lines) != 1 || !strings.Contains(lines[0], "no reading yet") {
+		t.Errorf("with every reading from before the change: %v", lines)
+	}
+}

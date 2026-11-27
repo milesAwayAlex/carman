@@ -302,6 +302,66 @@ back, a person or a session on a machine outside the cluster:
 If that time passes with no word, the other side runs the way back without
 being asked. The change is made only after they have said they have it.
 
+## Switching the model account
+
+An installation may have more than one account for the model (ADR 0055).
+Their credentials stay on the owner's machine; the egress proxy holds one.
+When agents are refused for the account's limit, or the account's
+credential stops working, whoever can deploy puts another at the proxy.
+This needs only kubectl, the checkout, and the installation's definition
+(`model-accounts` there: a name and the command that prints the credential,
+one line each). The session that builds the platform need not be running:
+a session on the owner's machine does it.
+
+1. Which account the proxy holds, and which the definition chooses:
+
+   ```
+   scripts/deploy.sh CONTEXT model-account
+   ```
+
+2. Switch. From `main`, or from a worktree of the deployed commit when
+   `main` is broken ("A change broke it" says how to make one):
+
+   ```
+   scripts/deploy.sh CONTEXT model-account NAME
+   ```
+
+   It refuses while an agent's job runs, since the proxy's restart cuts
+   the answer a job is waiting for; `--now` after the name switches anyway
+   (a job refused for the limit is not getting an answer). It puts the
+   credential in the proxy's secret, restarts the proxy, writes the choice
+   to `model-account` in the installation's definition, records the change
+   in the dispatcher's log (usage readings from before it are of the other
+   account and are no longer used), and takes a reading of every model.
+   If the dispatcher is down the change is still made; only the record is
+   missing, and `dispatch status` then shows the other account's readings
+   until the next ones.
+
+3. Commit the choice in the installation's definition, so that the next
+   deploy and a recovery know it:
+
+   ```
+   git -C INSTALLATION commit -m 'The model account is NAME: why' model-account
+   ```
+
+**If the script cannot run** at any commit, the same by hand. The secret
+is `model-credential` (`agent.modelSecret`), its one key `token`, the
+credential alone with no newline; it carries no labels or annotations of
+its own. COMMAND is the account's line in `model-accounts`:
+
+```
+COMMAND | tr -d '\n' | kubectl --context CONTEXT -n NAMESPACE create secret generic model-credential \
+    --from-file=token=/dev/stdin --dry-run=client -o json |
+    kubectl --context CONTEXT -n NAMESPACE patch secret model-credential --type merge --patch-file /dev/stdin
+kubectl --context CONTEXT -n NAMESPACE rollout restart deployment/egress
+kubectl --context CONTEXT -n NAMESPACE rollout status deployment/egress --timeout=180s
+```
+
+A patch, not an apply: an applied secret keeps a copy of its value in an
+annotation. Then check that an agent reaches the model: make a Job from
+the usage reading's CronJob and read its log
+(`kubectl ... create job check --from=cronjob/agent-usage`).
+
 ## Not covered yet
 
 - Anything that tells you a night's backup never ran. A night that ran and
