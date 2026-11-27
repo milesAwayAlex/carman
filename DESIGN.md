@@ -92,7 +92,9 @@ dispatcher; which session of its pod it is, is its word. A running session
 gets messages through the harness's hooks: with the next tool results, at
 the end of its turn, or, idle, woken by an `asyncRewake` waiter that holds
 a long poll to the dispatcher (channels, the harness's own way, are not
-available to the agents' credential). A message for a session that is not
+available to the agents' credential); the waiter's `rewakeMessage` and
+`rewakeSummary` make the woken session read it as a message, where the
+harness would otherwise call it a hook's blocking error. A message for a session that is not
 running becomes a task that resumes it as its agent, headless, under
 ADR 0040's one-writer lock, and its last words go back as the answer; one
 for an agent by name starts a new conversation; one for the owner is a

@@ -26,6 +26,20 @@ for file in $(sed -n 's/^COPY \(.*\) [^ ]*$/\1/p' deploy/agent/Dockerfile | tr '
         grep -q -E "deploy/agent/$file( |\$)" "$list" || { echo "$list does not copy deploy/agent/$file, which the agent image needs" >&2; exit 1; }
     done
 done
+# A new home starts the harness at its prompt: the first-start screens seen,
+# the directory agent-open opens trusted, and nothing the home had lost.
+if command -v python3 >/dev/null; then
+    home="$(mktemp -d)"
+    echo '{"numStartups":3}' > "$home/.claude.json"
+    HOME="$home" sh -c '. deploy/agent/agent-env && agent_harness_state "$HOME"' >/dev/null
+    python3 -c 'import json,sys; s=json.load(open(sys.argv[1]+"/.claude.json")); sys.exit(not (s["numStartups"] == 3 and s["hasCompletedOnboarding"] and s["projects"][sys.argv[1]]["hasTrustDialogAccepted"]))' "$(cd "$home" && pwd -P)" ||
+        { echo "agent_harness_state does not seed the harness's first start" >&2; rm -rf "$home"; exit 1; }
+    rm -rf "$home"
+fi
+# The idle listener's wake reads as a message, not a hook's error, wherever its settings are.
+for f in deploy/agent/settings.json adapters/claude-code/dispatcher.settings.example.json nix/packages/dispatcher-claude-code-settings.nix; do
+    [ "$(grep -c rewakeMessage "$f")" -eq "$(grep -c asyncRewake "$f")" ] || { echo "$f has an asyncRewake hook with no rewakeMessage" >&2; exit 1; }
+done
 # The chart hands the dispatcher who may write to each agent (ADR 0047), and
 # refuses a list that names an agent there is not. Checked where helm is.
 if command -v helm >/dev/null; then

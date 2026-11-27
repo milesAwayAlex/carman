@@ -33,6 +33,10 @@ let
     type = "command";
     command = "${exe} hook claude-code --wait 335h";
     asyncRewake = true;
+    # What the woken session and its terminal are shown before the message,
+    # in place of the harness's "Stop hook blocking error" (seen in 2.1.323 and 2.1.326).
+    rewakeMessage = "A message for this session arrived through the dispatcher (it is not an error):";
+    rewakeSummary = "A message arrived through the dispatcher";
     timeout = 1209600;
   };
   always = [ { hooks = [ now ]; } ];

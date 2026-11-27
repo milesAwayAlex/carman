@@ -23,6 +23,33 @@ fi
 # and the harness where its installer puts it.
 export PATH="/etc/agent/bin:$HOME/.local/bin:$PATH"
 
+# The harness's own state (~/.claude.json), so that a new home starts at the
+# prompt with nobody at the keyboard: its first-start screens (the theme and
+# the security notes) are taken as seen, and the directory given, if any, as
+# trusted. Only what is missing is added; a file that does not read is left.
+agent_harness_state() {  # [DIR]
+    AGENT_TRUST_DIR="${1:-}" python3 - <<'PY' || echo "agent: the harness's state could not be written; it may ask its first-start questions" >&2
+import json, os
+path = os.path.realpath(os.path.expanduser("~/.claude.json"))
+try:
+    state = json.load(open(path))
+except FileNotFoundError:
+    state = {}
+before = json.dumps(state, sort_keys=True)
+state.setdefault("hasCompletedOnboarding", True)
+trust = os.environ.get("AGENT_TRUST_DIR")
+if trust:
+    project = state.setdefault("projects", {}).setdefault(os.path.realpath(trust), {})
+    project["hasTrustDialogAccepted"] = True
+if json.dumps(state, sort_keys=True) != before:
+    # Whole or not at all: the harness of another session reads it too.
+    with open(path + ".agent", "w") as f:
+        json.dump(state, f, indent=2)
+    os.chmod(path + ".agent", os.stat(path).st_mode & 0o777 if os.path.exists(path) else 0o600)
+    os.replace(path + ".agent", path)
+PY
+}
+
 agent_setup() {
     # A cloud provider's command-line tools take their identity from a file
     # the chart mounts when the agent has one (ADR 0031): no key, a token
@@ -125,6 +152,7 @@ if mode:
     settings["permissions"]["defaultMode"] = mode
 json.dump(settings, open(path, "w"), indent=2)
 PY
+    agent_harness_state
     # Plugins the agent was given: skills, subagents and MCP servers that come
     # as one package. Fetched now, so the agent has each as it is today; where
     # the home outlives the pod, what is there already is brought up to date.
