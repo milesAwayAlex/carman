@@ -200,6 +200,12 @@ agent:
     api:
       addresses: []
       port: 6443
+    # A trial installation there (scripts/trial.sh, ADR 0053): an account
+    # for its dispatcher, with the rights the dispatcher has in its own
+    # namespace, and a way to the cluster's API (api.addresses) for the
+    # pods labelled reaches-the-api. Nothing an agent cannot do there
+    # already: it may run a pod as any account of the namespace.
+    trial: false
     quota:
       pods: "20"
       requests.cpu: "4"

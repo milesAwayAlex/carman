@@ -467,7 +467,9 @@ which are the weakest parts. Three things are meant to keep that manageable:
 - Beside the proxy and the memory, agents reach the namespaces the
   installation names for its own services, and have one namespace where
   they may run what a task needs, bounded by a quota and closed to the
-  node and the internet (ADR 0037).
+  node and the internet (ADR 0037). A trial installation of the platform
+  runs there, from a checkout, with its own tokens and no real credential
+  (ADR 0053, proposed); `agent.sandbox.trial` lets its dispatcher start Jobs.
 - Nothing the chart puts on a cluster carries the project's name, and
   `scripts/chart-export.sh` writes the chart out under another (ADR 0032).
 - One token per role, generated at the first deploy and kept in a Secret.

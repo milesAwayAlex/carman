@@ -80,6 +80,15 @@ if command -v helm >/dev/null; then
         exit 1
     fi
     grep -qE '^ *key: owner-sha256$' <<<"$whole" || { echo "the chart does not give the dispatcher the owner's token's hash" >&2; exit 1; }
+    # A trial installation's dispatcher (ADR 0053): an account in the sandbox
+    # only when asked for, and the trial's values render.
+    sandbox=(helm template t charts/carman --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0
+        --set agent.sandbox.namespace=sb --set-json 'agents=[{"name":"a","routines":["x"]}]' --show-only templates/sandbox.yaml)
+    ! "${sandbox[@]}" | grep -F 'name: trial-dispatcher' >/dev/null || { echo "the sandbox has a trial account nobody asked for" >&2; exit 1; }
+    "${sandbox[@]}" --set agent.sandbox.trial=true --set-json 'agent.sandbox.api.addresses=["192.0.2.1/32"]' |
+        grep -F 'name: trial-reaches-the-api' >/dev/null || { echo "the sandbox's trial account cannot reach the API" >&2; exit 1; }
+    helm template t charts/carman -f deploy/values/trial.yaml --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 >/dev/null ||
+        { echo "the trial's values do not render" >&2; exit 1; }
 else
     echo "helm is not here: the chart's checks are skipped" >&2
 fi

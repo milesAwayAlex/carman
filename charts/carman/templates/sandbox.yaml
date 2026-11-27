@@ -59,6 +59,68 @@ subjects:
   {{- end }}
   {{- end }}
 ---
+{{- if .trial }}
+# A trial installation's dispatcher (scripts/trial.sh, ADR 0053): the rights
+# the dispatcher's Role gives it in the installation's namespace, here.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trial-dispatcher
+  namespace: {{ .namespace }}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: trial-dispatcher
+  namespace: {{ .namespace }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: trial-dispatcher
+  namespace: {{ .namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: trial-dispatcher
+subjects:
+  - kind: ServiceAccount
+    name: trial-dispatcher
+    namespace: {{ .namespace }}
+---
+{{- with .api.addresses }}
+# Its way to the cluster's API, which the policy below closes to the rest.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: trial-reaches-the-api
+  namespace: {{ $.Values.agent.sandbox.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      reaches-the-api: "true"
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        {{- range . }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: {{ $.Values.agent.sandbox.api.port }}}
+---
+{{- end }}
+{{- end }}
 # How much may run here at once, so that a task's helpers cannot starve the
 # node. No service here takes a port of the node or an address outside.
 apiVersion: v1

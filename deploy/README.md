@@ -482,6 +482,26 @@ touch the node, and agents cannot change the namespace's own rules. They
 reach the internet only with `agent.sandbox.internet: true`, and then
 directly, without the proxy's credentials. Nothing cleans it up for you.
 
+**A trial installation there** (ADR 0053): the session that builds the
+platform can stand up a small copy of it in the sandbox from a checkout
+(the dispatcher with its Postgres, the memory service on an empty library,
+tokens of its own and no credential of the real installation's), try a
+change against it, and take it down:
+
+```sh
+scripts/trial.sh sandbox up                  # build, make the secrets, apply; about half a minute
+scripts/trial.sh sandbox check               # the services answer; a probe task runs through the dispatcher
+scripts/trial.sh sandbox deploy dispatch status   # the deploy script against the trial
+scripts/trial.sh sandbox down                # delete everything labelled trial=trial; a few seconds
+```
+
+Trying a move from an older installation: `TRIAL_SOURCE=WORKTREE-OF-OLD
+scripts/trial.sh sandbox up --old-secret`, then `scripts/trial.sh sandbox
+up`. For the trial's dispatcher to start Jobs, set `agent.sandbox.trial:
+true` (with `api.addresses`): it makes an account for it there with the
+dispatcher's own rights, and lets it reach the cluster's API. Without it, a
+trial dispatcher answers and starts nothing.
+
 `egress.enabled: false` in the values takes the proxy and the policy out.
 
 ## The warm image
