@@ -447,7 +447,14 @@ which are the weakest parts. Three things are meant to keep that manageable:
 - Backup: a nightly job copies the installation's state to a store the
   platform gives: a restic repository in a bucket, with each night kept as
   a snapshot (ADR 0038). The library is copied as one file, after
-  proving a library can be made of it; an installation names what else.
+  proving a library can be made of it; the dispatcher's database as a
+  dump; the installation's definition; the conversations jobs have kept
+  (`conversations`) and, for each interactive agent, its sessions
+  (`sessions-NAME`): the harness's transcripts and what opens them again,
+  not the checkouts and caches of its home. Those two are read from their
+  volumes, mounted read-only in the job's pod, as a tar in a stable order so
+  that restic stores what was added; a transcript is cut at its last whole
+  line. An installation names what else.
   `cmem backup FILE` and `cmem restore FILE DIR` do the library by hand, on
   any machine, and `deploy/RECOVERY.md` has the steps for starting,
   checking and restoring.

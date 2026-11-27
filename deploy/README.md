@@ -172,8 +172,13 @@ setting in the values:
   `PROGRAM-THAT-PRINTS-THE-TOKEN | CARMAN_NAMESPACE=NAMESPACE scripts/deploy.sh CONTEXT secret model-credential`.
 - **Backup.** `backup.enabled` with `backup.repository` copies the
   installation's state every night to a store outside the cluster (ADR
-  0038): the whole library, after proving the copy can be restored, and
-  whatever `backup.also` names. The repository is restic's, so the store
+  0038): the whole library, after proving the copy can be restored, the
+  dispatcher's database, the installation's definition (below), the
+  conversations jobs have kept (`conversations`, with
+  `agent.sessionStorage`), each interactive agent's sessions
+  (`sessions-NAME`, one for every entry with `interactive: true`, so an
+  agent added later is copied without more settings), and whatever
+  `backup.also` names. The repository is restic's, so the store
   can be a bucket that speaks S3 (`s3:https://HOST/BUCKET/PATH`), a cloud's
   own (`gs:BUCKET:/PATH`) or a directory. Before turning it on, put the
   repository's password in the cluster, and the store's keys if it wants
@@ -191,6 +196,53 @@ setting in the values:
   `scripts/deploy.sh CONTEXT copies` lists what is kept and
   `scripts/deploy.sh CONTEXT restore --from-store` puts the latest library
   back (`deploy/RECOVERY.md`).
+
+  **Conversations in the backup** (`backup.conversations`, on by default).
+  An agent's sessions are what of its home `backup.sessionPaths` names: the
+  harness's transcripts (`~/.claude/projects`, with each conversation's
+  subagents and saved tool output), the list `agent-open` reopens at start
+  (`~/.config/agent/sessions`), the harness's state (`~/.claude.json`:
+  trusted directories, first-start answers) and settings, the prompt
+  history, to-dos and plans, and the user-level instructions, skills,
+  subagents and commands. Left out: checkouts and everything else under
+  `~/work`, caches, plugins (fetched again at start from the values), the
+  harness's running-process files (`~/.claude/sessions`, shell snapshots),
+  the edit history used to rewind (`~/.claude/file-history`, large, and not
+  needed to open a conversation), lock files and any sign-in
+  (`.credentials.json`). **Work in a checkout that is not committed and
+  pushed is not in the backup.** A session reopened on a restored home
+  finds its conversation but an empty directory: check out the repository
+  again where `agent-open` lists it, and push work in progress to a branch
+  before leaving it for long.
+
+  How it is taken: the job's pod mounts the conversations' volume and each
+  agent's home (`home-agent-NAME-0`) read-only and runs `backup-state tree`
+  on them, which writes a tar on standard output with names in a stable
+  order, so restic finds the earlier nights' pieces of a transcript and
+  stores only what was added (`scripts/check-backup-copy.sh` measures it: a
+  line added to an 8 MB transcript stores under 200 kB). A transcript is
+  appended to a line at a time while it is read; the copy stops at its last
+  whole line, so what comes back is a conversation as it was a moment
+  before the copy: the state a pod stopped at that moment leaves, which the
+  harness resumes as it does after any restart (ADR 0034). Files the
+  harness rewrites whole (`~/.claude.json`) are read in one go.
+
+  Where it works: the volumes are ReadWriteOnce, which lets a second pod
+  read them on the node that has them. On a cluster of one node that is
+  every pod. On a cluster of several nodes the job's pod can be placed only
+  where all those volumes are, which in general is nowhere: there, set
+  `backup.conversations: false`, and copy them another way (a copy job per
+  volume placed beside its agent's pod, or the storage's own snapshots
+  copied out). A network volume that one node attaches at a time keeps the
+  job's pod waiting until its deadline, and the night fails.
+
+  Who can read what: the job's pod can now read every conversation the
+  agents have had, which holds whatever they saw (files, command output,
+  what the owner typed). It has no credential beyond the store's and the
+  roles it had already, and nothing else runs in it. The copies are
+  encrypted with the repository's password before they leave the pod; the
+  store's keys alone do not read them. Whoever has the password and the
+  store reads all of it, as they read the library already.
 - **The installation's own definition.** Which agents run, on what
   schedule and models, what each is told to do, and the installation's
   commands are not in this repository: they are the values, routines and
