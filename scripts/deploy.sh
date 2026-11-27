@@ -244,7 +244,7 @@ attach() {
     [ -t 0 ] || die "attach needs a terminal"
     local from
     from="$(hostname -s):$(tty 2>/dev/null | tr '/' '_')"
-    [ -z "${TMUX:-}" ] || from="$(hostname -s):tmux:$(tmux display-message -p '#{session_name}:#{window_index}.#{pane_index}' 2>/dev/null)"
+    [ -z "${TMUX:-}" ] || from="$(hostname -s):tmux:$(tmux display-message -p '#{b:socket_path}:#{session_name}:#{window_index}.#{pane_index}' 2>/dev/null)"
     exec "${kube[@]}" exec -it "$1" -- env AGENT_TERM="${TERM:-}" COLORTERM="${COLORTERM:-truecolor}" AGENT_ATTACH_ID="$from" agent-attach
 }
 
