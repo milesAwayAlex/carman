@@ -1,9 +1,10 @@
 #!/bin/sh
 # One client's view of one session of a standing agent's pod (ADR 0057):
-# what the command that goes to a session runs here. The pod's tmux session `main` has a window for
-# each harness session; clients attached to one tmux session share its
-# current window, so each view is a session of its own in main's group,
-# showing the one window, and removed when its client goes.
+# what the command that goes to a session runs here. The pod's tmux session
+# `main` has a window for each harness session; clients attached to one tmux
+# session share its current window, so each view is a session of its own
+# that holds that one window and no other (linked from main), and is removed
+# when its client goes or its window closes.
 #
 #   agent-view ID [NAME]    the window of the session with that id (by its harness's
 #                           process), or the window called NAME; a session that is
@@ -119,33 +120,25 @@ for stale in $(t list-sessions -F '#{session_name} #{session_attached}' | awk '$
 done
 
 view="view-$$"
-# The hooks below do not always fire for a session of a group that tmux
-# moves off a closed window; a look each second ends such a view anyway.
-client=$$
-(
-    while sleep 1; do
-        kill -0 "$client" 2>/dev/null || exit 0
-        t list-windows -t main -F '#{window_id}' 2>/dev/null | grep -qx "$window" && continue
-        t kill-session -t "=$view" 2>/dev/null || true
-        exit 0
-    done
-) </dev/null >/dev/null 2>&1 &
 # One command, so that the options are the view's from its first moment,
 # and so that this process is the client (the mark above is the client's).
+# The view is a session with the one window in it, the same window main
+# has: tmux ends a session whose last window closes, so the view ends with
+# its window and has no neighbour to show (ADR
+# new-a-view-holds-only-its-window). A session cannot be made empty, so it
+# starts with a window of its own that is gone before anything is drawn.
+# Were the session's window to close just now, that one ends in a moment
+# and the view with it.
 # - destroy-unattached: the view goes when its client does;
 # - no status line and no prefix: the tmux of whoever attached is the only
 #   one in their way;
 # - the mouse: the wheel scrolls back through the session's own history,
-#   which with no prefix has no other way in;
-# - the hook: the view is of this window; when it closes, the view ends,
-#   and does not go on to show a neighbour's. Looked at once more at the
-#   end, for a window that closed while these were being set.
-exec "$bin" -S "$sock" -u new-session -s "$view" -t main \; \
+#   which with no prefix has no other way in.
+exec "$bin" -S "$sock" -u new-session -s "$view" -n agent-view 'sleep 5' \; \
     set-option destroy-unattached on \; \
     set-option status off \; \
     set-option prefix None \; \
     set-option prefix2 None \; \
     set-option mouse on \; \
-    select-window -t "$window" \; \
-    set-hook session-window-changed "if-shell -F '#{!=:#{window_id},$window}' 'kill-session'" \; \
-    if-shell -F "#{!=:#{window_id},$window}" kill-session
+    link-window -s "$window" \; \
+    kill-window -t '{start}'

@@ -166,8 +166,9 @@ Built so far:
 - `carman go` (ADR 0057, proposed): `cmd/carman`, the owner's way to a
   session from any directory. It lists the dispatcher's sessions, those
   waiting on him first, and goes to one: `kubectl exec` into a standing
-  agent's pod, at a view of its own (`agent-view`: a tmux session in the
-  pod's group, with no status line and no prefix), attached again after a
+  agent's pod, at a view of its own (`agent-view`: a tmux session that
+  holds that one window, with no status line and no prefix; ADR
+  new-a-view-holds-only-its-window), attached again after a
   dropped connection with `--keep`.
 - The definition from within (ADR 0056, proposed): an agent with
   `definition: true` reads the installation's definition in its pod

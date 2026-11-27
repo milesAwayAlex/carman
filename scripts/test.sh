@@ -322,9 +322,11 @@ defn="$(mktemp -d)"
 rm -rf "$defn"
 # agent-view (ADR 0057), where there is a tmux, in servers of its own that
 # read no configuration: two clients see two different windows of one pod,
-# each in a view with no status line and no prefix, the pod's own session
-# is left as it was, a view ends when its window closes and when its
-# client goes, and a name with no window is refused.
+# each in a view that holds that window alone, with no status line and no
+# prefix, the pod's own session is left as it was, a view ends at once when
+# its window closes, whichever view it is, and when its client goes, and a
+# name with no window is refused. Each wait is for what the views or the
+# pod's tmux say, and ends when they say it.
 if command -v tmux >/dev/null; then
     view="$(mktemp -d)"
     (
@@ -340,19 +342,31 @@ if command -v tmux >/dev/null; then
         mine new-session -d -s o -n one -x 80 -y 24 "$run '' first; echo left=\$? > $view/one"
         mine new-window -d -t o: -n two "$run '' second; echo left=\$? > $view/two"
         mine new-window -d -t o: -n hold 'sleep 300'
-        for _ in $(seq 300); do [ "$(pod list-sessions -F '#{session_attached}' | grep -c 1)" = 2 ] && break; sleep 0.1; done
-        seen="$(pod list-sessions -F '#{session_group} #{session_attached} #{window_name} #{status}' | sort | tr '\n' ';')"
-        [ "$seen" = "main 0 first on;main 1 first off;main 1 second off;" ] || { echo "agent-view: two clients do not see two windows, each in a view of its own: $seen" >&2; exit 1; }
+        look() { pod list-sessions -F '#{session_name} #{session_attached} #{session_windows} #{window_name} #{status}' | sed 's/^view-[0-9]* /view /' | sort | tr '\n' ';'; }
+        for _ in $(seq 300); do seen="$(look)"; [ "$seen" = "main 0 2 first on;view 1 1 first off;view 1 1 second off;" ] && break; sleep 0.1; done
+        [ "$seen" = "main 0 2 first on;view 1 1 first off;view 1 1 second off;" ] || { echo "agent-view: two clients do not see two windows, each in a view of its own that holds only it: $seen" >&2; exit 1; }
         pod show-options -t main prefix | grep -q None && { echo "agent-view takes the prefix from the pod's own session" >&2; exit 1; }
         for v in $(pod list-sessions -F '#{session_name}' | grep '^view-'); do
             pod show-options -t "$v" prefix | grep -q None || { echo "a view has a prefix key" >&2; exit 1; }
         done
-        # Its window closes: the view ends by itself, as left.
+        # Its window closes: the view ends with it, as left, and the other
+        # view and the pod's session stay as they were. Then the same the
+        # other way round: which view was made last does not matter.
         pod kill-window -t main:second
-        for _ in $(seq 150); do [ -s "$view/two" ] && break; sleep 0.1; done
+        seen="$(look)"
+        [ "$seen" = "main 0 1 first on;view 1 1 first off;" ] || { echo "a view does not end at once when its window closes, or more ends than it: $seen" >&2; exit 1; }
+        for _ in $(seq 300); do [ -s "$view/two" ] && break; sleep 0.1; done
         [ "$(cat "$view/two" 2>/dev/null)" = left=0 ] || { echo "a view does not end, as left, when its window closes: $(cat "$view/two" 2>/dev/null)" >&2; exit 1; }
+        pod new-window -d -t main: -n second 'sleep 300'
+        mine new-window -d -t o: -n again "$run '' second; echo left=\$? > $view/again"
+        for _ in $(seq 300); do seen="$(look)"; [ "$seen" = "main 0 2 first on;view 1 1 first off;view 1 1 second off;" ] && break; sleep 0.1; done
+        pod kill-window -t main:first
+        seen="$(look)"
+        [ "$seen" = "main 0 1 second on;view 1 1 second off;" ] || { echo "the view made first does not end at once when its window closes: $seen" >&2; exit 1; }
+        for _ in $(seq 300); do [ -s "$view/one" ] && break; sleep 0.1; done
+        [ "$(cat "$view/one" 2>/dev/null)" = left=0 ] || { echo "the view made first does not end, as left, when its window closes: $(cat "$view/one" 2>/dev/null)" >&2; exit 1; }
         # Its client goes: no view is left behind.
-        mine kill-window -t o:one
+        mine kill-window -t o:again
         for _ in $(seq 300); do [ "$(pod list-sessions -F '#{session_name}' | grep -c '^view-')" = 0 ] && break; sleep 0.1; done
         [ "$(pod list-sessions -F '#{session_name}' | tr '\n' ' ')" = "main " ] || { echo "a view is left behind when its client goes: $(pod list-sessions -F '#{session_name}' | tr '\n' ' ')" >&2; exit 1; }
         # A view whose far end promised word of itself and went silent (a
