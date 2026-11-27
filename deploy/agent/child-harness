@@ -1,0 +1,29 @@
+#!/bin/sh
+# A headless harness started from a session in an agent's pod, for a trial:
+#
+#   child-harness MODEL 'PROMPT' [ARGS...]   claude -p PROMPT --model MODEL ARGS
+#   child-harness MODEL - [ARGS...]          the prompt from standard input
+#
+# MODEL "default" is the pod's. The child has none of the image's hooks
+# (CMEM_HOOK=off: it registers no session and reads and writes no memory)
+# and none of its parent's session. The harness hides its credential from
+# the commands it runs; where the egress proxy holds it (ADR 0050) the
+# child is given the placeholder, and is counted as its pod's agent.
+set -eu
+[ $# -ge 2 ] || { echo "usage: child-harness MODEL 'PROMPT'|- [ARGS...]" >&2; exit 1; }
+model="$1" prompt="$2"
+shift 2
+[ "$model" != default ] || model=""
+if [ -n "${AGENT_MODEL_PLACEHOLDER:-}" ]; then
+    export CLAUDE_CODE_OAUTH_TOKEN="$AGENT_MODEL_PLACEHOLDER"
+elif [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}${ANTHROPIC_API_KEY:-}" ]; then
+    echo "child-harness: no model credential: this pod holds the real one (agent.modelCredential pod), which the harness keeps from its commands" >&2
+    exit 1
+fi
+# What makes it a session of its parent's, or of the agent's.
+unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ID CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_SESSION_ATTENDED \
+    CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN CLAUDE_PID \
+    DISPATCHER_SESSION DISPATCHER_SESSION_NAME DISPATCHER_SESSION_KIND
+export CMEM_HOOK=off DISPATCHER_HOOK=off
+[ "$prompt" != - ] || prompt="$(cat)"
+exec claude -p "$prompt" ${model:+--model "$model"} "$@"

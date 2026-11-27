@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -270,6 +271,15 @@ const intro = "You can be written to, and can write to other sessions, to agents
 	"A message reaches its addressee whether it is running or not. Messages for you arrive in this conversation as <message> blocks, " +
 	"between your tool calls or when you are idle; each says who it is from. You are %s."
 
+// childNote tells a session in an agent's pod how to start a harness of its own.
+func childNote() string {
+	if _, err := exec.LookPath("child-harness"); err != nil {
+		return ""
+	}
+	return " To start a headless harness for a trial, run `child-harness MODEL 'PROMPT' [ARGS]`, not `claude -p`: " +
+		"it has no hooks (it registers no session and uses no memory) and is given the model's credential, which your own commands are not."
+}
+
 // hooksOff says whether this harness runs without the image's hooks.
 func hooksOff() bool {
 	return os.Getenv("CMEM_HOOK") == "off" || os.Getenv("DISPATCHER_HOOK") == "off"
@@ -422,7 +432,7 @@ func hook(ctx context.Context, flags map[string][]string) error {
 		if kind != "interactive" {
 			t, _ = take("start", 0)
 		}
-		say("SessionStart", strings.TrimSpace(fmt.Sprintf(intro, me)+"\n\n"+t.Text))
+		say("SessionStart", strings.TrimSpace(fmt.Sprintf(intro, me)+childNote()+"\n\n"+t.Text))
 	case "UserPromptSubmit":
 		_ = present(message.Busy)
 		t, _ := take("prompt", 0)

@@ -857,6 +857,12 @@ DISPATCHER_HOOK=off claude -p 'PROMPT'                 # only the dispatcher's
 claude --setting-sources project,local -p 'PROMPT'     # none of the user settings: no hooks, no permissions, no env
 ```
 
+`child-harness MODEL 'PROMPT' [ARGS...]` (in the image) does all of this:
+`claude -p` on MODEL (`default`: the pod's) with every hook off, none of
+its parent's session variables, and the placeholder below where the proxy
+holds the credential; `-` for the prompt reads it from standard input.
+Sessions in a pod are told of it when they start.
+
 Such a harness has **no model credential** of its own: the harness removes
 `CLAUDE_CODE_OAUTH_TOKEN`, with the other model credentials it knows, from
 the environment of every command it runs. Where the proxy holds the

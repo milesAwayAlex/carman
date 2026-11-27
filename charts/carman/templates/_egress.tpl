@@ -366,6 +366,10 @@ placeholder that the proxy's meter replaces on every request. */}}
 - name: CLAUDE_CODE_OAUTH_TOKEN
 {{- if eq (.Values.agent.modelCredential | default "pod") "proxy" }}
   value: {{ .Values.agent.modelPlaceholder | quote }}
+# The same under a name the harness leaves in the commands it runs, for a
+# child harness (child-harness): not a secret.
+- name: AGENT_MODEL_PLACEHOLDER
+  value: {{ .Values.agent.modelPlaceholder | quote }}
 {{- else }}
   valueFrom:
     secretKeyRef:
