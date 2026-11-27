@@ -35,8 +35,9 @@
 #   scripts/deploy.sh CONTEXT tool FILE         put a command of this installation's own on agents' PATH
 #   scripts/deploy.sh CONTEXT model-account      which account for the model the egress proxy holds, where the
 #                                       installation has more than one (its definition lists them)
-#   scripts/deploy.sh CONTEXT model-account NAME [--now]   put that account's credential at the proxy, restart
-#                                       the proxy, record the choice, and take a usage reading on it
+#   scripts/deploy.sh CONTEXT model-account NAME [--restart [--now]]   put that account's credential at the proxy,
+#                                       wait until its meter has it (or restart the proxy: --now even
+#                                       while jobs run), record the choice, and take a usage reading on it
 #   scripts/deploy.sh CONTEXT signin KEY URL    sign in, in a browser, to a service a renewal keeps a sign-in for
 #   scripts/deploy.sh CONTEXT agent run NAME    run an agent once now and show what it reported
 #   scripts/deploy.sh CONTEXT agent log NAME    the report of its latest run
@@ -1024,17 +1025,40 @@ model-account)
     fi
     command="$(model_account_command "$want")"
     [ -n "$command" ] || die "no account named $want in $model_accounts_file; it lists: $(awk '$1 !~ /^#/ && NF {printf "%s ", $1}' "$model_accounts_file")"
-    if [ "${4:-}" != --now ]; then
-        busy="$("${kube[@]}" get pods -l app.kubernetes.io/component=agent --field-selector=status.phase=Running -o 'jsonpath={range .items[?(@.metadata.ownerReferences[0].kind=="Job")]}{.metadata.name}{" "}{end}')"
-        [ -z "$busy" ] || die "these jobs are running and the proxy's restart would cut their answers: $busy. Wait, or add --now"
-    fi
+    restart="" now=""
+    for flag in "${@:4}"; do
+        case "$flag" in --restart) restart=1 ;; --now) now=1 ;; *) die "model-account NAME takes --restart and --now" ;; esac
+    done
+    # The meter reads the mounted secret again when the cluster changes it,
+    # and logs each change with a count; a new pod reads it as it starts.
+    meter_changes() { "${kube[@]}" logs deployment/egress -c meter 2>/dev/null | sed -n 's/.*the model.s credential changed.*changes=\([0-9][0-9]*\).*/\1/p' | tail -1; }
+    meter_pod() { "${kube[@]}" get pods -l app=egress --field-selector=status.phase=Running -o 'jsonpath={.items[0].metadata.name}' 2>/dev/null; }
+    restart_proxy() {
+        if [ -z "$now" ]; then
+            busy="$("${kube[@]}" get pods -l app.kubernetes.io/component=agent --field-selector=status.phase=Running -o 'jsonpath={range .items[?(@.metadata.ownerReferences[0].kind=="Job")]}{.metadata.name}{" "}{end}')"
+            [ -z "$busy" ] || die "these jobs are running and the proxy's restart would cut their answers: $busy. Wait, or add --now"
+        fi
+        "${kube[@]}" rollout restart deployment/egress >/dev/null
+        "${kube[@]}" rollout status deployment/egress --timeout=180s >/dev/null || die "the egress proxy did not come back; see: kubectl --context $context -n $namespace get pods"
+    }
+    changes_before="$(meter_changes)" pod_before="$(meter_pod)"
     # From the command to the cluster's API, and nowhere else.
     sh -c "$command" | tr -d '\n' | "$0" "$context" secret "$model_secret" token >/dev/null || die "the credential of account $want did not reach the cluster; the proxy holds what it held"
     [ "$(model_account_at_proxy)" = "$want" ] || die "the secret does not hold account $want's credential after the change"
-    "${kube[@]}" rollout restart deployment/egress >/dev/null
-    "${kube[@]}" rollout status deployment/egress --timeout=180s >/dev/null || die "the egress proxy did not come back; see: kubectl --context $context -n $namespace get pods"
+    if [ -n "$restart" ]; then
+        restart_proxy
+    elif [ "$at_proxy" != "$want" ]; then
+        # The cluster updates the mounted file some tens of seconds after the secret.
+        wait_for="${CARMAN_METER_WAIT:-180}" waited=0
+        until { pod="$(meter_pod)"; [ -n "$pod" ] && [ "$pod" != "$pod_before" ]; } || [ "$(meter_changes)" -gt "${changes_before:-0}" ] 2>/dev/null; do
+            [ "$waited" -lt "$wait_for" ] || die "the secret holds account $want's credential, and the meter did not take it within ${wait_for}s, so nothing is recorded; to restart the proxy, which cuts answers in flight: scripts/deploy.sh $context model-account $want --restart"
+            sleep 5; waited=$((waited + 5))
+        done
+        echo "the meter took the new credential after about ${waited}s, with no restart"
+    fi
     printf '%s\n' "$want" > "$model_account_file"
-    dispatch_client emit model.account --subject "$want" --source deploy >/dev/null 2>&1 ||
+    # In a subshell: the client dies where there is no dispatcher, and the record is best-effort.
+    (dispatch_client emit model.account --subject "$want" --source deploy) >/dev/null 2>&1 ||
         echo "deploy: the change was not recorded in the dispatcher's log; its usage readings from before are of the other account" >&2
     echo "the proxy holds account $want's credential (it held ${at_proxy:-an unlisted one}); recorded in $model_account_file: commit it there"
     # A reading of every model on the new account, so that its standing is known at once.

@@ -326,11 +326,18 @@ a session on the owner's machine does it.
    scripts/deploy.sh CONTEXT model-account NAME
    ```
 
-   It refuses while an agent's job runs, since the proxy's restart cuts
-   the answer a job is waiting for; `--now` after the name switches anyway
-   (a job refused for the limit is not getting an answer). It puts the
-   credential in the proxy's secret, restarts the proxy, writes the choice
-   to `model-account` in the installation's definition, records the change
+   It puts the credential in the proxy's secret and waits, up to three
+   minutes, until the meter beside the proxy has read it again: the
+   cluster updates the mounted file some tens of seconds after the
+   secret, and nothing in flight is cut, so it may run while jobs do.
+   If the meter has not taken it in time, it says so and records
+   nothing; the secret already holds the new credential. Then either run
+   the same command again a minute later (the secret already holding it,
+   it records at once: check first that the meter's log says `the
+   model's credential changed`), or restart the proxy with `--restart`,
+   which cuts answers in flight and so refuses while an agent's job runs
+   unless `--now` follows. Once the meter has it, the command writes the
+   choice to `model-account` in the installation's definition, records the change
    in the dispatcher's log (usage readings from before it are of the other
    account and are no longer used), and takes a reading of every model.
    If the dispatcher is down the change is still made; only the record is
@@ -353,6 +360,13 @@ its own. COMMAND is the account's line in `model-accounts`:
 COMMAND | tr -d '\n' | kubectl --context CONTEXT -n NAMESPACE create secret generic model-credential \
     --from-file=token=/dev/stdin --dry-run=client -o json |
     kubectl --context CONTEXT -n NAMESPACE patch secret model-credential --type merge --patch-file /dev/stdin
+kubectl --context CONTEXT -n NAMESPACE logs deployment/egress -c meter | grep "credential changed"
+```
+
+Repeat the last line until it shows one more change than before (a minute
+or two). If it does not, restart the proxy, which cuts answers in flight:
+
+```
 kubectl --context CONTEXT -n NAMESPACE rollout restart deployment/egress
 kubectl --context CONTEXT -n NAMESPACE rollout status deployment/egress --timeout=180s
 ```

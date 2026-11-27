@@ -450,9 +450,15 @@ installation's definition, in a file `model-accounts`: a name, then the
 command that prints its credential on the machine that deploys, one line
 each (lines starting with `#` are comments). `scripts/deploy.sh CONTEXT
 model-account` says which the proxy holds; `model-account NAME` puts
-another there, restarts the proxy, writes the choice to `model-account`
-in the definition (commit it), records the change in the dispatcher's
-log as `model.account`, and takes a usage reading of every model on it.
+another in the proxy's secret, waits until the meter has read it (the
+cluster updates the mounted file within a minute or two, and the meter
+logs `the model's credential changed` with a count; no restart, so no
+answer in flight is cut), writes the choice to `model-account` in the
+definition (commit it), records the change in the dispatcher's log as
+`model.account`, and takes a usage reading of every model on it. If the
+meter does not take it within three minutes (`CARMAN_METER_WAIT`) it says
+so and records nothing; `--restart` restarts the proxy instead, refused
+while an agent's job runs unless `--now` follows.
 Readings from before the latest change are of another account: `dispatch
 status` and the admission rule leave them out. A deploy says when the
 proxy holds another account than the definition chooses, and changes
