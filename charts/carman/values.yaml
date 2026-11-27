@@ -147,6 +147,13 @@ dispatcher:
     # The kubectl context the commands in a notice name; scripts/deploy.sh
     # sets it to the one it deploys with.
     context: CONTEXT
+    # Shapes no notice may carry, beside credentials (ADR 0048): regular
+    # expressions, matched without regard to case, for the installation's
+    # account ids, hostnames, e-mail addresses. A notice that matches one is
+    # replaced by one saying where to read it (notice.replaced). It catches
+    # only what has a shape; the installation's own notify-owner should run
+    # the same check on what agents send through it.
+    withhold: []
   # Deferring what can wait: a task whose priority is below `below` is held
   # while the latest usage reading has a window at `above` or more that has
   # not reset. A reading older than maxAge is unknown, and unknown admits.

@@ -626,6 +626,11 @@ func serve(ctx context.Context) error {
 	if notices.Class == "" {
 		notices.Class = "notify"
 	}
+	shapes, err := notice.Shapes(os.Getenv("DISPATCHER_NOTICE_WITHHOLD"))
+	if err != nil {
+		logger.Error("dispatcher.notices.withhold", "error", err)
+	}
+	notices.Withhold = shapes
 	go notices.Run(work)
 	var messages *message.Service
 	if cluster.Client != nil {

@@ -3,6 +3,7 @@ package notice
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"slices"
@@ -153,5 +154,53 @@ func TestR10AMessageToTheOwnerSaysWhatItIsAbout(t *testing.T) {
 	no, _ = n.Compose(context.Background(), dispatch.Record{Event: dispatch.Event{Type: TypeMessage, Subject: "m2", Data: data}})
 	if strings.Contains(no.Text, "agent resume") {
 		t.Errorf("a notice from the owner's machine offers to go to its session: %q", no.Text)
+	}
+}
+
+// TestR10ANoticeIsCheckedBeforeItIsHandedOn: a notice whose words look like
+// a credential, or match a shape the installation names, is replaced by one
+// that says it was withheld and where to read it, and the replacement is
+// recorded; one with neither goes as written (ADR 0048).
+func TestR10ANoticeIsCheckedBeforeItIsHandedOn(t *testing.T) {
+	shapes, err := Shapes("[a-z0-9.]+@example\\.org\n\\bacct-[0-9]{6}\\b\n(unclosed\n")
+	if err == nil || len(shapes) != 3 || !shapes[2].MatchString("an (UNCLOSED one") {
+		t.Fatalf("shapes %v, %v", shapes, err)
+	}
+	f := &fakeLog{mark: []byte(`{"seq":0}`)}
+	n := &Notifier{Log: f, Enabled: true, Class: "notify", Context: "ctx", Namespace: "ns", Withhold: shapes, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	for i, first := range []string{
+		"Done: the token is ghp_" + strings.Repeat("a1", 20),
+		"Write to Ops@Example.org about it",
+		"The pool for acct-123456 is full",
+		"The weekly review is done.",
+	} {
+		f.add(TypeMessage, "m", map[string]string{"id": fmt.Sprintf("m%d", i), "from": "session/s1", "agent": "builder", "to": "owner", "body": first + "\nmore"})
+	}
+	if err := n.Pass(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.submitted) != 4 {
+		t.Fatalf("%d notices sent", len(f.submitted))
+	}
+	for i, task := range f.submitted {
+		var p kube.Payload
+		json.Unmarshal(task.Payload, &p)
+		words := p.Env["TASK_TITLE"] + " " + p.Env["TASK_TEXT"]
+		held := strings.Contains(words, "A notice was withheld")
+		if held != (i < 3) || strings.Contains(words, "ghp_") || strings.Contains(strings.ToLower(words), "example.org") || strings.Contains(words, "acct-") {
+			t.Errorf("notice %d: %q", i, words)
+		}
+		if held && !strings.Contains(words, fmt.Sprintf("dispatch message m%d", i)) {
+			t.Errorf("notice %d does not say where to read it: %q", i, words)
+		}
+	}
+	replaced := 0
+	for _, r := range f.recs {
+		if r.Type == TypeReplaced {
+			replaced++
+		}
+	}
+	if replaced != 3 {
+		t.Errorf("%d replacements recorded", replaced)
 	}
 }

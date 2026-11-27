@@ -149,6 +149,8 @@ spec:
               value: {{ .Values.dispatcher.notices.class | quote }}
             - name: DISPATCHER_CONTEXT_NAME
               value: {{ .Values.dispatcher.notices.context | quote }}
+            - name: DISPATCHER_NOTICE_WITHHOLD
+              value: {{ join "\n" (.Values.dispatcher.notices.withhold | default list) | quote }}
             # The improvement loop's settings (ADR 0058).
             - name: DISPATCHER_IMPROVEMENT
               value: {{ include "dispatcher.improvement" . | quote }}
