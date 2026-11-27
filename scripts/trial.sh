@@ -125,7 +125,7 @@ build_image() {  # NAME CMD DOCKERFILE
     log="$dir/build.log"
     buildctl build --progress plain --frontend dockerfile.v0 --local context="$dir" --local dockerfile="$dir" \
         --opt platform="linux/$arch" --output "type=image,name=$ref,push=true" > "$log" 2>&1 ||
-        { tail -20 "$log" >&2; die "$1's image did not build"; }
+        { tail -20 "$log" >&2; die "$1's image did not build; the whole build is in $log"; }
     echo "$ref"
 }
 
@@ -155,7 +155,7 @@ build_agent_image() {
     log="$dir/build.log"
     buildctl build --progress plain --frontend dockerfile.v0 --local context="$dir" --local dockerfile="$dir" \
         --opt platform="linux/$arch" --output "type=image,name=$ref,push=true" > "$log" 2>&1 ||
-        { tail -20 "$log" >&2; die "the agent's image did not build on $TRIAL_AGENT_BASE"; }
+        { tail -20 "$log" >&2; die "the agent's image did not build on $TRIAL_AGENT_BASE; the whole build is in $log"; }
     echo "$ref"
 }
 
