@@ -110,10 +110,11 @@ func TestR7PaceBurst(t *testing.T) {
 		rec(3, now, "cheap", map[string]win{"five_hour": {0.6, reset}, "seven_day": seven}),
 	}
 	p := find(t, paces(rs, now, 0.95), "five_hour", "")
-	if p.Rate < 0.36 || p.Rate > 0.37 {
-		t.Errorf("rate %v, want (0.6-0.05)/1.5h", p.Rate)
+	// No reading two hours back: the rate is the average since the start.
+	if p.Rate < 0.299 || p.Rate > 0.301 {
+		t.Errorf("rate %v, want 0.6 over two hours", p.Rate)
 	}
-	if got := p.ReachesTarget(); got.Sub(now) < 56*time.Minute || got.Sub(now) > 58*time.Minute {
+	if got := p.ReachesTarget(); got.Sub(now) < 69*time.Minute || got.Sub(now) > 71*time.Minute {
 		t.Errorf("reaches the target at %v", got)
 	}
 	rule := curveRule(&now, &rs)
@@ -126,7 +127,7 @@ func TestR7PaceBurst(t *testing.T) {
 	if ok, _ := rule.admit(context.Background(), urgent, nil); !ok {
 		t.Error("urgent work held")
 	}
-	if line := paceLine(p, now); !strings.Contains(line, "AHEAD by 22 points") || !strings.Contains(line, "reaches 95% at 12:57 UTC, 2h03m before its reset") {
+	if line := paceLine(p, now); !strings.Contains(line, "AHEAD by 22 points") || !strings.Contains(line, "reaches 95% at 13:10 UTC, 1h50m before its reset") {
 		t.Errorf("status line: %s", line)
 	}
 	if es := roomEvents(rs, now, 0.95, 0.1); len(es) != 1 || es[0].Subject != "seven_day" {
@@ -262,11 +263,26 @@ func TestR7PaceRealShape(t *testing.T) {
 		t.Fatalf("paces: %+v", ps)
 	}
 	five := find(t, ps, "five_hour", "")
-	if five.Used != 0.41 || five.Rate < 0.099 || five.Rate > 0.101 {
-		t.Errorf("five-hour: used %v rate %v, want 41%% at 10 points an hour", five.Used, five.Rate)
+	if five.Used != 0.41 || five.Rate < 0.204 || five.Rate > 0.206 {
+		t.Errorf("five-hour: used %v rate %v, want 41%% over the two hours since it began", five.Used, five.Rate)
 	}
 	find(t, ps, "seven_day_opus", "strong")
 	for _, l := range paceLines(rs, now, 0.95) {
 		t.Log(l)
+	}
+}
+
+// TestR7PaceReadingsClose: two readings minutes apart with the same
+// utilization do not make the rate zero; it is measured over the span
+// (here from the window's start), as the trial showed it must be.
+func TestR7PaceReadingsClose(t *testing.T) {
+	now := time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC)
+	reset := now.Add(5 * 24 * time.Hour) // two days in
+	rs := []dispatch.Record{
+		rec(1, now.Add(-time.Minute), "cheap", map[string]win{"seven_day": {0.2, reset}}),
+		rec(2, now, "cheap", map[string]win{"seven_day": {0.2, reset}}),
+	}
+	if p := find(t, paces(rs, now, 0.95), "seven_day", ""); p.Rate < 0.0041 || p.Rate > 0.0042 {
+		t.Errorf("rate %v, want 0.2 over 48 hours", p.Rate)
 	}
 }
