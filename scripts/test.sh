@@ -88,5 +88,29 @@ fi
 scripts/check-backup-copy.sh
 # Nothing here needs a C compiler, and not every place that runs this has one.
 export CGO_ENABLED="${CGO_ENABLED:-0}"
+# agent-open --reopen (ADR 0053), against a fake tmux: a name not
+# remembered is refused, a window that is gone is made, the shell a dead
+# harness left is replaced, and a window that runs something else is not.
+fake="$(mktemp -d)"
+printf '%s\t%s\n' vpn "$fake" > "$fake/list"
+cat > "$fake/tmux" <<'SH'
+#!/bin/sh
+shift 2
+echo "$*" >> "$FAKE/calls"
+case "$1" in
+list-windows) printf '%s' "$FAKE_WINDOWS" ;;
+display-message) echo "$FAKE_CMD" ;;
+esac
+SH
+chmod +x "$fake/tmux"
+reopen() { FAKE="$fake" AGENT_TMUX="$fake/tmux" AGENT_SESSIONS_FILE="$fake/list" FAKE_WINDOWS="$1" FAKE_CMD="$2" sh deploy/agent/agent-open --reopen "$3" >/dev/null 2>&1; echo $?; }
+: > "$fake/calls"
+[ "$(reopen '' '' old)" = 3 ] || { echo "agent-open --reopen opens a name it does not remember" >&2; exit 1; }
+[ "$(reopen '' '' vpn)" = 0 ] && grep -q '^new-window .* -n vpn ' "$fake/calls" || { echo "agent-open --reopen does not make the window that is gone" >&2; exit 1; }
+: > "$fake/calls"
+[ "$(reopen vpn bash vpn)" = 0 ] && grep -q '^respawn-window -k -t main:=vpn ' "$fake/calls" || { echo "agent-open --reopen does not replace the shell a dead harness left" >&2; exit 1; }
+: > "$fake/calls"
+[ "$(reopen vpn claude vpn)" = 4 ] && ! grep -q -e respawn -e new-window "$fake/calls" || { echo "agent-open --reopen opens over a window that runs something" >&2; exit 1; }
+rm -rf "$fake"
 go vet ./...
 go test ./... "$@"

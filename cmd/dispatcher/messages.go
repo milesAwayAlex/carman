@@ -356,6 +356,11 @@ func hook(ctx context.Context, flags map[string][]string) error {
 	}
 	switch in.Event {
 	case "SessionStart":
+		// In a standing agent's pod, which process is this session's
+		// harness, for attend to know when it has gone (ADR 0053).
+		if place == "" && os.Getenv("AGENT_INTERACTIVE") != "" {
+			recordHarness(in.SessionID)
+		}
 		// An interactive session waits at its prompt once started, and its
 		// waiter (the same hook with --wait) is listening already.
 		state := message.Busy

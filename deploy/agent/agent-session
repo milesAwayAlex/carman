@@ -34,6 +34,12 @@ export AGENT_TMUX="$(command -v tmux)"
 echo "$AGENT_TMUX" > /tmp/agent-tmux
 tmux -u new-session -d -s main -c "$HOME/work" 2>/dev/null || true
 agent-open --all || echo "agent-session: the remembered sessions were not all opened" >&2
+# The watcher of this pod's sessions (ADR 0053): it tells the dispatcher
+# when a harness has gone without a word, and opens again a remembered
+# session a message waits for. Started again if it ends.
+if [ -s "${DISPATCHER_IDENTITY:-/var/run/secrets/dispatcher/token}" ] && command -v dispatcher >/dev/null; then
+    (while true; do dispatcher attend >> /tmp/agent-attend.log 2>&1; sleep 30; done) &
+fi
 while true; do
     # The shell in a window is a login shell; /etc/profile.d gives it the
     # same environment as this script has.

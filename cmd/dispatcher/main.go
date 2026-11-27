@@ -91,6 +91,8 @@ dispatcher read ID...                     mark messages read
 dispatcher message ID                     what became of a message, and its answers
 dispatcher watch SESSION                  be told, by a message, when it next goes idle
 dispatcher whoami                         what the dispatcher makes of this caller
+dispatcher attend [--every 10s] [--once]  in a standing agent's pod: say when a session's harness has gone, and open
+                                          again a remembered session a message waits for (ADR 0053)
 dispatcher hook claude-code [--wait D]    the harness's hook that carries messages into a running session`
 
 func run(ctx context.Context, args []string) error {
@@ -113,6 +115,13 @@ func run(ctx context.Context, args []string) error {
 	if args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 		fmt.Println(usage)
 		return nil
+	}
+	if args[0] == "attend" {
+		_, flags, err := parse(args[1:])
+		if err != nil {
+			return err
+		}
+		return attendCmd(ctx, flags)
 	}
 	switch args[0] {
 	case "hook", "peers", "send", "reply", "inbox", "read", "message", "watch", "whoami", "take", "answer", "session":
@@ -176,7 +185,7 @@ func parse(args []string) ([]string, map[string][]string, error) {
 			flags[n] = append(flags[n], v)
 			continue
 		}
-		if name == "read" || name == "all" { // a switch, not a flag with a value
+		if name == "read" || name == "all" || name == "once" { // a switch, not a flag with a value
 			flags[name] = append(flags[name], "yes")
 			continue
 		}

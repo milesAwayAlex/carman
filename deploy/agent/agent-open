@@ -9,6 +9,9 @@
 #   agent-open --forget NAME     stop opening it at start; its window and conversation stay
 #                                (leaving a session's window with `exit` does the same)
 #   agent-open --all             open every remembered session (what the pod does at start)
+#   agent-open --reopen NAME     open a remembered session again for a message (dispatcher
+#                                attend, ADR 0053): exit 3 if it is not remembered, 4 if its
+#                                window runs something other than the shell its harness left
 #
 # A session is opened as `claude --name NAME`, so sessions in the pod can
 # find and message each other, and so that a session finds its own
@@ -57,6 +60,25 @@ case "${1:-}" in
     while IFS="$(printf '\t')" read -r name dir; do
         [ -n "$name" ] && open_window "$name" "$dir" || true
     done < "$list"
+    ;;
+--reopen)
+    [ $# -eq 2 ] || { echo "usage: agent-open --reopen NAME" >&2; exit 1; }
+    dir="$(awk -F '\t' -v n="$2" '$1 == n {print $2; exit}' "$list")"
+    [ -n "$dir" ] || { echo "agent-open: $2 is not remembered here" >&2; exit 3; }
+    if t list-windows -t main -F '#{window_name}' 2>/dev/null | grep -qxF "$2"; then
+        # The window outlives its harness, with a shell left in it: that
+        # shell, at its prompt, is replaced; anything else is left alone.
+        cmd="$(t display-message -p -t "main:=$2" '#{pane_current_command}')"
+        case "$cmd" in
+        bash | sh | zsh | dash | ash | fish)
+            t respawn-window -k -t "main:=$2" -c "$dir" "exec $self --run $2"
+            echo "agent-open: $2 opened again in its window" ;;
+        *)
+            echo "agent-open: $2: its window runs $cmd" >&2; exit 4 ;;
+        esac
+    else
+        open_window "$2" "$dir"
+    fi
     ;;
 --run)
     # What a session's window runs. The harness keeps a directory's
