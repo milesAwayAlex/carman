@@ -59,6 +59,11 @@ if python3 -c "" 2>/dev/null; then  # one that runs: a stub that only names itse
 else
     skip "the harness's first start and settings (agent_harness_state, agent_harness_settings): no python3"
 fi
+# The notice job runs the installation's own command, which is on the PATH
+# only once the agent's environment is set up (seen 2026-11-27: every notice
+# failed with "notify-owner: not found").
+grep -q 'agent-env && agent_setup.*exec notify-owner' charts/carman/templates/dispatched.yaml ||
+    { echo "the notify job does not set up the agent's environment before notify-owner" >&2; exit 1; }
 # The idle listener's wake reads as a message, not a hook's error, wherever its settings are.
 for f in deploy/agent/settings.json adapters/claude-code/dispatcher.settings.example.json nix/packages/dispatcher-claude-code-settings.nix; do
     [ "$(grep -c rewakeMessage "$f")" -eq "$(grep -c asyncRewake "$f")" ] || { echo "$f has an asyncRewake hook with no rewakeMessage" >&2; exit 1; }

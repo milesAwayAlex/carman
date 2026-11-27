@@ -5,7 +5,7 @@ on their own: they are suspended, with a schedule that is never used. */ -}}
 {{- /* A notice to the owner: the installation's notify-owner, with the words
 the dispatcher put in the task's payload. */ -}}
 {{- $templates = append $templates (dict "name" "notify" "cronjob" "notify" "deadlineSeconds" 300
-    "command" (list "sh" "-c" "exec notify-owner --urgency \"$TASK_URGENCY\" --importance \"$TASK_IMPORTANCE\" \"$TASK_TITLE\" \"$TASK_TEXT\"")
+    "command" (list "sh" "-c" ". /usr/local/lib/agent-env && agent_setup >/dev/null 2>&1; exec notify-owner --urgency \"$TASK_URGENCY\" --importance \"$TASK_IMPORTANCE\" \"$TASK_TITLE\" \"$TASK_TEXT\"")
     "resources" (dict "requests" (dict "cpu" "20m" "memory" "64Mi") "limits" (dict "memory" "256Mi"))) }}
 {{- if .Values.usage.enabled }}
 {{- $templates = append $templates (dict "name" "usage" "cronjob" "agent-usage" "deadlineSeconds" .Values.usage.deadlineSeconds
