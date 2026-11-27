@@ -12,8 +12,9 @@ import (
 
 // worlds are the worlds there are, by name: the pilot's is its own, so
 // that the stream's tasks are seen by no arm before they are run.
-var worlds = map[string]func(*World, []string) (int, string){
-	"pilot": pilotRules,
+var worlds = map[string]Rules{
+	"pilot":  pilotRules,
+	"stream": streamRules,
 }
 
 func main() {

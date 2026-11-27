@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Call is one command an agent ran against the world.
@@ -29,6 +30,11 @@ type Call struct {
 	Argv []string `json:"argv"`
 	Code int      `json:"code"`
 	Out  string   `json:"out,omitempty"`
+	// Rule is the rule of the world that refused the call, if one did: the
+	// measure of whether a lesson was known is how often its rule was run into.
+	Rule string `json:"rule,omitempty"`
+	// At is when the world answered it.
+	At time.Time `json:"at"`
 }
 
 // State is what the world is and what was done to it.
@@ -40,16 +46,54 @@ type State struct {
 	Attached map[string]string `json:"attached"`
 	Calls    []Call            `json:"calls"`
 	Seq      int               `json:"seq"`
+	// After is the world's facts as each task left them: what the task is
+	// scored on, since later tasks change them again.
+	After map[string]map[string]string `json:"after,omitempty"`
+}
+
+// Begin ends the task that was going on, keeping the facts as it left
+// them, and begins another.
+func (w *World) Begin(task string, day int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.keep()
+	w.state.Task, w.state.Day = task, day
+}
+
+func (w *World) keep() {
+	if w.state.Task == "" {
+		return
+	}
+	if w.state.After == nil {
+		w.state.After = map[string]map[string]string{}
+	}
+	facts := make(map[string]string, len(w.state.Facts))
+	for k, v := range w.state.Facts {
+		facts[k] = v
+	}
+	w.state.After[w.state.Task] = facts
+}
+
+// Snapshot is the state, with the task that is going on kept as it stands.
+func (w *World) Snapshot() State {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.keep()
+	return w.state
 }
 
 // World is the state and the rules that change it.
 type World struct {
 	mu    sync.Mutex
 	state State
-	rules func(w *World, argv []string) (int, string)
+	rules Rules
 }
 
-func newWorld(rules func(*World, []string) (int, string)) *World {
+// Rules are a world's behaviour: what a command does, what it prints, how
+// it ends, and which rule refused it, if one did.
+type Rules func(w *World, argv []string) (code int, out string, rule string)
+
+func newWorld(rules Rules) *World {
 	return &World{state: State{Facts: map[string]string{}, Attached: map[string]string{}}, rules: rules}
 }
 
@@ -57,12 +101,12 @@ func newWorld(rules func(*World, []string) (int, string)) *World {
 func (w *World) Do(argv []string) (int, string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	code, out := w.rules(w, argv)
+	code, out, rule := w.rules(w, argv)
 	kept := out
 	if len(kept) > 300 {
 		kept = kept[:300]
 	}
-	w.state.Calls = append(w.state.Calls, Call{Task: w.state.Task, Argv: argv, Code: code, Out: kept})
+	w.state.Calls = append(w.state.Calls, Call{Task: w.state.Task, Argv: argv, Code: code, Out: kept, Rule: rule, At: time.Now().UTC()})
 	return code, out
 }
 
@@ -126,14 +170,10 @@ func serve(w *World, admin, listen string) error {
 			http.Error(rw, "bad request", http.StatusBadRequest)
 			return
 		}
-		w.mu.Lock()
-		w.state.Task, w.state.Day = in.Task, in.Day
-		w.mu.Unlock()
+		w.Begin(in.Task, in.Day)
 	}))
 	mux.HandleFunc("GET /admin/state", guarded(func(rw http.ResponseWriter, _ *http.Request) {
-		w.mu.Lock()
-		defer w.mu.Unlock()
-		json.NewEncoder(rw).Encode(w.state)
+		json.NewEncoder(rw).Encode(w.Snapshot())
 	}))
 	return http.ListenAndServe(listen, mux)
 }
@@ -150,8 +190,13 @@ type Task struct {
 	Ticket string `json:"ticket"`
 	// Lesson is a pattern that an entry of memory holding the family's
 	// lesson matches, for telling whether a session was given it.
-	Lesson string  `json:"lesson,omitempty"`
-	Checks []Check `json:"checks"`
+	Lesson string `json:"lesson,omitempty"`
+	// Needs are the rules of the world the task cannot be done without
+	// meeting; Lessons, for each, a pattern that an entry of memory holding
+	// it matches.
+	Needs   []string          `json:"needs,omitempty"`
+	Lessons map[string]string `json:"lessons,omitempty"`
+	Checks  []Check           `json:"checks"`
 	// Stale are checks that pass when an old rule was followed after it changed.
 	Stale []Check `json:"stale,omitempty"`
 }
@@ -169,7 +214,11 @@ type Check struct {
 
 func (c Check) holds(task string, s State) (bool, error) {
 	if c.Fact != "" {
-		return s.Facts[c.Fact] == c.Equals != c.Not, nil
+		facts := s.Facts
+		if after, ok := s.After[task]; ok {
+			facts = after
+		}
+		return facts[c.Fact] == c.Equals != c.Not, nil
 	}
 	re, err := regexp.Compile(c.Matches)
 	if err != nil {
@@ -188,20 +237,41 @@ type Result struct {
 	Calls      int    `json:"calls"`
 	WrongCalls int    `json:"wrong_calls"`
 	Stale      bool   `json:"stale,omitempty"`
+	// Refused is how often each rule refused a call of the task; Needs,
+	// the rules the task turns on; Met, those of them no earlier task of
+	// the stream turned on (the lesson's first meeting).
+	Refused map[string]int `json:"refused,omitempty"`
+	Needs   []string       `json:"needs,omitempty"`
+	Met     []string       `json:"met,omitempty"`
+	// FirstRefusal is, for each rule, the place among the task's calls of
+	// the first one it refused.
+	FirstRefusal map[string]int `json:"first_refusal,omitempty"`
+	// Failed names the checks that did not hold: the fact, or what was attached.
+	Failed []string `json:"failed,omitempty"`
 }
 
 // Score is each task's result, in the stream's order. A call that asks for
 // help is not a wrong call.
 func Score(tasks []Task, s State) ([]Result, error) {
 	var out []Result
+	seen := map[string]bool{}
 	for _, t := range tasks {
-		r := Result{Task: t.ID, Day: t.Day, Family: t.Family, Role: t.Role, Pass: len(t.Checks) > 0}
+		r := Result{Task: t.ID, Day: t.Day, Family: t.Family, Role: t.Role, Pass: len(t.Checks) > 0, Needs: t.Needs}
+		for _, rule := range t.Needs {
+			if !seen[rule] {
+				r.Met = append(r.Met, rule)
+				seen[rule] = true
+			}
+		}
 		for _, c := range t.Checks {
 			ok, err := c.holds(t.ID, s)
 			if err != nil {
 				return nil, err
 			}
 			r.Pass = r.Pass && ok
+			if !ok {
+				r.Failed = append(r.Failed, or(c.Fact, c.Attached))
+			}
 		}
 		for _, c := range t.Stale {
 			if ok, err := c.holds(t.ID, s); err != nil {
@@ -217,6 +287,15 @@ func Score(tasks []Task, s State) ([]Result, error) {
 			r.Calls++
 			if c.Code != 0 && !(len(c.Argv) > 0 && c.Argv[0] == "help") {
 				r.WrongCalls++
+			}
+			if c.Rule != "" {
+				if r.Refused == nil {
+					r.Refused, r.FirstRefusal = map[string]int{}, map[string]int{}
+				}
+				if r.Refused[c.Rule] == 0 {
+					r.FirstRefusal[c.Rule] = r.Calls
+				}
+				r.Refused[c.Rule]++
 			}
 		}
 		out = append(out, r)

@@ -1,0 +1,10 @@
+[
+ {
+  "kind": "pitfall",
+  "text": "A deploy to prod only goes through with the option --force; without it the deploy is refused."
+ },
+ {
+  "kind": "fact",
+  "text": "The owner of the service mailer is bob, and bob is who approves its deploys to prod."
+ }
+]
