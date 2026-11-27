@@ -28,7 +28,7 @@ for file in $(sed -n 's/^COPY \(.*\) [^ ]*$/\1/p' deploy/agent/Dockerfile | tr '
 done
 # A new home starts the harness at its prompt: the first-start screens seen,
 # the directory agent-open opens trusted, and nothing the home had lost.
-if command -v python3 >/dev/null; then
+if python3 -c "" 2>/dev/null; then  # one that runs: a stub that only names itself does not
     home="$(mktemp -d)"
     echo '{"numStartups":3}' > "$home/.claude.json"
     HOME="$home" sh -c '. deploy/agent/agent-env && agent_harness_state "$HOME"' >/dev/null

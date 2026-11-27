@@ -31,7 +31,8 @@
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           # The same tools as packages.<system>.dev-tools, and git.
-          packages = [ (components pkgs).dev-tools pkgs.git ];
+          # python3 and restic: for the checks of what agent pods run.
+          packages = [ (components pkgs).dev-tools pkgs.git pkgs.python3 pkgs.restic ];
         };
       });
     };
