@@ -6,8 +6,10 @@
 #   scripts/stream.sh CONTEXT run ARM [--world pilot] [--model MODEL] [--keep]
 #   scripts/stream.sh CONTEXT report DIR...     the results of runs, side by side
 #
-# ARM: none (no memory), notes (cmem with its hook, filled by the sessions),
-# tidied (notes, and the dreamer's routines between one day and the next).
+# ARM: none (no memory), builtin (the harness's own memory, in a directory
+# kept from task to task), notes (cmem with its hook, filled by the
+# sessions), tidied (notes, and the dreamer's routines between one day and
+# the next).
 # It calls a model: a task is ten to fifteen requests. The model is the
 # cheapest unless --model says otherwise, and trials may use only what the
 # installation lets them (ADR 0065).
@@ -32,7 +34,7 @@ fi
 
 [ "$action" = run ] || die "say: run ARM, or report DIR..."
 arm="${3:-}"
-case "$arm" in none | notes | tidied) ;; *) die "an arm is none, notes or tidied" ;; esac
+case "$arm" in none | builtin | notes | tidied) ;; *) die "an arm is none, builtin, notes or tidied" ;; esac
 world=pilot model=claude-haiku-5-5 keep=""
 shift 3
 while [ $# -gt 0 ]; do
@@ -59,8 +61,19 @@ say() { echo "stream[$arm]: $*"; }
 # The arm's agent: the same in every arm but for memory. It is held to the
 # world's commands (ADR 0061), and to the memory command where the arm has
 # memory; with none, the hook that shows memory is off too.
-memory=false hook=off
-[ "$arm" = none ] || { memory=true; hook=on; }
+memory=false hook=off builtin="" storage=""
+case "$arm" in
+notes | tidied) memory=true hook=on ;;
+builtin)
+    # The harness's own memory: on, in one directory on the volume that
+    # outlives a task's pod, which the agent may write under and nowhere else.
+    builtin="
+      AGENT_BUILTIN_MEMORY: /var/lib/agent/conversations/builtin-memory
+      CMEM_ROUTINE_WRITE: /var/lib/agent/conversations/builtin-memory"
+    storage="
+agent:
+  sessionStorage: 1Gi" ;;
+esac
 values="$(mktemp)"
 cat > "$values" <<YAML
 agents:
@@ -74,7 +87,7 @@ agents:
     deadlineSeconds: 600
     env:
       WORLD_URL: http://${pre}world:8080
-      CMEM_HOOK: "$hook"
+      CMEM_HOOK: "$hook"$builtin$storage
 dreamer:
   models: [$model]
 dispatcher:
@@ -130,7 +143,42 @@ say "the trial $name is up, with the world $world"
 
 # Notes that are in memory from the start, in an arm that has one: an
 # agent's observations that nothing has checked, some of them wrong.
-if [ "$arm" != none ] && [ -f "bench/stream/$world.seeds.json" ]; then
+if [ "$arm" = builtin ] && [ -f "bench/stream/$world.seeds.json" ]; then
+    # The same notes, as the harness's own memory keeps them: a file each,
+    # and a line for each in MEMORY.md. Written by a pod that has the volume.
+    seed="$(python3 - "bench/stream/$world.seeds.json" <<'PY'
+import json, sys
+index, files = [], []
+for n, s in enumerate(json.load(open(sys.argv[1])), 1):
+    name = "seen-earlier-%d.md" % n
+    index.append("- [Seen earlier, unchecked %d](%s) — %s" % (n, name, s["text"]))
+    files.append("cat > %s <<'EOF'\n---\nname: seen-earlier-%d\ndescription: an agent's observation that nothing has checked\n---\n\n%s\n\nSeen once, some time ago, by an agent of the team; nothing checked it.\nEOF" % (name, n, s["text"]))
+print("mkdir -p /m/builtin-memory && cd /m/builtin-memory\n" + "\n".join(files) + "\ncat > MEMORY.md <<'EOF'\n" + "\n".join(index) + "\nEOF")
+PY
+)"
+    dimage="$("${kube[@]}" get deployment "${pre}dispatcher" -o 'jsonpath={.spec.template.spec.containers[0].image}')"
+    "${kube[@]}" apply -f - >/dev/null <<YAML
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${pre}seed
+  labels: {trial: "$name"}
+spec:
+  restartPolicy: Never
+  containers:
+    - name: seed
+      image: $dimage
+      command: ["sleep", "300"]
+      volumeMounts: [{name: sessions, mountPath: /m, subPath: worker}]
+  volumes:
+    - name: sessions
+      persistentVolumeClaim: {claimName: ${pre}agent-sessions}
+YAML
+    "${kube[@]}" wait --for=condition=ready "pod/${pre}seed" --timeout=120s >/dev/null
+    "${kube[@]}" exec -i "${pre}seed" -- sh -s <<<"$seed"
+    "${kube[@]}" delete pod "${pre}seed" --wait=false >/dev/null
+    say "the harness's own memory starts with the notes nobody checked"
+elif [ "$arm" != none ] && [ -f "bench/stream/$world.seeds.json" ]; then
     token="$("${kube[@]}" get secret "${pre}cmem-tokens" -o 'jsonpath={.data.worker}' | base64 -d)"
     python3 -c 'import json,sys; [print(s["kind"] + "\t" + s["text"]) for s in json.load(open(sys.argv[1]))]' "bench/stream/$world.seeds.json" |
         while IFS="$(printf '\t')" read -r kind text; do
@@ -143,6 +191,7 @@ fi
 # One frame of words for every arm; only the sentence about memory differs.
 case "$arm" in
 none) about="You have no memory of earlier tickets: nothing is carried from one session to the next." ;;
+builtin) about="You have a long-term memory that is carried from one session to the next (your memory directory, and what it showed you as this session began): use what it holds, and before you stop, save in it what this ticket taught that a later one could use." ;;
 *) about="You have a long-term memory that is carried from one session to the next (the cmem command, and what it showed you as this session began): use what it holds, and before you stop, note in it what this ticket taught that a later one could use." ;;
 esac
 frame="You work the tickets of a small delivery team, one ticket in each session. The team's systems are reached only with the ops command; ops help lists what it does. $about Do what the ticket asks, then stop, and say in one line what you did."
@@ -164,7 +213,7 @@ import json, sys
 for t in json.load(open(sys.argv[1])):
     print(t["id"], t["day"], json.dumps(t["ticket"]))
 PY
-day=0 began_all="$(date -u +%s)"
+day=0 began_all="$(date -u +%s)" unrun=0
 : > "$out/tasks.jsonl"
 while read -r id tday ticket_json; do
     ticket="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]))' "$ticket_json")"
@@ -200,12 +249,27 @@ if m:
 print(json.dumps(row))
 PY
     say "$id (day $day): $how; $(tail -1 "$out/tasks.jsonl" | cut -c1-200)"
+    # A session that used nothing did not run: the model was refused it (the
+    # installation's limit for trials, most likely). Two in a row end the
+    # stream here; what ran is still scored.
+    if grep -q '"cost_usd": 0[,}]' <<<"$(tail -1 "$out/tasks.jsonl")" || ! grep -q cost_usd <<<"$(tail -1 "$out/tasks.jsonl")"; then unrun=$((unrun + 1)); else unrun=0; fi
+    if [ "$unrun" -ge 2 ]; then
+        say "two tasks in a row used nothing of the model: stopping at $id. If the installation's limit for trials is reached (egress.model.trials.requests, ADR 0065), the rest waits for it"
+        break
+    fi
 done < "$out/order"
 
 world_do state > "$out/state.json"
 go run ./bench/stream score "$tasks" "$out/state.json" > "$out/score.json"
 # The memory as it ended, and the trial's own record of its runs.
 "${kube[@]}" exec "${pre}cmem-0" -- tar -C /data -cf - library > "$out/library.tar" 2>/dev/null || true
+if [ "$arm" = builtin ]; then
+    # The harness's own memory as it ended: read through a pod that has the volume.
+    "${kube[@]}" run "${pre}read" --restart=Never --labels="trial=$name" --image="$("${kube[@]}" get deployment "${pre}dispatcher" -o 'jsonpath={.spec.template.spec.containers[0].image}')" \
+        --overrides='{"spec":{"containers":[{"name":"read","image":"'"$("${kube[@]}" get deployment "${pre}dispatcher" -o 'jsonpath={.spec.template.spec.containers[0].image}')"'","command":["sleep","120"],"volumeMounts":[{"name":"s","mountPath":"/m","subPath":"worker"}]}],"volumes":[{"name":"s","persistentVolumeClaim":{"claimName":"'"${pre}agent-sessions"'"}}]}}' >/dev/null 2>&1 || true
+    "${kube[@]}" wait --for=condition=ready "pod/${pre}read" --timeout=90s >/dev/null 2>&1 && "${kube[@]}" exec "${pre}read" -- tar -C /m -cf - builtin-memory > "$out/builtin-memory.tar" 2>/dev/null || true
+    "${kube[@]}" delete pod "${pre}read" --wait=false >/dev/null 2>&1 || true
+fi
 mkdir -p "$out/memory" && tar -C "$out/memory" -xf "$out/library.tar" 2>/dev/null || true
 owner log --type run.usage --last 100 > "$out/run-usage.log" 2>/dev/null || true
 python3 bench/stream/collect.py "$out" "$arm" "$world" "$model" "$began_all" "$tasks"

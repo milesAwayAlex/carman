@@ -700,8 +700,10 @@ for what the second has found):
   0069, proposed).** `bench/stream` is the world
   service and the scoring, `scripts/stream.sh CONTEXT run ARM` works an
   arm through a stream in a trial of its own; the pilot's six tasks ran on
-  the cheapest model. The stream's forty tasks and the built-in arm are to
-  come, and the run that answers is the owner's to start. A made world worked through over days. A world service with
+  the cheapest model. The stream's forty tasks and their world are
+  written and fixed, and the built-in arm is built; a whole pass on the
+  cheapest model waits on the trials' limit of requests, and the run that
+  answers is the owner's to start. A made world worked through over days. A world service with
   no model plays the systems an agent meets (a registry, a deploy
   interface, tickets), with rules written down nowhere, learned by acting.
   A task is a ticket, a fresh session of a trial's agent started by the
