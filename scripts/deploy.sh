@@ -13,6 +13,10 @@
 #   scripts/deploy.sh CONTEXT restore --from-store [COPY]   the same, with the latest copy the nightly job kept (or the one with that id)
 #   scripts/deploy.sh CONTEXT copies         the copies the nightly job has kept
 #   scripts/deploy.sh CONTEXT copy NAME [COPY] > FILE   one of them: the latest of NAME (library, or a name under backup.also), or the one with that id
+#   scripts/deploy.sh CONTEXT definition apply MESSAGE-ID   apply to the installation's definition, as commits,
+#                                       a change an agent proposed in a message (ADR 0056); deploys nothing
+#                                       (--file FILE in place of the id: the message's text, saved)
+#   scripts/deploy.sh CONTEXT definition put   put the definition's bundle in the cluster, without deploying
 #   scripts/deploy.sh CONTEXT secrets   make the secrets a deploy makes, and move an old dispatcher
 #                                       token secret, without deploying (for scripts/trial.sh)
 #   scripts/deploy.sh CONTEXT token ROLE | ...
@@ -179,6 +183,125 @@ build_dispatcher() {
     echo "built $DISPATCHER_IMAGE" >&2
 }
 
+# The installation's definition, where it is a git repository of its own
+# (CARMAN_INSTALLATION; .local unless set).
+installation="${CARMAN_INSTALLATION:-.local}"
+# What this script writes beside the definition that holds a credential, or
+# is this machine's alone: never part of the definition.
+definition_never='cmem.env cmem-dreamer.env dispatcher.env dispatcher-owner.token bench.env'
+# Puts a bundle of the definition, history included, in the cluster (the
+# config map `installation`): the nightly backup keeps it, and an agent
+# given it reads it (ADR 0056). Only what is committed is in a bundle, on
+# any branch. Fails where there is no definition, or none was put.
+put_definition() {
+    [ -e "$installation/.git" ] && git -C "$installation" rev-parse HEAD >/dev/null 2>&1 || return 1
+    local bundle never="" f ref
+    # A file of this machine's that was committed by mistake would go to
+    # the cluster, and to every agent given the definition: refused.
+    for ref in $(git -C "$installation" for-each-ref --format='%(refname)') ; do
+        for f in $definition_never; do
+            [ -z "$(git -C "$installation" log --format=%h -1 "$ref" -- "$f" 2>/dev/null)" ] || never="$never $f(${ref#refs/})"
+        done
+    done
+    if [ -n "$never" ]; then
+        echo "deploy: the installation's definition has these of this machine's own in its history, so no copy of it is put in the cluster:$never" >&2
+        return 1
+    fi
+    bundle="$(mktemp)"
+    # Branches and tags, not --all: a stash is a ref too, and holds what was not committed.
+    if git -C "$installation" bundle create "$bundle" HEAD --branches --tags >/dev/null 2>&1 && [ "$(wc -c < "$bundle")" -lt 900000 ] &&
+        "${kube[@]}" create configmap installation "--from-file=definition.bundle=$bundle" --dry-run=client -o json |
+        "${kube[@]}" replace --force -f - >/dev/null 2>&1; then
+        rm -f "$bundle"
+        echo "the cluster holds a copy of the installation's definition, as of $(git -C "$installation" log -1 --format='%h %s' | cut -c1-70)"
+        [ -z "$(git -C "$installation" status --porcelain)" ] ||
+            echo "deploy: the installation's definition has changes that are not committed; they are deployed, and the copy kept is of the last commit" >&2
+        return 0
+    fi
+    rm -f "$bundle"
+    echo "deploy: no copy of the installation's definition was put in the cluster (a bundle over 900 kB does not fit a config map, or the cluster refused it); the backup goes on without it" >&2
+    return 1
+}
+
+# Applies a change to the definition that an agent proposed in a message
+# (agent-definition propose, ADR 0056), as the commits it sent: author and
+# message kept, with the message it came in. Refused whole if it does not
+# apply as it is, or touches what a definition's change may not. Deploys
+# nothing.
+apply_definition() {  # MESSAGE-ID
+    local id="$1" dir from base was commit path n=0 bad="" look=""
+    [ -e "$installation/.git" ] || die "the installation's definition at $installation is not a git repository"
+    [ -z "$(git -C "$installation" status --porcelain --untracked-files=no)" ] || die "the definition at $installation has changes that are not committed; commit them or put them aside first"
+    dir="$(mktemp -d)"
+    if [ "$id" = --file ]; then
+        # The message's text, saved: for a machine that does not reach the dispatcher.
+        [ -f "${2:-}" ] || { rm -rf "$dir"; die "name the file that holds the message's text"; }
+        cp "$2" "$dir/message"
+        id="in-a-file" from="a-file"
+    else
+        dispatch_client message "$id" --body > "$dir/message" || { rm -rf "$dir"; die "no message $id came from the dispatcher"; }
+        from="$(dispatch_client message "$id" --from)"
+    fi
+    base="$(sed -n 's/^-----BEGIN DEFINITION PATCH----- base=//p' "$dir/message" | head -1)"
+    sed -n '/^-----BEGIN DEFINITION PATCH-----/,/^-----END DEFINITION PATCH-----$/p' "$dir/message" | sed '1d;$d' > "$dir/mbox"
+    [ -s "$dir/mbox" ] || { rm -rf "$dir"; die "message $id holds no proposed change (no patch between its BEGIN and END lines)"; }
+    mkdir "$dir/patches"
+    git mailsplit -o"$dir/patches" "$dir/mbox" >/dev/null
+    for path in "$dir"/patches/*; do
+        # Who wrote a commit is its own word; who sent it is the dispatcher's.
+        git interpret-trailers --in-place --trailer "Proposed-in: message $id, from ${from%% *}" "$path"
+    done
+    # Tried first where it changes nothing: a checkout of the definition's
+    # commit beside it. What the commits touch is then read from git's own
+    # trees, not from the patch's text.
+    was="$(git -C "$installation" rev-parse HEAD)"
+    git -C "$installation" worktree add -q --detach "$dir/tried" "$was"
+    undo() { git -C "$installation" worktree remove --force "$dir/tried" >/dev/null 2>&1 || true; rm -rf "$dir"; }
+    if ! git -C "$dir/tried" -c core.hooksPath=/dev/null am --quiet "$dir"/patches/* >/dev/null 2>&1; then
+        undo
+        die "message $id does not apply to the definition as it is ($(git -C "$installation" log -1 --format='%h %s' | cut -c1-60)); it was made against ${base:0:12}, and nothing was applied. Ask its sender to bring the clone up to date (agent-definition update) and propose it again"
+    fi
+    for commit in $(git -C "$dir/tried" rev-list --reverse "$was..HEAD"); do
+        n=$((n + 1))
+        while IFS= read -r -d '' path; do
+            case "$path" in
+            .git | .git/* | */.git | */.git/* | .gitignore | */.gitignore | .gitattributes | */.gitattributes | .gitmodules | */.gitmodules)
+                bad="$bad $path(git's own)" ;;
+            model-accounts) look="$look model-accounts(commands that run on this machine)" ;;
+            tools/*) look="$look $path(a command agents run)" ;;
+            routines/*) look="$look $path(what an agent is told)" ;;
+            esac
+            for never in $definition_never; do [ "$path" != "$never" ] || bad="$bad $path(this machine's own)"; done
+            # What the definition's own rules leave out is not the definition's.
+            ! git -C "$installation" check-ignore -q --no-index -- "$path" || bad="$bad $path(ignored by the definition)"
+            # A link, or a repository inside it, is not a file of the definition.
+            case "$(git -C "$dir/tried" ls-tree "$commit" -- "$path" | cut -c1-6)" in 120000 | 160000) bad="$bad $path(a link or a repository)" ;; esac
+            # What the definition tracks may change; a new file only where
+            # routines and commands are kept. Anything else new (a file this
+            # script would read, one that is here and not tracked) is for
+            # the owner's side to add.
+            if ! git -C "$installation" ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
+                case "$path" in
+                routines/* | tools/*) [ ! -e "$installation/$path" ] || bad="$bad $path(here already, and not the definition's)" ;;
+                *) bad="$bad $path(new, and not a routine or a command)" ;;
+                esac
+            fi
+        done < <(git -C "$dir/tried" diff-tree --no-commit-id --name-only -r --no-renames -z "$commit")
+    done
+    if [ -n "$bad" ]; then
+        undo
+        die "message $id touches what a change to the definition may not, and nothing was applied:$bad"
+    fi
+    new="$(git -C "$dir/tried" rev-parse HEAD)"
+    git -C "$installation" merge -q --ff-only "$new" || { undo; die "the definition could not be moved to the proposed commits; nothing was applied"; }
+    undo
+    echo "applied $n commit(s) from message $id (from $from) to the definition at $installation:"
+    git -C "$installation" log --format='  %h %an: %s' "$was..HEAD"
+    git -C "$installation" diff --stat "$was" HEAD | sed 's/^/  /'
+    [ -z "$look" ] || echo "Look closely at:$look"
+    echo "Nothing is deployed. Read it (git -C $installation log -p ${was:0:12}..HEAD), then deploy: scripts/deploy.sh $context. To take it back: git -C $installation reset --hard ${was:0:12}"
+}
+
 # The dispatcher's owner token (ADR 0051): on this machine only, readable
 # by this user only. The cluster holds its SHA-256.
 # CARMAN_OWNER_TOKEN_FILE names another, for a trial installation's own.
@@ -299,7 +422,7 @@ build_agent() {
     local root="$build_root/agent"
     rm -rf "$root" && mkdir -p "$root"
     linux_cmem "$root" with-dispatcher
-    cp deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/usage-reading deploy/agent/backup-state deploy/agent/warm-harness deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/agent-open deploy/agent/oauth-credential deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json "$root/"
+    cp deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/usage-reading deploy/agent/backup-state deploy/agent/warm-harness deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/agent-open deploy/agent/agent-definition deploy/agent/oauth-credential deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json "$root/"
     cp -R routines "$root/routines"
     # A new tag whenever anything in it changes.
     # CARMAN_AGENT_BASE names an image to build on in place of the plain one:
@@ -651,21 +774,7 @@ EOF
     # it with the rest. CARMAN_INSTALLATION names the directory; .local
     # unless set. What is not committed is deployed all the same, and is
     # not in the copy.
-    installation="${CARMAN_INSTALLATION:-.local}"
-    if [ -e "$installation/.git" ] && git -C "$installation" rev-parse HEAD >/dev/null 2>&1; then
-        bundle="$(mktemp)"
-        if git -C "$installation" bundle create "$bundle" --all >/dev/null 2>&1 && [ "$(wc -c < "$bundle")" -lt 900000 ] &&
-            "${kube[@]}" create configmap installation "--from-file=definition.bundle=$bundle" --dry-run=client -o json |
-            "${kube[@]}" replace --force -f - >/dev/null 2>&1; then
-            chart_values+=(--set backup.installation=true)
-            echo "the cluster holds a copy of the installation's definition, as of $(git -C "$installation" log -1 --format='%h %s' | cut -c1-70)"
-            [ -z "$(git -C "$installation" status --porcelain)" ] ||
-                echo "deploy: the installation's definition has changes that are not committed; they are deployed, and the copy kept is of the last commit" >&2
-        else
-            echo "deploy: no copy of the installation's definition was put in the cluster (a bundle over 900 kB does not fit a config map, or the cluster refused it); the backup goes on without it" >&2
-        fi
-        rm -f "$bundle"
-    fi
+    ! put_definition || chart_values+=(--set backup.installation=true)
     rendered="$(helm template carman charts/carman --namespace "$namespace" "${chart_values[@]}" \
         --set "memory.image=$CARMAN_IMAGE" --set "agent.image=$CARMAN_AGENT_IMAGE" --set "dispatcher.image=$DISPATCHER_IMAGE" --set "egress.renewalImage=$renewal_image" --set "dreamer.suspend=${dreaming:-true}" \
         --set "dispatcher.notices.context=$context")" ||
@@ -791,6 +900,19 @@ env)
     else
         echo "the dispatcher has no host token or names no place yet: deploy first; .local/dispatcher.env not written" >&2
     fi
+    ;;
+definition)
+    case "${3:-}" in
+    put)
+        # The bundle a deploy puts in the cluster, without deploying.
+        put_definition || die "no copy of the definition was put in the cluster"
+        ;;
+    apply)
+        [ -n "${4:-}" ] || die "say which message holds the proposal: scripts/deploy.sh $context definition apply MESSAGE-ID"
+        apply_definition "$4" "${5:-}"
+        ;;
+    *) die "say: definition apply MESSAGE-ID, definition apply --file FILE, or definition put" ;;
+    esac
     ;;
 secrets)
     # What a deploy does to the secrets, and nothing else: for a trial

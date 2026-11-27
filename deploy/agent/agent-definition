@@ -1,0 +1,107 @@
+#!/bin/sh
+# The installation's definition (its values, routines and commands), for an
+# agent that was given it (`definition: true` on its entry, ADR 0056): the
+# definition as last deployed is a git bundle in the pod, read-only. This
+# makes a working clone of it, keeps the clone in step with what is
+# deployed, and sends a commit of the clone to a session on the owner's
+# machine, as a patch that session applies.
+#
+#   agent-definition clone [DIR]     a working clone (DIR: ~/work/installation)
+#   agent-definition update [DIR]    bring it to what is deployed now; commits of yours
+#                                    that are not there yet are kept on top of it
+#   agent-definition propose TO [DIR]   send the commits of yours that are not deployed
+#                                    to TO (a session on the owner's machine, PLACE/NAME),
+#                                    one message with the patch git makes of them
+#   agent-definition propose --print [DIR]   the same message, written here and not sent
+#
+# Nothing here changes the installation: a proposal is applied on the
+# owner's machine (scripts/deploy.sh CONTEXT definition apply MESSAGE-ID)
+# by whoever reads it, and deployed as a separate step.
+set -eu
+bundle="${AGENT_DEFINITION_BUNDLE:-/etc/installation/definition.bundle}"
+# A message's body may be 64 kB; the words around the patch need a little.
+limit="${AGENT_DEFINITION_LIMIT:-60000}"
+die() { echo "agent-definition: $*" >&2; exit 1; }
+have() { [ -s "$bundle" ] || die "this pod has no copy of the installation's definition at $bundle (the agent's entry needs definition: true, and a deploy since)"; }
+# The branch the bundle's HEAD is on, and its commit.
+deployed_branch() { git bundle list-heads "$bundle" | sed -n 's|^[0-9a-f]* refs/heads/||p' | head -1; }
+deployed_head() { git bundle list-heads "$bundle" HEAD | cut -d' ' -f1; }
+quiet() { "$@" >/dev/null 2>&1; }
+
+action="${1:-}"
+[ $# -eq 0 ] || shift
+case "$action" in
+clone)
+    have
+    dir="${1:-$HOME/work/installation}"
+    [ ! -e "$dir" ] || die "$dir is there already; agent-definition update brings it up to date"
+    git -c init.defaultBranch=main clone -q "$bundle" "$dir"
+    # Who a proposal is from, where the agent has not said.
+    git -C "$dir" config user.name >/dev/null || git -C "$dir" config user.name "agent ${AGENT_NAME:-of this installation}"
+    git -C "$dir" config user.email >/dev/null || git -C "$dir" config user.email "${AGENT_NAME:-agent}@agents.invalid"
+    echo "agent-definition: $dir is the definition as deployed, at $(git -C "$dir" log -1 --format='%h %s' | cut -c1-70)"
+    ;;
+update)
+    have
+    dir="${1:-$HOME/work/installation}"
+    [ -d "$dir/.git" ] || die "no clone at $dir; agent-definition clone makes one"
+    [ -z "$(git -C "$dir" status --porcelain)" ] || die "$dir has changes that are not committed; commit them or put them aside first"
+    git -C "$dir" fetch -q origin
+    branch="$(git -C "$dir" symbolic-ref --short HEAD)"
+    mine="$(git -C "$dir" rev-list --count "origin/$branch..HEAD")"
+    # Commits of the clone that are deployed by now, under whatever id,
+    # drop out: git knows a commit that makes the same change.
+    if ! quiet git -C "$dir" rebase "origin/$branch"; then
+        quiet git -C "$dir" rebase --abort || true
+        die "your $mine commit(s) do not apply to the definition as deployed now ($(git -C "$dir" log -1 --format='%h %s' "origin/$branch" | cut -c1-60)); the clone is as it was. Make the change again on top of origin/$branch (git rebase origin/$branch shows where they differ)"
+    fi
+    left="$(git -C "$dir" rev-list --count "origin/$branch..HEAD")"
+    echo "agent-definition: $dir is at what is deployed, $(git -C "$dir" log -1 --format='%h %s' "origin/$branch" | cut -c1-60); $left commit(s) of yours on top, not deployed$([ "$mine" = "$left" ] || echo " ($((mine - left)) are deployed now)")"
+    ;;
+propose)
+    have
+    to="${1:-}"
+    [ -n "$to" ] || die "say who applies it: agent-definition propose PLACE/NAME (a session on the owner's machine; dispatcher peers lists them), or --print"
+    dir="${2:-$HOME/work/installation}"
+    [ -d "$dir/.git" ] || die "no clone at $dir"
+    [ -z "$(git -C "$dir" status --porcelain)" ] || die "$dir has changes that are not committed: a proposal is commits"
+    branch="$(git -C "$dir" symbolic-ref --short HEAD)"
+    git -C "$dir" fetch -q origin
+    base="$(git -C "$dir" merge-base "origin/$branch" HEAD)"
+    [ "$base" = "$(git -C "$dir" rev-parse "origin/$branch")" ] || die "the clone is behind what is deployed: agent-definition update first, so the proposal is against the definition as it is"
+    count="$(git -C "$dir" rev-list --count "$base..HEAD")"
+    [ "$count" -gt 0 ] || die "nothing to propose: $dir has no commit beyond what is deployed"
+    message="$(mktemp)"
+    {
+        if [ "$count" = 1 ]; then
+            echo "A proposed change to the installation's definition: $(git -C "$dir" log -1 --format=%s)"
+        else
+            echo "A proposed change to the installation's definition, in $count commits, the last: $(git -C "$dir" log -1 --format=%s)"
+        fi
+        echo
+        echo "From agent ${AGENT_NAME:-?}, against the definition as deployed at $(git -C "$dir" rev-parse --short "$base"). Files:"
+        git -C "$dir" diff --stat "$base" HEAD | sed 's/^/  /'
+        echo
+        echo "To apply it, on the owner's machine, after reading it: scripts/deploy.sh CONTEXT definition apply THIS-MESSAGE'S-ID"
+        echo "It deploys nothing. The patch, as git made it:"
+        echo
+        echo "-----BEGIN DEFINITION PATCH----- base=$base"
+        git -C "$dir" format-patch --stdout --no-signature --full-index --binary "$base..HEAD"
+        echo "-----END DEFINITION PATCH-----"
+    } > "$message"
+    size="$(wc -c < "$message" | tr -d ' ')"
+    if [ "$size" -gt "$limit" ]; then
+        rm -f "$message"
+        die "the proposal is $size bytes and a message holds $limit: make the change in smaller commits and propose them one at a time, each applied and deployed before the next, or ask the owner's side to make a change this large there"
+    fi
+    if [ "$to" = --print ]; then
+        cat "$message"
+    else
+        dispatcher send "$to" - < "$message"
+    fi
+    rm -f "$message"
+    ;;
+*)
+    die "say: clone [DIR], update [DIR], propose PLACE/NAME [DIR], or propose --print [DIR]"
+    ;;
+esac

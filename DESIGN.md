@@ -490,6 +490,13 @@ which are the weakest parts. Three things are meant to keep that manageable:
   node and the internet (ADR 0037). A trial installation of the platform
   runs there, from a checkout, with its own tokens and no real credential
   (ADR 0054, proposed); `agent.sandbox.trial` lets its dispatcher start Jobs.
+- The installation's definition can be read and changed from within (ADR
+  0056, proposed): an agent with `definition: true` has the deployed
+  definition's bundle read-only, clones it (`agent-definition`), and sends
+  its commits as a patch in a message; `scripts/deploy.sh CONTEXT
+  definition apply MESSAGE-ID` on the owner's machine applies them as the
+  same commits, refusing what a change to the definition may not touch,
+  and deploys nothing.
 - Nothing the chart puts on a cluster carries the project's name, and
   `scripts/chart-export.sh` writes the chart out under another (ADR 0032).
 - One token per role, generated at the first deploy and kept in a Secret.

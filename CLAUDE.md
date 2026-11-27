@@ -141,6 +141,11 @@ Built so far:
   its `SessionStart` hook), and opens again with `agent-open --reopen` a
   remembered session a message waits for, with a backoff, telling the
   sender why when it does not.
+- The definition from within (ADR 0056, proposed): an agent with
+  `definition: true` reads the installation's definition in its pod
+  (`agent-definition clone|update|propose`), and its proposal, a message
+  holding a patch, is applied on the owner's machine by `scripts/deploy.sh
+  CONTEXT definition apply MESSAGE-ID`, which deploys nothing.
 - The owner's token off the cluster (ADR 0051, proposed): the dispatcher
   knows only its SHA-256; the token is in `.local/dispatcher-owner.token`,
   and `scripts/deploy.sh CONTEXT dispatch ...` runs the client on the

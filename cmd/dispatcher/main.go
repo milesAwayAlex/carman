@@ -88,7 +88,7 @@ dispatcher send TO 'TEXT' [--answers ID]  TO: owner, an agent's name, AGENT/SESS
 dispatcher reply ID 'TEXT'                answer a message, to whoever sent it
 dispatcher inbox [--read]                 what is unread for me; --read marks it read
 dispatcher read ID...                     mark messages read
-dispatcher message ID                     what became of a message, and its answers
+dispatcher message ID [--body | --from]   what became of a message, and its answers; or only its text, or its sender
 dispatcher watch SESSION                  be told, by a message, when it next goes idle
 dispatcher whoami                         what the dispatcher makes of this caller
 dispatcher attend [--every 10s] [--once]  in a standing agent's pod: say when a session's harness has gone, and open
@@ -185,7 +185,7 @@ func parse(args []string) ([]string, map[string][]string, error) {
 			flags[n] = append(flags[n], v)
 			continue
 		}
-		if name == "read" || name == "all" || name == "once" { // a switch, not a flag with a value
+		if name == "read" || name == "all" || name == "once" || name == "body" || name == "from" { // a switch, not a flag with a value
 			flags[name] = append(flags[name], "yes")
 			continue
 		}

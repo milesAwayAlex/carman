@@ -540,6 +540,10 @@ egress:
 #       groups: [10100]               # groups of the node to put the agent in, for a
 #                                     # directory or socket there that admits by group
 #                                     # (plugins, mcp, env, google and resources as above)
+#       definition: true              # give it the installation's definition as last deployed,
+#                                     # read-only, to read and to propose changes to
+#                                     # (agent-definition, ADR 0056): every agent's entry, the
+#                                     # hosts and accounts the installation names, and its history
 agents: []
 
 cloud:

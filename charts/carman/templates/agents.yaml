@@ -205,6 +205,13 @@ containers:
         mountPath: /etc/agent/mcp
         readOnly: true
       {{- end }}
+      {{- if .definition }}
+      # The installation's definition as last deployed, a git bundle, to
+      # read and to propose changes to (agent-definition, ADR 0056).
+      - name: definition
+        mountPath: /etc/installation
+        readOnly: true
+      {{- end }}
       {{- if $google }}
       - name: google
         mountPath: /etc/agent/google
@@ -257,6 +264,12 @@ volumes:
       name: tools
       optional: true
       defaultMode: 0555
+  {{- if .definition }}
+  - name: definition
+    configMap:
+      name: installation
+      optional: true
+  {{- end }}
   {{- if $root.Values.egress.enabled }}
   - name: egress-ca
     configMap:

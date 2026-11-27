@@ -14,6 +14,11 @@
 #                                        its dispatch commands), with the trial's own owner token
 #   scripts/trial.sh CONTEXT down        delete everything the trial made, and only that
 #
+# TRIAL_DEFINITION=DIR, a git repository standing for an installation's
+# definition: `up` puts its bundle in the trial as a deploy does, and runs a
+# pod `definition-reader` that has it as an agent given it does (ADR 0056);
+# `deploy definition apply ID` applies a proposal to DIR.
+#
 # The namespace is the context's own unless TRIAL_NAMESPACE names one.
 # Everything made carries the label trial=TRIAL_NAME (trial unless set), and
 # `down` deletes only what carries it. The chart's names are kept, so that a
@@ -55,7 +60,7 @@ account=default
 src="${TRIAL_SOURCE:-.}"
 
 deploy_sh() {
-    CARMAN_NAMESPACE="$namespace" CARMAN_OWNER_TOKEN_FILE="$work/dispatcher-owner.token" scripts/deploy.sh "$context" "$@"
+    CARMAN_NAMESPACE="$namespace" CARMAN_OWNER_TOKEN_FILE="$work/dispatcher-owner.token" CARMAN_INSTALLATION="${TRIAL_DEFINITION:-$work/no-definition}" scripts/deploy.sh "$context" "$@"
 }
 
 # Builds an image of a binary of this checkout with its own Dockerfile, and
@@ -191,6 +196,36 @@ EOF
     "${kube[@]}" rollout status statefulset/dispatcher-db --timeout=180s >/dev/null
     "${kube[@]}" rollout status deployment/dispatcher --timeout=180s >/dev/null ||
         { "${kube[@]}" logs deployment/dispatcher --tail=20 >&2 || true; die "the dispatcher did not start"; }
+    if [ -n "${TRIAL_DEFINITION:-}" ]; then
+        # The definition's bundle, as a deploy puts it, and a pod that has
+        # it as an agent given it does (definition: true, ADR 0056): the
+        # memory service's image, which has git and a shell.
+        have="$("${kube[@]}" get configmap installation -o 'jsonpath={.metadata.labels.trial}' 2>/dev/null)" && [ "$have" != "$name" ] &&
+            die "a config map installation is in $namespace and is not this trial's"
+        deploy_sh definition put
+        "${kube[@]}" label --overwrite configmap/installation "$label" >/dev/null
+        "${kube[@]}" apply -f - >/dev/null <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: definition-reader
+  namespace: $namespace
+  labels: {trial: "$name"}
+spec:
+  restartPolicy: Never
+  containers:
+    - name: reader
+      image: $memory_image
+      command: ["sleep", "86400"]
+      env: [{name: HOME, value: /tmp}, {name: AGENT_NAME, value: trial}]
+      volumeMounts: [{name: definition, mountPath: /etc/installation, readOnly: true}]
+  volumes:
+    - name: definition
+      configMap: {name: installation, optional: true}
+EOF
+        "${kube[@]}" wait --for=condition=ready pod/definition-reader --timeout=120s >/dev/null
+        echo "the trial has the definition at $TRIAL_DEFINITION, and the pod definition-reader has it at /etc/installation"
+    fi
     echo "the trial is up in $namespace after $(( $(date +%s) - started ))s"
     ;;
 check)

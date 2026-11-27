@@ -254,7 +254,35 @@ setting in the values:
   in the cluster and the nightly job copies it as `installation`:
   `scripts/deploy.sh CONTEXT copy installation > definition.bundle`, then
   `git clone definition.bundle`, gets it back. What is not committed is
-  deployed and is not in the copy. No credential belongs in it.
+  deployed and is not in the copy. No credential belongs in it: the bundle
+  holds what is committed on its branches and tags, and a deploy that finds
+  one of this script's own credential files in its history puts no bundle
+  in the cluster and says so.
+- **The definition from within** (ADR 0056). An agent with `definition:
+  true` on its entry has that bundle read-only in its pod, and so reads
+  what the installation says of every agent, its hosts and its accounts by
+  name. In the pod:
+
+  ```sh
+  agent-definition clone                 # ~/work/installation, as deployed
+  # change it and commit, then:
+  agent-definition propose PLACE/NAME    # the commits, to a session on the owner's machine
+  agent-definition update                # after a deploy: the clone at what is deployed now
+  ```
+
+  On the owner's machine, whoever got the message reads it, and then:
+
+  ```sh
+  scripts/deploy.sh devvm definition apply MESSAGE-ID   # the same commits, in the definition; deploys nothing
+  git -C .local log -p -1                               # read what was applied
+  scripts/deploy.sh devvm                               # deploy it, as a separate step
+  ```
+
+  `apply` refuses a proposal that does not apply as it is, that touches
+  git's own files, an ignored file, a link, or one of this machine's
+  files, or that adds a file outside `routines/` and `tools/`. It names
+  what to look at closely: a command agents run, what an agent is told, and
+  `model-accounts`, whose commands run on this machine.
 
 Every pod meets the restricted pod security standard and has its own
 service account.

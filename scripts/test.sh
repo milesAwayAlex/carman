@@ -87,6 +87,12 @@ if command -v helm >/dev/null; then
     ! "${sandbox[@]}" | grep -F 'name: trial-dispatcher' >/dev/null || { echo "the sandbox has a trial account nobody asked for" >&2; exit 1; }
     "${sandbox[@]}" --set agent.sandbox.trial=true --set-json 'agent.sandbox.api.addresses=["192.0.2.1/32"]' |
         grep -F 'name: trial-reaches-the-api' >/dev/null || { echo "the sandbox's trial account cannot reach the API" >&2; exit 1; }
+    # An agent has the installation's definition only where its entry says so (ADR 0056).
+    agents=(helm template t charts/carman --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 --show-only templates/agents.yaml)
+    ! "${agents[@]}" --set-json 'agents=[{"name":"a","interactive":true}]' | grep -F 'mountPath: /etc/installation' >/dev/null ||
+        { echo "an agent is given the installation's definition without being asked to" >&2; exit 1; }
+    "${agents[@]}" --set-json 'agents=[{"name":"a","interactive":true,"definition":true}]' | grep -F 'mountPath: /etc/installation' >/dev/null ||
+        { echo "an agent with definition: true does not get the installation's definition" >&2; exit 1; }
     helm template t charts/carman -f deploy/values/trial.yaml --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 >/dev/null ||
         { echo "the trial's values do not render" >&2; exit 1; }
 else
@@ -97,6 +103,53 @@ fi
 scripts/check-backup-copy.sh
 # Nothing here needs a C compiler, and not every place that runs this has one.
 export CGO_ENABLED="${CGO_ENABLED:-0}"
+# The installation's definition from within a pod (ADR 0056), with no
+# cluster: an agent's clone of the bundle, its proposal as a message's text,
+# and the owner's side applying it as the same commit, or refusing it whole.
+defn="$(mktemp -d)"
+(
+    set -e
+    quiet() { "$@" >/dev/null 2>&1; }
+    export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+    unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
+    mkdir -p "$defn/d/tools" && cd "$defn/d" && git init -q -b main && git config user.name owner && git config user.email o@example.invalid
+    printf 'agents: []\n' > values.yaml && printf '#!/bin/sh\n' > tools/hello && printf 'dispatcher.env\n' > .gitignore
+    git add -A && git commit -q -m "The first definition"
+    cd "$OLDPWD"
+    propose() {  # NAME, then what changes the clone
+        git -C "$defn/d" bundle create -q "$defn/b" HEAD --branches
+        rm -rf "$defn/c"
+        AGENT_DEFINITION_BUNDLE="$defn/b" AGENT_NAME=desk sh deploy/agent/agent-definition clone "$defn/c" >/dev/null
+        (cd "$defn/c" && eval "$2" && git add -A && git commit -q -m "$1")
+        AGENT_DEFINITION_BUNDLE="$defn/b" AGENT_NAME=desk sh deploy/agent/agent-definition propose --print "$defn/c" > "$defn/message"
+    }
+    apply() { CARMAN_INSTALLATION="$defn/d" scripts/deploy.sh none definition apply --file "$defn/message"; }
+    propose "An agent is added" 'printf "agents:\n  - name: desk\n" > values.yaml'
+    head -1 "$defn/message" | grep -q "^A proposed change to the installation's definition: An agent is added$" || { echo "a proposal's first line does not say what it is" >&2; exit 1; }
+    quiet apply || { echo "a proposal that applies is refused" >&2; exit 1; }
+    [ "$(git -C "$defn/d" log -1 --format='%an|%s')" = "agent desk|An agent is added" ] && git -C "$defn/d" log -1 --format=%B | grep -q '^Proposed-in: ' ||
+        { echo "an applied proposal does not keep its author and message, with where it came from" >&2; exit 1; }
+    # The clone, brought up to date, has nothing of its own left: its commit is deployed.
+    git -C "$defn/d" bundle create -q "$defn/b" HEAD --branches
+    AGENT_DEFINITION_BUNDLE="$defn/b" sh deploy/agent/agent-definition update "$defn/c" | grep -q "0 commit(s) of yours" || { echo "a clone is not brought up to date" >&2; exit 1; }
+    for refused in "git's own:echo x >> .gitignore" "this machine's:echo t > dispatcher.env; git add -f dispatcher.env" "a link:ln -s /etc/passwd tools/link" "a new top-level:echo x > bench.env" "another new top-level:echo x > notes"; do
+        before="$(git -C "$defn/d" rev-parse HEAD)"
+        propose "${refused%%:*}" "${refused#*:}"
+        if quiet apply || [ "$(git -C "$defn/d" rev-parse HEAD)" != "$before" ] || [ -n "$(git -C "$defn/d" status --porcelain)" ]; then
+            echo "a proposal that touches ${refused%%:*} file is applied, or leaves something behind" >&2; exit 1
+        fi
+    done
+    propose "A new routine" 'mkdir -p routines && echo "Do it." > routines/new.md'
+    quiet apply && [ -f "$defn/d/routines/new.md" ] || { echo "a proposal that adds a routine is refused" >&2; exit 1; }
+    # Made against a definition that has moved on where it changes: refused whole.
+    propose "Stale" 'echo "echo mine" >> tools/hello'
+    (cd "$defn/d" && echo "echo theirs" >> tools/hello && git commit -q -am "Newer")
+    before="$(git -C "$defn/d" rev-parse HEAD)"
+    if quiet apply || [ "$(git -C "$defn/d" rev-parse HEAD)" != "$before" ] || [ "$(git -C "$defn/d" worktree list | wc -l)" -ne 1 ]; then
+        echo "a proposal against an older definition is applied, or leaves something behind" >&2; exit 1
+    fi
+) || { rm -rf "$defn"; exit 1; }
+rm -rf "$defn"
 # agent-open --reopen (ADR 0053), against a fake tmux and real processes: a
 # name not remembered is refused, a window that is gone is made, the shell a
 # dead harness left is replaced, and a window that runs a harness, a shell

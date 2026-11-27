@@ -120,6 +120,15 @@ func messages(ctx context.Context, c *api.Client, cmd string, pos []string, flag
 			return err
 		}
 		m := st.Message
+		// For a program: the body as it was sent, or who sent it.
+		if _, ok := flags["body"]; ok {
+			fmt.Print(m.Body)
+			return nil
+		}
+		if _, ok := flags["from"]; ok {
+			fmt.Printf("%s %s %s\n", m.From, or(m.Agent, "-"), or(m.Name, "-"))
+			return nil
+		}
 		fmt.Printf("%s, from %s to %s (%s), sent %s: %s\n", m.ID, m.From, or(m.To, m.Given), st.State, m.Sent.UTC().Format(time.RFC3339), m.Body)
 		for _, e := range st.Events {
 			fmt.Printf("  %d  %s  %-18s %s\n", e.Seq, e.Time.UTC().Format(time.RFC3339), e.Type, e.Data)
