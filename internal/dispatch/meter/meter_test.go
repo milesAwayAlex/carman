@@ -300,3 +300,79 @@ func TestR10LedgerClosesIdleAndOld(t *testing.T) {
 		t.Errorf("b, open fifteen minutes: %+v", got)
 	}
 }
+
+// R10: an agent of a trial reaches the model through the listener with no
+// proxy in front: it is known by where its connection comes from, not by a
+// header it sends; its use is recorded under the trial's name; a model the
+// installation does not list for trials, and a request beyond the day's
+// count, are refused and never reach the API.
+func TestR10MeterTrials(t *testing.T) {
+	got, more := make(chan seen, 8), make(chan struct{})
+	close(more)
+	ledger := &Ledger{Idle: time.Minute, Longest: time.Hour}
+	srv := model(t, got, more)
+	up, _ := url.Parse(srv.URL)
+	tr := srv.Client().Transport.(*http.Transport).Clone()
+	tr.DisableCompression = true
+	limits := &TrialLimits{Models: []string{"claude-haiku-5-5"}, Requests: 2}
+	known := "127.0.0.1"
+	p := &Proxy{Upstream: up, Transport: tr, Credential: func() (string, error) { return "Bearer the-real-one", nil },
+		Identify: func(_ context.Context, ip string) (message.Caller, bool) {
+			if ip == known {
+				return message.Caller{Agent: "trial/t1/surveyor", Pod: "t1-agent-1", PodUID: "u9"}, true
+			}
+			return message.Caller{}, false
+		},
+		CallerHeader: "X-Egress-Caller", Direct: true, Admit: limits.Admit, Ledger: ledger}
+	front := httptest.NewServer(p)
+	t.Cleanup(front.Close)
+	ask := func(model, claims string) (int, string) {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, front.URL+"/v1/messages", strings.NewReader(`{"model":"`+model+`","stream":true}`))
+		req.Header.Set("X-Egress-Caller", claims)
+		req.Header.Set("Authorization", "Bearer placeholder")
+		resp, err := http.DefaultTransport.RoundTrip(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	// It claims an agent's address of the installation; it is known by its own.
+	if code, _ := ask("claude-haiku-5-5", "10.0.0.1"); code != 200 {
+		t.Fatalf("a trial's agent got %d", code)
+	}
+	if s := <-got; s.auth != "Bearer the-real-one" || s.caller != "" {
+		t.Errorf("the API saw %+v", s)
+	}
+	if code, body := ask("claude-opus-5-5", ""); code != 403 || !strings.Contains(body, "a trial may use claude-haiku-5-5, not claude-opus-5-5") {
+		t.Errorf("a model trials may not use: %d %s", code, body)
+	}
+	if code, _ := ask("claude-haiku-5-5-20261001", ""); code != 200 {
+		t.Errorf("the model by its dated name got %d", code)
+	}
+	<-got
+	if code, body := ask("claude-haiku-5-5", ""); code != 403 || !strings.Contains(body, "their 2 requests") {
+		t.Errorf("beyond the day's count: %d %s", code, body)
+	}
+	select {
+	case s := <-got:
+		t.Errorf("a refused request reached the API: %+v", s)
+	default:
+	}
+	// Another address is nobody's here, whatever it says.
+	known = "192.0.2.9"
+	if code, _ := ask("claude-haiku-5-5", "127.0.0.1"); code != 403 {
+		t.Errorf("a caller that is no trial's agent got %d", code)
+	}
+	var mine *Record
+	for _, r := range ledger.Due(true) {
+		if r.Agent == "trial/t1/surveyor" && r.Model == "claude-haiku-5-5" {
+			mine = &r
+		}
+	}
+	if mine == nil || mine.Requests != 2 || mine.Tokens["output_tokens"] != 84 || mine.Pod != "t1-agent-1" {
+		t.Errorf("the trial's record: %+v", mine)
+	}
+}

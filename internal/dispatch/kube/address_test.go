@@ -92,3 +92,24 @@ func TestR10AddressesSayWhoseIsAnAddress(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// In a namespace where trials stand, a pod is a trial's agent only if it
+// says which trial it is of, and is named for the trial.
+func TestAddressesOfTrials(t *testing.T) {
+	pod := func(name, ip string, labels map[string]string) podObject {
+		var p podObject
+		p.Metadata.Name, p.Metadata.UID, p.Metadata.Labels = name, name+"-uid", labels
+		p.Status.Phase, p.Status.PodIP = "Running", ip
+		return p
+	}
+	a := &Addresses{Trials: true, byIP: map[string]podObject{
+		"10.1.0.1": pod("t1-agent", "10.1.0.1", map[string]string{"trial": "t1", "agent": "surveyor"}),
+		"10.1.0.2": pod("database", "10.1.0.2", map[string]string{"trial": "t1"}),
+		"10.1.0.3": pod("stray", "10.1.0.3", map[string]string{"agent": "surveyor"}),
+	}}
+	for ip, want := range map[string]string{"10.1.0.1": "trial/t1/surveyor", "10.1.0.2": "", "10.1.0.3": ""} {
+		if c, ok := a.find(ip); !ok || c.Agent != want {
+			t.Errorf("%s is %q (found %v), want %q", ip, c.Agent, ok, want)
+		}
+	}
+}

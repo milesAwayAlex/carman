@@ -6,6 +6,9 @@
 {{- range $creds }}{{- $hosts = append $hosts .host }}{{- if not (has .key $renewed) }}{{- $keys = append $keys .key }}{{- end }}{{- end }}
 {{- $model := include "egress.model" . }}
 {{- if $model }}{{- $hosts = append $hosts .Values.egress.model.host }}{{- end }}
+{{- $trials := and $model .Values.egress.model.trials.enabled }}
+{{- if and .Values.egress.model.trials.enabled (not $model) }}{{ fail "egress.model.trials needs the model's credential at the proxy (agent.modelCredential: proxy or both)" }}{{ end }}
+{{- if and $trials (not .Values.agent.sandbox.namespace) }}{{ fail "egress.model.trials needs agent.sandbox.namespace, where trials stand" }}{{ end }}
 # The egress proxy: the one way out of the cluster for agent pods (ADR 0031).
 # Today it passes every connection through and logs where it went. It is
 # where credentials for outside services will be attached, so that an agent
@@ -49,6 +52,12 @@ spec:
     - name: proxy
       port: 3128
       targetPort: proxy
+    {{- if $trials }}
+    # The model, for agents of trials in the sandbox, and nothing else.
+    - name: model-trials
+      port: {{ .Values.egress.model.trials.port }}
+      targetPort: model-trials
+    {{- end }}
 ---
 {{ include "pod.account" (dict "name" "egress" "root" .) }}
 {{- if $model }}
@@ -77,6 +86,86 @@ subjects:
   - kind: ServiceAccount
     name: egress
     namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- if $trials }}
+---
+# For trials: the meter reads which pod of the sandbox has which address,
+# and what the pod says it is (its labels). Pods only, to read only, in that
+# one namespace, where agents already may do everything with pods.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: egress-meter-reads-trials
+  namespace: {{ .Values.agent.sandbox.namespace }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: egress-meter-reads-trials
+  namespace: {{ .Values.agent.sandbox.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: egress-meter-reads-trials
+subjects:
+  - kind: ServiceAccount
+    name: egress
+    namespace: {{ .Release.Namespace }}
+---
+# Out of the sandbox, a pod that says it reaches the model reaches the
+# meter's port for trials, and nothing else of the installation's.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: trial-agents-reach-the-model
+  namespace: {{ .Values.agent.sandbox.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      reaches-the-model: "true"
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+          podSelector:
+            matchLabels:
+              app: egress
+      ports:
+        - {protocol: TCP, port: {{ .Values.egress.model.trials.port }}}
+{{- if .Values.isolated }}
+---
+# And into the installation's namespace, which nothing outside otherwise
+# enters: those pods, to that port of the proxy's pod. The namespace's own
+# pods reach the proxy as before.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: trial-agents-reach-the-meter
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: egress
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector: {}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.agent.sandbox.namespace | quote }}
+          podSelector:
+            matchLabels:
+              reaches-the-model: "true"
+      ports:
+        - {protocol: TCP, port: {{ .Values.egress.model.trials.port }}}
+{{- end }}
 {{- end }}
 ---
 apiVersion: apps/v1
@@ -190,12 +279,27 @@ spec:
             - name: METER_SHAPES
               value: "on"
             {{- end }}
+            {{- if $trials }}
+            - name: METER_TRIAL_LISTEN
+              value: ":{{ .Values.egress.model.trials.port }}"
+            - name: METER_TRIAL_NAMESPACE
+              value: {{ .Values.agent.sandbox.namespace | quote }}
+            - name: METER_TRIAL_MODELS
+              value: {{ join "," (.Values.egress.model.trials.models | default (list .Values.usage.model)) | quote }}
+            - name: METER_TRIAL_REQUESTS
+              value: {{ .Values.egress.model.trials.requests | quote }}
+            {{- end }}
             {{- if .Values.dispatcher.enabled }}
             - name: DISPATCHER_URL
               value: http://dispatcher.{{ .Release.Namespace }}.svc:{{ .Values.dispatcher.service.port }}
             - name: DISPATCHER_TOKEN_FILE
               value: /var/run/secrets/dispatcher/token
             {{- end }}
+          {{- if $trials }}
+          ports:
+            - name: model-trials
+              containerPort: {{ .Values.egress.model.trials.port }}
+          {{- end }}
           resources:
             {{- toYaml .Values.egress.model.resources | nindent 12 }}
           securityContext:
