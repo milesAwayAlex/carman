@@ -135,6 +135,9 @@ type Store interface {
 	PutSession(ctx context.Context, s Session) (Session, bool, error)
 	GetSession(ctx context.Context, id string) (Session, bool, error)
 	Sessions(ctx context.Context, agent string, since time.Time) ([]Session, error)
+	// Correspondents are the session addresses that sent or were sent a
+	// message since a time.
+	Correspondents(ctx context.Context, since time.Time) ([]string, error)
 	ForgetSessions(ctx context.Context, before time.Time) error
 	Submit(ctx context.Context, t dispatch.TaskSpec) error
 	Explain(ctx context.Context, taskID string) (dispatch.TaskStatus, error)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -172,6 +173,10 @@ type Peer struct {
 	Kind    string `json:"kind"` // owner, agent, session
 	Agent   string `json:"agent,omitempty"`
 	Name    string `json:"name,omitempty"`
+	// Named is the address by name that reaches this session, AGENT/NAME or
+	// PLACE/NAME, which outlives its id; empty when none does.
+	Named   string `json:"named,omitempty"`
+	Running bool   `json:"running,omitempty"`
 	State   string `json:"state"` // busy, idle, not running; for an agent: what a message starts
 	Where   string `json:"where,omitempty"`
 	// NotWritable says why the caller may not write to it (ADR 0047);
@@ -180,54 +185,100 @@ type Peer struct {
 	Seen        time.Time `json:"seen,omitzero"`
 }
 
-// Peers are who can be written to: the owner, the agents by name, and the
-// sessions seen lately, running or not; those the caller may not write to
-// say so.
-func (s *Service) Peers(ctx context.Context, c Caller, since time.Duration) ([]Peer, error) {
-	out := []Peer{{Address: Owner, Kind: Owner, State: "a notice (withheld while notices are off); read with dispatch inbox"}}
-	agents, err := s.agents(ctx)
+// Peers are who is worth writing to: the owner, the agents a message
+// reaches, and the sessions seen within since. Sessions that run come
+// first; of those that do not, only those a message still reaches: the
+// latest of their agent and name, or one that has exchanged a message,
+// and only of an agent the cluster defines or of the place. All lists
+// every session seen. Those the caller may not write to say so.
+func (s *Service) Peers(ctx context.Context, c Caller, since time.Duration, all bool) ([]Peer, error) {
+	defined, err := s.Cluster.Agents(ctx)
 	if err != nil {
 		return nil, err
-	}
-	names := make([]string, 0, len(agents))
-	for n := range agents {
-		names = append(names, n)
-	}
-	slices.Sort(names)
-	for _, n := range names {
-		a := agents[n]
-		state := "a message starts a new conversation, from " + a.Class
-		if a.Class == "" {
-			state = "no job to start: a message waits for one of its sessions"
-		}
-		out = append(out, Peer{Address: AgentAddress(n), Kind: "agent", Agent: n, State: state, NotWritable: s.notWritable(c, n)})
 	}
 	sessions, err := s.Store.Sessions(ctx, "", s.now().Add(-since))
 	if err != nil {
 		return nil, err
 	}
-	for _, x := range sessions {
-		running, err := s.Running(ctx, x)
+	talked := map[string]bool{}
+	if !all {
+		addrs, err := s.Store.Correspondents(ctx, s.now().Add(-since))
 		if err != nil {
 			return nil, err
+		}
+		for _, a := range addrs {
+			talked[a] = true
+		}
+	}
+	var running, stopped []Peer
+	interactive := map[string]bool{} // agents with an interactive session listed
+	latest := map[[2]string]bool{}
+	for _, x := range sessions { // the latest first
+		key := [2]string{x.Agent, x.Name}
+		first := !latest[key]
+		latest[key] = true
+		on, err := s.Running(ctx, x)
+		if err != nil {
+			return nil, err
+		}
+		_, known := defined[x.Agent]
+		if !on && !all && (!first && !talked[SessionAddress(x.ID)] || !known && !s.isPlace(x.Agent)) {
+			continue
 		}
 		where := "in " + x.Pod
 		if s.isPlace(x.Agent) {
 			where = "on the owner's machine"
 		}
-		p := Peer{Address: SessionAddress(x.ID), Kind: "session", Agent: x.Agent, Name: x.Name, Seen: x.Seen, State: "not running (kept)", Where: "last " + where, NotWritable: s.notWritable(c, x.Agent)}
-		if s.isPlace(x.Agent) && !running {
+		p := Peer{Address: SessionAddress(x.ID), Kind: "session", Agent: x.Agent, Name: x.Name, Seen: x.Seen, Running: on,
+			State: "not running (kept)", Where: "last " + where, NotWritable: s.notWritable(c, x.Agent)}
+		// A name reaches the session seen last of that name (Resolve).
+		if x.Name != "" && first {
+			p.Named = x.Agent + "/" + x.Name
+		}
+		if s.isPlace(x.Agent) && !on {
 			p.State = "not running: a message waits for it, or for the next session of its name there"
 		}
-		if running {
+		if x.Kind == "interactive" {
+			interactive[x.Agent] = true
+		}
+		if on {
 			p.State, p.Where = x.State, x.Kind+" "+where
 			if x.State == Idle && !listening.listening(x.ID) {
 				p.State = "idle, not listening: it gets messages at its next turn"
 			}
+			running = append(running, p)
+			continue
 		}
-		out = append(out, p)
+		stopped = append(stopped, p)
 	}
-	return out, nil
+
+	out := []Peer{{Address: Owner, Kind: Owner, State: "a notice (withheld while notices are off); read with dispatch inbox"}}
+	// An agent is listed when a message to it does something: starts a
+	// run, or waits for a session of it that a person works in. The place
+	// is no agent (ADR 0049).
+	names := map[string]AgentInfo{}
+	for n, a := range defined {
+		if a.Class != "" || a.Interactive || interactive[n] {
+			names[n] = a
+		}
+	}
+	for n := range interactive {
+		if _, ok := names[n]; !ok {
+			names[n] = AgentInfo{Name: n, Interactive: true}
+		}
+	}
+	for _, n := range slices.Sorted(maps.Keys(names)) {
+		if s.isPlace(n) {
+			continue
+		}
+		state := "a message starts a new conversation, from " + names[n].Class
+		if names[n].Class == "" {
+			state = "no job to start: a message waits for one of its sessions"
+		}
+		out = append(out, Peer{Address: AgentAddress(n), Kind: "agent", Agent: n, State: state, NotWritable: s.notWritable(c, n)})
+	}
+	out = append(out, running...)
+	return append(out, stopped...), nil
 }
 
 // notWritable says, for a peer of agent target, why the caller may not

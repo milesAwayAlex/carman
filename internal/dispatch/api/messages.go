@@ -185,7 +185,8 @@ func (s *Server) peers(_ http.ResponseWriter, r *http.Request, _ Role) (any, err
 			return nil, fmt.Errorf("%w: since is a duration", errBadRequest)
 		}
 	}
-	return m.Peers(r.Context(), c, since)
+	all := r.URL.Query().Get("all") != ""
+	return m.Peers(r.Context(), c, since, all)
 }
 
 // who is the caller, for a client that wants to know what the dispatcher

@@ -48,7 +48,7 @@ func messaging(t *testing.T) (*message.Service, *fakeCluster, *Dispatcher) {
 	t.Cleanup(inst.Kill)
 	cl := &fakeCluster{alive: map[string]bool{}, agents: map[string]message.AgentInfo{
 		"trial": {Name: "trial", Class: "agent-trial"},
-		"desk":  {Name: "desk"},
+		"desk":  {Name: "desk", Interactive: true},
 		"slow":  {Name: "slow", Class: "agent-slow", Deadline: 2 * time.Hour},
 	}}
 	return &message.Service{Store: inst, Cluster: cl, Log: slog.Default(), Timeout: time.Minute}, cl, inst
@@ -414,7 +414,7 @@ func TestR2MessageWhoMayWrite(t *testing.T) {
 	}
 
 	// Peers marks what the caller may not write to.
-	ps, err := s.Peers(ctx, d, time.Hour)
+	ps, err := s.Peers(ctx, d, time.Hour, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +424,7 @@ func TestR2MessageWhoMayWrite(t *testing.T) {
 			t.Errorf("peers for desk: %s marked %v, want %v (%q)", p.Address, got, want, p.NotWritable)
 		}
 	}
-	ps, err = s.Peers(ctx, message.Caller{Owner: true}, time.Hour)
+	ps, err = s.Peers(ctx, message.Caller{Owner: true}, time.Hour, false)
 	if err != nil {
 		t.Fatal(err)
 	}

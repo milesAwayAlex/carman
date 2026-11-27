@@ -108,6 +108,23 @@ only the owner and those cases. A message that is not allowed is refused
 at sending, with who may, and recorded as `message.refused`; `peers` marks
 what the caller may not write to.
 
+`peers` lists who is worth writing to (2026-11-27). The agents a message
+does something for: those the cluster defines with a job (a message
+starts a run), and interactive ones, defined by a standing pod that
+carries the label `agent` or, for one the cluster no longer defines,
+while a session of it that runs is interactive (a message waits for one
+of its sessions). Not the place, which is no agent, and not an agent
+whose runs are headless and that has no job a message starts (the
+hourly usage reading). Then the sessions seen within `--since`: every
+one that runs, first, then by when last seen; of those that do not, only
+the latest of each agent and name, or one a message was exchanged with,
+and only of an agent the cluster defines or of the place. `--all` lists
+every session seen. A session that its name reaches is shown as
+`AGENT/NAME` or `PLACE/NAME`, the address that outlives a restart, with
+its id shortened beside it; `session/` and the first eight characters of
+an id resolve too. The API's `/v1/peers` (`?all=yes`) adds `named` and
+`running` to each peer.
+
 Sessions on the owner's own machine (ADR 0049) are a place with
 a token of its own (the dispatcher's `host` role; the place is
 `dispatcher.host.place`, `host` by default), outside the cluster, with no

@@ -76,7 +76,8 @@ dispatcher meter                          the egress proxy's meter of model use 
 Messages (ADR 0045), as this session (DISPATCHER_SESSION) or as the owner;
 on the owner's machine (ADR 0049) with DISPATCHER_URL, DISPATCHER_TOKEN (the
 host role's) and DISPATCHER_PLACE:
-dispatcher peers [--since 168h]           who can be written to, and whether each is busy, idle or not running
+dispatcher peers [--since 168h] [--all]   who is worth writing to: running sessions, and of the rest the latest of each
+                                          AGENT/NAME or one a message was exchanged with; --all: every session seen
 dispatcher send TO 'TEXT' [--answers ID]  TO: owner, an agent's name, AGENT/SESSION-NAME or session/ID; TEXT - reads stdin
 dispatcher reply ID 'TEXT'                answer a message, to whoever sent it
 dispatcher inbox [--read]                 what is unread for me; --read marks it read
@@ -162,7 +163,7 @@ func parse(args []string) ([]string, map[string][]string, error) {
 			flags[n] = append(flags[n], v)
 			continue
 		}
-		if name == "read" { // a switch, not a flag with a value
+		if name == "read" || name == "all" { // a switch, not a flag with a value
 			flags[name] = append(flags[name], "yes")
 			continue
 		}

@@ -168,6 +168,18 @@ func (d *Dispatcher) Sessions(ctx context.Context, agent string, since time.Time
 	return pgx.CollectRows(rows, scanSession)
 }
 
+// Correspondents are the session addresses that sent or were sent a
+// message since a time.
+func (d *Dispatcher) Correspondents(ctx context.Context, since time.Time) ([]string, error) {
+	rows, err := d.pool.Query(ctx, `SELECT DISTINCT a FROM events,
+		LATERAL (VALUES (data->>'to'), (data->>'from')) v(a)
+		WHERE type = 'message.sent' AND time >= $1 AND a LIKE 'session/%'`, since)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
 // ForgetSessions removes sessions last seen before a time.
 func (d *Dispatcher) ForgetSessions(ctx context.Context, before time.Time) error {
 	if d.schema < 4 {

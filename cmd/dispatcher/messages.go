@@ -77,23 +77,14 @@ func messages(ctx context.Context, c *api.Client, cmd string, pos []string, flag
 		if v := one(flags, "since", ""); v != "" {
 			q.Set("since", v)
 		}
+		if _, ok := flags["all"]; ok {
+			q.Set("all", "yes")
+		}
 		if err := c.Do(ctx, http.MethodGet, "/v1/peers", q, nil, &ps); err != nil {
 			return err
 		}
 		for _, p := range ps {
-			name := p.Name
-			if name != "" {
-				name = " " + name
-			}
-			mine := ""
-			if me != "" && p.Address == message.SessionAddress(me) {
-				mine = "  (you)"
-			}
-			if p.NotWritable != "" {
-				fmt.Printf("%-52s %s%s: %s%s\n", p.Address, or(p.Agent, p.Kind), name, p.NotWritable, mine)
-				continue
-			}
-			fmt.Printf("%-52s %s%s: %s%s%s\n", p.Address, or(p.Agent, p.Kind), name, p.State, prefixed(", ", p.Where), mine)
+			fmt.Println(peerLine(p, me))
 		}
 		return nil
 	case "send", "reply":
@@ -441,4 +432,32 @@ func safeName(s string) string {
 // run must not be given an idle listener, wherever it was started.
 func unattended() bool {
 	return os.Getenv("CLAUDE_CODE_ENTRYPOINT") == "sdk-cli" || os.Getenv("CLAUDE_CODE_SESSION_ATTENDED") == "0"
+}
+
+// peerLine is one peer: the address to write to (a session's by name when
+// one reaches it, else its id shortened, which Resolve takes), then who it
+// is and what a message to it does.
+func peerLine(p message.Peer, me string) string {
+	addr, who := p.Address, or(p.Agent, p.Kind)
+	if p.Kind == "session" {
+		_, id := message.Split(p.Address)
+		short := message.SessionAddress(id[:min(len(id), 8)])
+		if p.Named != "" {
+			addr, who = p.Named, short
+		} else {
+			addr = short
+			if p.Name != "" {
+				who += " " + p.Name
+			}
+		}
+	}
+	what := p.State + prefixed(", ", p.Where)
+	if p.NotWritable != "" {
+		what = p.NotWritable
+	}
+	mine := ""
+	if me != "" && p.Address == message.SessionAddress(me) {
+		mine = "  (you)"
+	}
+	return fmt.Sprintf("%-28s %s: %s%s", addr, who, what, mine)
 }
