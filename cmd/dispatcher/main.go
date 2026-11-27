@@ -29,7 +29,9 @@
 // kubectl context a notice names) and, for the admission rule,
 // DISPATCHER_ADMISSION (on), DISPATCHER_ADMISSION_BELOW (priority, 50),
 // DISPATCHER_ADMISSION_ABOVE (utilization, 0.9) and
-// DISPATCHER_ADMISSION_MAX_AGE (2h).
+// DISPATCHER_ADMISSION_MAX_AGE (2h); DISPATCHER_RESERVE_PLACES (0) of
+// DISPATCHER_MAX_RUNNING kept for work of priority DISPATCHER_RESERVE_FROM
+// (60) or more (ADR 0059).
 package main
 
 import (
@@ -485,6 +487,25 @@ func serve(ctx context.Context) error {
 		}
 		admission = rule.admit
 		logger.Info("holding work below a priority while a usage window is high", "below", rule.Below, "above", rule.Above, "max_age", rule.MaxAge.String())
+	}
+
+	reserve := reserveRule{From: 60, MaxRunning: maxRunning}
+	if v := os.Getenv("DISPATCHER_RESERVE_PLACES"); v != "" {
+		if reserve.Places, err = strconv.Atoi(v); err != nil {
+			return fmt.Errorf("DISPATCHER_RESERVE_PLACES: %w", err)
+		}
+	}
+	if v := os.Getenv("DISPATCHER_RESERVE_FROM"); v != "" {
+		if reserve.From, err = strconv.Atoi(v); err != nil {
+			return fmt.Errorf("DISPATCHER_RESERVE_FROM: %w", err)
+		}
+	}
+	if err := reserve.check(); err != nil {
+		return err
+	}
+	if reserve.Places > 0 {
+		admission = admitAll(reserve.admit, admission)
+		logger.Info("keeping places for scheduled work", "places", reserve.Places, "from", reserve.From, "of", maxRunning)
 	}
 
 	dbURL := os.Getenv("DISPATCHER_DATABASE_URL")
