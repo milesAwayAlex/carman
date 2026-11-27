@@ -14,7 +14,7 @@ import (
 )
 
 // `dispatcher ready` waits until a pod just made can reach what it needs
-// (ADR new-who-comes-in-and-a-new-pods-first-second). On this kind of
+// (ADR 0066). On this kind of
 // cluster the network's policies know a new pod a moment after it starts
 // (measured: 0.1 to 1.2 seconds): until then the services of its own
 // installation refuse or drop its connections. Every pod that is a client

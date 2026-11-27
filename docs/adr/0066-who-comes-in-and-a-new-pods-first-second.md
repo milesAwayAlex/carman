@@ -1,4 +1,4 @@
-# new-who-comes-in-and-a-new-pods-first-second: Who comes in to the installation's pods is named, the proxy admits only agents, and a pod waits once at its start for the network to know it
+# 0066: Who comes in to the installation's pods is named, the proxy admits only agents, and a pod waits once at its start for the network to know it
 
 Status: Proposed (2026-11-27).
 

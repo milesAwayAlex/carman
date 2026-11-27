@@ -184,7 +184,7 @@ if command -v helm >/dev/null; then
         echo "the chart opens the model to trials with no credential at the proxy" >&2
         exit 1
     fi
-    # R5, who comes in (ADR new-who-comes-in-and-a-new-pods-first-second): the
+    # R5, who comes in (ADR 0066): the
     # proxy admits only the pods that leave through it, isolated or not; an
     # isolated namespace with a service behind a load balancer names who
     # that is; and the local cluster's values are isolated.
