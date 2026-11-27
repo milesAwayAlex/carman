@@ -192,6 +192,7 @@ if command -v tmux >/dev/null; then
         run="AGENT_TMUX=$(command -v tmux) AGENT_TMUX_SOCKET=$view/pod AGENT_ATTACH_DIR=$view/marks AGENT_HARNESS_DIR=$view/none sh $PWD/deploy/agent/agent-view"
         mine new-session -d -s o -n one -x 80 -y 24 "$run '' first; echo left=\$? > $view/one"
         mine new-window -d -t o: -n two "$run '' second; echo left=\$? > $view/two"
+        mine new-window -d -t o: -n hold 'sleep 300'
         for _ in $(seq 50); do [ "$(pod list-sessions -F '#{session_attached}' | grep -c 1)" = 2 ] && break; sleep 0.1; done
         seen="$(pod list-sessions -F '#{session_group} #{session_attached} #{window_name} #{status}' | sort | tr '\n' ';')"
         [ "$seen" = "main 0 first on;main 1 first off;main 1 second off;" ] || { echo "agent-view: two clients do not see two windows, each in a view of its own: $seen" >&2; exit 1; }
@@ -207,6 +208,17 @@ if command -v tmux >/dev/null; then
         mine kill-window -t o:one
         for _ in $(seq 50); do [ "$(pod list-sessions -F '#{session_name}' | grep -c '^view-')" = 0 ] && break; sleep 0.1; done
         [ "$(pod list-sessions -F '#{session_name}' | tr '\n' ' ')" = "main " ] || { echo "a view is left behind when its client goes: $(pod list-sessions -F '#{session_name}' | tr '\n' ' ')" >&2; exit 1; }
+        # A view whose far end promised word of itself and went silent (a
+        # dropped connection) is ended; one that keeps saying so is not.
+        pod new-window -d -t main: -n third 'sleep 300'
+        beat="AGENT_ATTACH_ID=here/third AGENT_VIEW_BEAT=1 AGENT_VIEW_SILENCE=3 AGENT_VIEW_LOOK=1"
+        mine new-window -d -t o: -n three "$beat $run '' third; echo left=\$? > $view/three"
+        (for _ in 1 2 3 4 5 6; do echo; sleep 1; done; sleep 20) | env AGENT_ATTACH_ID=here/third AGENT_ATTACH_DIR="$view/marks" sh deploy/agent/agent-view --beat &
+        sleep 4
+        [ "$(pod list-sessions -F '#{session_name}' | grep -c '^view-')" = 1 ] || { echo "a view whose far end says it is there is ended" >&2; exit 1; }
+        for _ in $(seq 100); do [ -s "$view/three" ] && break; sleep 0.1; done
+        [ -s "$view/three" ] && [ "$(cat "$view/three")" != left=0 ] && [ "$(pod list-sessions -F '#{session_name}' | grep -c '^view-')" = 0 ] ||
+            { echo "a view whose far end went silent is not ended, or ends as if it was left: $(cat "$view/three" 2>/dev/null)" >&2; exit 1; }
         code=0; eval "$run '' nosuch" >/dev/null 2>&1 || code=$?
         [ "$code" = 3 ] || { echo "agent-view of a name with no window ends with $code, not 3" >&2; exit 1; }
     ) || { rm -rf "$view"; exit 1; }

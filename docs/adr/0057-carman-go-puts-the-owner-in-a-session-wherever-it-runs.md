@@ -98,9 +98,21 @@ seconds, doubling to thirty, asking the dispatcher each time which session
 the name reaches by then; five attaches in a row that each fail within five
 seconds end it with an error. So `carman go --keep NAME` ends with 0
 exactly when the session was left, with 3 when there is nothing to go to,
-and with another status on an error; a cancelled picker is 130. The client
-a drop left behind in the pod is ended by the next attach from the same
-place to the same session (`AGENT_ATTACH_ID`), as `agent-attach` does.
+and with another status on an error; a cancelled picker is 130.
+
+**What a drop leaves in the pod.** The view's client there is not hung up
+when the connection goes (seen from the owner's machine, 2026-11-27: the
+kubectl killed, the client stayed attached, and its view with it). Two
+things end it. The next attach from the same place to the same session
+ends the client before it (`AGENT_ATTACH_ID`), as `agent-attach` does. And
+for the case that no such attach ever comes (a laptop closed, another
+terminal opened later), the far end says it is there: beside each attach
+the program keeps a second `kubectl exec` with no terminal (`agent-view
+--beat`) and writes it a line every twenty seconds; a view that asked for
+this (`AGENT_VIEW_BEAT`) and has heard nothing for ninety seconds is ended
+in the pod, with the reader the drop left waiting. Its client ends as a
+drop does, so a program that is still there and keeps (`--keep`) attaches
+again. A view attached by hand, with no beat, lives until its client goes.
 
 ## Tried
 

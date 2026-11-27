@@ -82,7 +82,7 @@ func attach(c config, s session) (argv []string, dir string, err error) {
 		}
 		// A view of its own in the pod's tmux, at that session's window.
 		argv = []string{c.Kubectl, "--context", c.Context, "--namespace", c.Namespace, "exec", "-it", s.Pod, "--",
-			"env", "AGENT_TERM=" + c.Term, "AGENT_ATTACH_ID=" + c.Host + "/" + s.By(), "agent-view", s.ID, s.Name}
+			"env", "AGENT_TERM=" + c.Term, "AGENT_ATTACH_ID=" + c.Host + "/" + s.By(), "AGENT_VIEW_BEAT=1", "agent-view", s.ID, s.Name}
 		return argv, "", nil
 	}
 	// A job's kept conversation goes on as its agent in a pod of its own
@@ -271,9 +271,60 @@ var (
 	quickFailure = 5 * time.Second
 )
 
+// beat is the command that tells the pod, beside an attach, that this end
+// is there (agent-view --beat): the attach's own, with no terminal, and
+// --beat in place of the session. Nothing for what is not a view.
+func beat(argv []string) []string {
+	i := len(argv) - 3
+	if i < 0 || argv[i] != "agent-view" {
+		return nil
+	}
+	var out []string
+	for _, a := range argv[:i] {
+		switch a {
+		case "-it":
+			a = "-i"
+		case "AGENT_VIEW_BEAT=1":
+			continue
+		}
+		out = append(out, a)
+	}
+	return append(out, "agent-view", "--beat")
+}
+
+// beatEvery is how often the pod is told this end is there. A view whose
+// far end is silent for a minute and a half is ended there, so that one a
+// dropped connection left does not stay attached to nothing.
+var beatEvery = 20 * time.Second
+
 // run runs a command on this terminal and gives its exit status; one
-// that was killed, or could not start, is 255.
+// that was killed, or could not start, is 255. Beside a view, it keeps
+// the pod told that this end is there.
 func run(argv []string, dir string) int {
+	if b := beat(argv); b != nil {
+		hb := exec.Command(b[0], b[1:]...)
+		if in, err := hb.StdinPipe(); err == nil && hb.Start() == nil {
+			stop := make(chan struct{})
+			go func() {
+				for {
+					if _, err := io.WriteString(in, "\n"); err != nil {
+						return
+					}
+					select {
+					case <-stop:
+						return
+					case <-time.After(beatEvery):
+					}
+				}
+			}()
+			defer func() {
+				close(stop)
+				in.Close()
+				hb.Process.Kill()
+				hb.Wait()
+			}()
+		}
+	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = dir
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr

@@ -8,6 +8,15 @@
 #   agent-view ID [NAME]    the window of the session with that id (by its harness's
 #                           process), or the window called NAME; a session that is
 #                           not running and is remembered is opened again first
+#   agent-view --beat       says, for as long as lines arrive on its input, that the
+#                           far end of the view with the same AGENT_ATTACH_ID is there
+#
+# A dropped connection does not hang the view's client up: it would stay
+# attached to nothing. Whoever attaches with AGENT_VIEW_BEAT set promises to
+# run `agent-view --beat` beside it and write it a line now and then; a view
+# whose beat has been silent for AGENT_VIEW_SILENCE seconds (90) is ended.
+# With no AGENT_VIEW_BEAT a view lives until its client goes, or until the
+# next attach with the same AGENT_ATTACH_ID.
 #
 # In a view there is no status line and no prefix key: it is meant to sit in
 # a window of the tmux of whoever attached, which is then the only one they
@@ -16,6 +25,16 @@
 # window closed), 3 when there is nothing to show.
 set -eu
 [ ! -r /usr/local/lib/agent-env ] || . /usr/local/lib/agent-env
+marks="${AGENT_ATTACH_DIR:-/tmp/agent-attach}"
+mark="$marks/$(printf %s "view-${AGENT_ATTACH_ID:-none}" | tr -c 'A-Za-z0-9._-' '_')"
+if [ "${1:-}" = --beat ]; then
+    [ -n "${AGENT_ATTACH_ID:-}" ] || { echo "agent-view --beat: AGENT_ATTACH_ID says which view" >&2; exit 2; }
+    mkdir -p "$marks"
+    echo "$$" > "$mark.beat"
+    date +%s > "$mark.alive"
+    while IFS= read -r _; do date +%s > "$mark.alive"; done
+    exit 0
+fi
 id="${1:-}" name="${2:-}"
 [ -n "$id$name" ] || { echo "usage: agent-view ID [NAME]" >&2; exit 2; }
 if [ -n "${AGENT_TERM:-}" ] && infocmp "$AGENT_TERM" >/dev/null 2>&1; then TERM="$AGENT_TERM"; else TERM=xterm-256color; fi
@@ -57,8 +76,6 @@ fi
 # One view for each place that attaches to this session: a client that a
 # dropped connection left behind is ended by the next attach from there.
 if [ -n "${AGENT_ATTACH_ID:-}" ]; then
-    marks="${AGENT_ATTACH_DIR:-/tmp/agent-attach}"
-    mark="$marks/$(printf %s "view-$AGENT_ATTACH_ID" | tr -c 'A-Za-z0-9._-' '_')"
     mkdir -p "$marks"
     old="$(cat "$mark" 2>/dev/null || true)"
     if [ -n "$old" ] && [ "$old" != "$$" ] && grep -q tmux "/proc/$old/cmdline" 2>/dev/null; then
@@ -66,6 +83,24 @@ if [ -n "${AGENT_ATTACH_ID:-}" ]; then
         sleep 0.2
     fi
     echo "$$" > "$mark"
+    if [ -n "${AGENT_VIEW_BEAT:-}" ]; then
+        # Beside the client (this process, once it is tmux): ends it when
+        # its far end has said nothing for too long, and the beat's reader
+        # with it, which a drop leaves waiting too.
+        date +%s > "$mark.alive"
+        client=$$ silence="${AGENT_VIEW_SILENCE:-90}"
+        (
+            while sleep "${AGENT_VIEW_LOOK:-15}"; do
+                kill -0 "$client" 2>/dev/null && [ "$(cat "$mark" 2>/dev/null)" = "$client" ] || exit 0
+                heard="$(cat "$mark.alive" 2>/dev/null || echo 0)"
+                [ $(( $(date +%s) - heard )) -le "$silence" ] && continue
+                kill -HUP "$client" 2>/dev/null || true
+                beat="$(cat "$mark.beat" 2>/dev/null || true)"
+                [ -z "$beat" ] || kill "$beat" 2>/dev/null || true
+                exit 0
+            done
+        ) </dev/null >/dev/null 2>&1 &
+    fi
 fi
 # Views nobody is attached to are removed by themselves; one left by a
 # server that was told so too late is removed here.

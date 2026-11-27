@@ -108,9 +108,16 @@ func TestR2GoWhatIsRun(t *testing.T) {
 	}
 	c := config{Context: "local", Namespace: "agents", Kubectl: "kubectl", Term: "xterm-256color", Host: "laptop"}
 	argv, _, err := attach(c, by("platform/build"))
-	want := "kubectl --context local --namespace agents exec -it agent-platform-0 -- env AGENT_TERM=xterm-256color AGENT_ATTACH_ID=laptop/platform/build agent-view cccc3333-0000 build"
+	want := "kubectl --context local --namespace agents exec -it agent-platform-0 -- env AGENT_TERM=xterm-256color AGENT_ATTACH_ID=laptop/platform/build AGENT_VIEW_BEAT=1 agent-view cccc3333-0000 build"
 	if err != nil || strings.Join(argv, " ") != want {
 		t.Errorf("a standing session:\n got %s, %v\nwant %s", strings.Join(argv, " "), err, want)
+	}
+	// Beside it, with no terminal, the word that this end is there.
+	if got := strings.Join(beat(argv), " "); got != "kubectl --context local --namespace agents exec -i agent-platform-0 -- env AGENT_TERM=xterm-256color AGENT_ATTACH_ID=laptop/platform/build agent-view --beat" {
+		t.Errorf("the beat: %s", got)
+	}
+	if beat([]string{"/src/scripts/deploy.sh", "local", "agent", "resume", "x"}) != nil {
+		t.Error("a beat beside what is not a view")
 	}
 	// Not running, remembered by its pod: the same, and the pod opens it again.
 	if argv, _, err = attach(c, by("desk/notes")); err != nil || !strings.HasSuffix(strings.Join(argv, " "), "agent-view 9999aaaa-0000 notes") || argv[7] != "agent-desk-0" {
@@ -178,7 +185,7 @@ func TestR2GoKeep(t *testing.T) {
 	calls := filepath.Join(dir, "calls")
 	// A kubectl that ends as the next line of a file says.
 	script := filepath.Join(dir, "kubectl")
-	os.WriteFile(script, []byte("#!/bin/sh\necho \"$*\" >> "+calls+"\ncode=$(head -1 "+dir+"/codes)\nsed -i.bak 1d "+dir+"/codes\nexit ${code:-0}\n"), 0o755)
+	os.WriteFile(script, []byte("#!/bin/sh\ncase \"$*\" in *--beat) cat >/dev/null; exit 0 ;; esac\necho \"$*\" >> "+calls+"\ncode=$(head -1 "+dir+"/codes)\nsed -i.bak 1d "+dir+"/codes\nexit ${code:-0}\n"), 0o755)
 	codes := func(s string) { os.WriteFile(filepath.Join(dir, "codes"), []byte(s), 0o644); os.Remove(calls) }
 	count := func() int {
 		b, _ := os.ReadFile(calls)
