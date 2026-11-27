@@ -67,6 +67,14 @@ func sessions(peers []message.Peer) []session {
 		_, id := message.Split(p.Address)
 		s := session{ID: id, Agent: p.Agent, Name: p.Name, Pod: p.Pod, Mode: p.Mode, Running: p.Running, ForOwner: p.ForOwner,
 			Standing: p.Standing, Seen: p.Seen, Latest: p.Named != "", State: "not running"}
+		// A dispatcher from before these were told apart says them in words:
+		// "interactive in POD", "last in POD".
+		if i := strings.LastIndex(p.Where, " in "); s.Pod == "" && i >= 0 {
+			s.Pod = p.Where[i+len(" in "):]
+		}
+		if s.Mode == "" {
+			s.Mode = strings.Fields(p.Where + " ?")[0]
+		}
 		if p.Running {
 			// "idle, not listening: ..." is idle.
 			s.State = message.Busy

@@ -54,6 +54,18 @@ func TestR2GoOrder(t *testing.T) {
 	}
 }
 
+// TestR2GoOlderDispatcher: a dispatcher that does not yet say a session's
+// pod and how it runs apart says them in words, which are read.
+func TestR2GoOlderDispatcher(t *testing.T) {
+	got := sessions([]message.Peer{
+		{Address: "session/aaaa1111", Kind: "session", Agent: "desk", Name: "vpn", Named: "desk/vpn", Running: true, State: "idle", Where: "interactive in agent-desk-0"},
+		{Address: "session/bbbb2222", Kind: "session", Agent: "review", Running: true, State: "busy", Where: "headless in review-1-abc"},
+	})
+	if len(got) != 2 || got[0].Pod != "agent-desk-0" || got[0].Mode != "interactive" || got[1].Mode != "headless" || got[1].Pod != "review-1-abc" {
+		t.Errorf("read from words: %+v", got)
+	}
+}
+
 // TestR2GoResolve: a session is named by AGENT/NAME, by its name alone when
 // one session has it, by session/ID, or by the start of its id; a name two
 // have says which, and one nobody has is an error.
