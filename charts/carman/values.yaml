@@ -111,6 +111,12 @@ dispatcher:
   # this long; a task a message became is kept as any task is.
   messages:
     retention: 720h
+    # How many runs one sender's new messages (not answers) may start in
+    # runsPeriod; past it a message is held, the sender told why, until
+    # the owner lifts it (dispatch lift SENDER). The owner is not limited.
+    # -1: no limit.
+    runsPerSender: 24
+    runsPeriod: 3h
   # Schedules the dispatcher keeps (ADR 0043), beside the agents with
   # `dispatched: true` and the usage reading. Each runs the job template of
   # the CronJob its class names, which must be suspended: the dispatcher

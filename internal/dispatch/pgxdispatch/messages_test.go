@@ -434,3 +434,47 @@ func TestR2MessageWhoMayWrite(t *testing.T) {
 		}
 	}
 }
+
+// TestR2MessageRunsPerSender: a sender's new messages start at most so many
+// runs in a period; past it a message is held and the sender told why,
+// until the owner lifts it, which starts what was held. The owner and an
+// answer are not limited.
+func TestR2MessageRunsPerSender(t *testing.T) {
+	s, cl, inst := messaging(t)
+	s.RunsPerSender, s.RunsPeriod = 2, time.Hour
+	ctx := context.Background()
+	a := pod("trial", "pod-a")
+	start(t, s, cl, a, "sess-a", "alpha", message.Busy)
+	var last message.Result
+	for i := 0; i < 3; i++ {
+		res, err := s.Send(ctx, a, "sess-a", "agent/trial", "go", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		last = res
+	}
+	if !strings.Contains(last.Detail, "held") || !strings.Contains(last.Detail, "dispatch lift session/sess-a") {
+		t.Fatalf("the third message was not held: %+v", last)
+	}
+	if _, err := inst.Explain(ctx, message.TaskPrefix+last.ID); !errors.Is(err, dispatch.ErrNotFound) {
+		t.Errorf("a held message's run was started: %v", err)
+	}
+	// The owner is not limited.
+	if res, err := s.Send(ctx, message.Caller{Owner: true}, "", "agent/trial", "go", ""); err != nil || strings.Contains(res.Detail, "held") {
+		t.Errorf("the owner's message: %+v, %v", res, err)
+	}
+	if _, err := s.Lift(ctx, a, "session/sess-a"); !errors.Is(err, message.ErrForbidden) {
+		t.Errorf("a pod lifted its own limit: %v", err)
+	}
+	n, err := s.Lift(ctx, message.Caller{Owner: true}, "session/sess-a")
+	if err != nil || n != 1 {
+		t.Fatalf("lifted: %d, %v", n, err)
+	}
+	if _, err := inst.Explain(ctx, message.TaskPrefix+last.ID); err != nil {
+		t.Errorf("the held message did not start when lifted: %v", err)
+	}
+	// After the lift the count starts again.
+	if res, _ := s.Send(ctx, a, "sess-a", "agent/trial", "go", ""); strings.Contains(res.Detail, "held") {
+		t.Errorf("held after the lift: %+v", res)
+	}
+}

@@ -98,7 +98,11 @@ harness would otherwise call it a hook's blocking error. A message for a session
 running becomes a task that resumes it as its agent, headless, under
 ADR 0040's one-writer lock, and its last words go back as the answer; one
 for an agent by name starts a new conversation; one for the owner is a
-notice. The owner writes with `scripts/deploy.sh CONTEXT dispatch send`,
+notice. A sender's new messages (not answers; not the owner's) start at
+most `dispatcher.messages.runsPerSender` runs in `runsPeriod` (24 in three
+hours by default); past it a message is held, the sender told why, until
+the owner lifts it (`dispatch lift SENDER`), which starts what was held.
+The owner writes with `scripts/deploy.sh CONTEXT dispatch send`,
 which runs the client on the owner's machine with the owner's token; the
 token is kept only there, and the dispatcher knows its SHA-256 (ADR 0051).
 A notice's words are checked before they are handed on: one that looks

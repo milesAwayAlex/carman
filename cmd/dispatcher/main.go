@@ -99,6 +99,7 @@ dispatcher inbox [--read]                 what is unread for me; --read marks it
 dispatcher read ID...                     mark messages read
 dispatcher message ID [--body | --from]   what became of a message, and its answers; or only its text, or its sender
 dispatcher watch SESSION                  be told, by a message, when it next goes idle
+dispatcher lift SENDER                    the owner: lift the limit on runs a sender's messages start
 dispatcher whoami                         what the dispatcher makes of this caller
 dispatcher attend [--every 10s] [--once]  in a standing agent's pod: say when a session's harness has gone, and open
                                           again a remembered session a message waits for (ADR 0053)
@@ -136,7 +137,7 @@ func run(ctx context.Context, args []string) error {
 		return attendCmd(ctx, flags)
 	}
 	switch args[0] {
-	case "hook", "peers", "send", "reply", "inbox", "read", "message", "watch", "whoami", "take", "answer", "session":
+	case "hook", "peers", "send", "reply", "inbox", "read", "message", "watch", "whoami", "take", "answer", "session", "lift":
 		pos, flags, err := parse(args[1:])
 		if err != nil {
 			return err
@@ -450,6 +451,12 @@ func serve(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// The limit on runs one sender's messages start.
+	runsPerSender, _ := strconv.Atoi(os.Getenv("DISPATCHER_MESSAGE_RUNS"))
+	runsPeriod, err := duration("DISPATCHER_MESSAGE_RUNS_PERIOD", message.DefaultRunsPeriod)
+	if err != nil {
+		return err
+	}
 	opts.RetentionByType = map[string]time.Duration{}
 	for _, t := range message.Types {
 		opts.RetentionByType[t] = messagesKept
@@ -635,7 +642,8 @@ func serve(ctx context.Context) error {
 	var messages *message.Service
 	if cluster.Client != nil {
 		messages = &message.Service{Store: d, Cluster: cluster, Context: contextName, Namespace: namespace,
-			Priority: 50, Timeout: 30 * time.Minute, Retention: messagesKept, Writers: writers, Place: os.Getenv("DISPATCHER_PLACE"), Log: logger}
+			Priority: 50, Timeout: 30 * time.Minute, Retention: messagesKept, Writers: writers, Place: os.Getenv("DISPATCHER_PLACE"), Log: logger,
+			RunsPerSender: runsPerSender, RunsPeriod: runsPeriod}
 		go (&message.Router{Service: messages, Logger: logger}).Run(work)
 	}
 
