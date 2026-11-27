@@ -302,7 +302,7 @@ func hook(ctx context.Context, flags map[string][]string) error {
 	// A dispatcher that does not answer costs a tool call no more than this.
 	c.HTTP = &http.Client{Timeout: 3 * time.Second}
 	kind := or(os.Getenv("DISPATCHER_SESSION_KIND"), "headless")
-	if (os.Getenv("AGENT_INTERACTIVE") != "" || place != "") && os.Getenv("DISPATCHER_SESSION_KIND") == "" {
+	if (os.Getenv("AGENT_INTERACTIVE") != "" || place != "") && os.Getenv("DISPATCHER_SESSION_KIND") == "" && !unattended() {
 		kind = "interactive"
 	}
 	name := sessionName(place, in.Cwd)
@@ -329,7 +329,8 @@ func hook(ctx context.Context, flags map[string][]string) error {
 	if w := one(flags, "wait", ""); w != "" {
 		if kind == "headless" {
 			// A headless run is not woken: it ends, and a message that comes
-			// after starts it again (the harness kills this at its end anyway).
+			// after starts it again. A listener left running would hold the
+			// run open: the harness waits for it (seen on 2.1.326).
 			return nil
 		}
 		total, err := time.ParseDuration(w)
@@ -430,4 +431,11 @@ func safeName(s string) string {
 		}
 	}
 	return strings.TrimLeft(string(b), ".-_")
+}
+
+// unattended says whether the harness that runs this hook is a headless run
+// (`claude -p`), by what the harness puts in a hook's environment: such a
+// run must not be given an idle listener, wherever it was started.
+func unattended() bool {
+	return os.Getenv("CLAUDE_CODE_ENTRYPOINT") == "sdk-cli" || os.Getenv("CLAUDE_CODE_SESSION_ATTENDED") == "0"
 }

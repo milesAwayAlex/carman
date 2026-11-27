@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // TestR2HookOff: with CMEM_HOOK=off (or DISPATCHER_HOOK=off) the
@@ -75,6 +76,8 @@ func TestR2HookWithoutPod(t *testing.T) {
 	t.Setenv("AGENT_NAME", "")
 	t.Setenv("DISPATCHER_SESSION_NAME", "")
 	t.Setenv("DISPATCHER_SESSION_KIND", "")
+	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+	t.Setenv("CLAUDE_CODE_SESSION_ATTENDED", "1")
 	run := func(event string) string {
 		r, w, _ := os.Pipe()
 		w.WriteString(`{"session_id":"s1","hook_event_name":"` + event + `","cwd":"/work/src/my proj"}`)
@@ -109,5 +112,31 @@ func TestR2HookWithoutPod(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(envFile); !strings.Contains(string(b), "DISPATCHER_SESSION=s1") {
 		t.Errorf("the shell is not told its session: %q", b)
+	}
+	// A headless run there (claude -p) is headless: an idle listener would
+	// hold the run open, since the harness waits for it.
+	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
+	t.Setenv("CLAUDE_CODE_SESSION_ATTENDED", "0")
+	presence = nil
+	run("SessionStart")
+	if len(presence) != 1 || !strings.Contains(presence[0], `"kind":"headless"`) {
+		t.Errorf("a headless run on the owner's machine says of itself: %v", presence)
+	}
+	calls := len(auth)
+	r, w, _ := os.Pipe()
+	w.WriteString(`{"session_id":"s1","hook_event_name":"Stop","cwd":"/work/src/my proj"}`)
+	w.Close()
+	oldIn := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = oldIn }()
+	done := make(chan error, 1)
+	go func() { done <- hook(context.Background(), map[string][]string{"wait": {"23h"}}) }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the idle listener of a headless run did not return at once")
+	}
+	if len(auth) != calls {
+		t.Errorf("the idle listener of a headless run called the dispatcher")
 	}
 }
