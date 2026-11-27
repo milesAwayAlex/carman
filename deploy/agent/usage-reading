@@ -1,14 +1,32 @@
 #!/bin/sh
-# One reading of the account's standing against its plan's limits: the
-# smallest call there is, to the cheapest model, and the harness's last word
-# on the limits, recorded in the dispatcher's log as usage.observed through
-# the agent role. It costs a fraction of a cent.
+# Readings of the account's standing against its plan's limits: for each
+# model due this hour, the smallest call there is and the harness's last
+# word on the limits, recorded in the dispatcher's log as usage.observed
+# through the agent role. A plan can limit a model on its own, which a call
+# to another model does not show, so each model the installation uses is
+# read. A call refused for a limit is recorded as a reading of that model.
+# One model's reading failing does not stop the others; the job fails only
+# when none could be taken.
 #
 # From the environment: the harness's model credential, DISPATCHER_URL and
-# DISPATCHER_TOKEN, and USAGE_MODEL (the model asked).
+# DISPATCHER_TOKEN, and USAGE_MODELS (MODEL=HOURS,...: each model and how
+# many hours apart it is read).
 set -eu
 . /usr/local/lib/agent-env
 agent_setup || exit 1
-model="${USAGE_MODEL:-claude-haiku-5-5}"
-claude -p "Reply with the single word ok." --model "$model" --output-format stream-json --verbose |
-    dispatcher reading --model "$model"
+due="$(dispatcher reading --due)"
+[ -n "$due" ] || { echo "no model is due for a reading this hour"; exit 0; }
+taken=0
+failed=""
+for entry in $due; do
+    model="${entry%%=*}"
+    every="${entry#*=}"
+    if claude -p "Reply with the single word ok." --model "$model" --output-format stream-json --verbose |
+        dispatcher reading --model "$model" --every "$every"; then
+        taken=$((taken + 1))
+    else
+        failed="$failed $model"
+    fi
+done
+[ -z "$failed" ] || echo "no reading of:$failed" >&2
+[ "$taken" -gt 0 ]

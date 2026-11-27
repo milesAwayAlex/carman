@@ -333,3 +333,25 @@ func TestR6WatchSeesAnEnd(t *testing.T) {
 		t.Fatalf("%+v", events)
 	}
 }
+
+// TestR7ClassModels: a class's ladder is the CMEM_ROUTINE_MODELS of its
+// CronJob's container, first model first; none when it sets none.
+func TestR7ClassModels(t *testing.T) {
+	f, c := newFakeAPI(t)
+	f.cronjobs["sleeper"] = cronJob("sleeper")
+	cj := cronJob("ladder")
+	ct := dig(cj, "spec", "jobTemplate", "spec", "template", "spec", "containers").([]any)[0].(map[string]any)
+	ct["env"] = append(ct["env"].([]any), map[string]any{"name": "CMEM_ROUTINE_MODELS", "value": "strong, cheap,cheap"})
+	f.cronjobs["ladder"] = cj
+	s := &Starter{Client: c}
+	ctx := context.Background()
+	if got, err := s.Models(ctx, "ladder"); err != nil || strings.Join(got, ",") != "strong,cheap,cheap" {
+		t.Errorf("ladder: %v, %v", got, err)
+	}
+	if got, err := s.Models(ctx, "sleeper"); err != nil || got != nil {
+		t.Errorf("no ladder: %v, %v", got, err)
+	}
+	if _, err := s.Models(ctx, "nothing"); err == nil {
+		t.Error("a class with no CronJob has a ladder")
+	}
+}

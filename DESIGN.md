@@ -75,7 +75,7 @@ clock ─────────────┘       │                      
 | Component | Responsibility | State |
 |---|---|---|
 | **Memory service** | Section 6 | Built |
-| **Dispatcher** | Keeps a durable log of events; turns events into tasks; starts work, routes later events to the task waiting for them, and records what did not happen (an overrun, a missed deadline or tick); decides what runs now. Its state is in tables of its own in a Postgres database it owns (ADR 0039). It runs as a service on the cluster: it starts a task as a Job made from the job template of the CronJob its class names, and records the end of every Job in its namespace, whoever started it (ADR 0042). It starts work on schedules by time of day from the values, expects a Job at each tick of the CronJobs it does not start and records a tick without one, tells the owner of what failed or did not happen through a task of class `notify` (withheld until switched on), and keeps hourly readings of the account's usage and each routine run's cost (ADR 0043). It carries messages between sessions, agents and the owner as events in its log, delivered into a running session by the harness's hooks and starting a session that is not running again as its agent (ADR 0045) | Built and running on the local cluster (`cmd/dispatcher`, `internal/dispatch`); schedules only the usage reading so far; notices withheld; admission rule built, off |
+| **Dispatcher** | Keeps a durable log of events; turns events into tasks; starts work, routes later events to the task waiting for them, and records what did not happen (an overrun, a missed deadline or tick); decides what runs now. Its state is in tables of its own in a Postgres database it owns (ADR 0039). It runs as a service on the cluster: it starts a task as a Job made from the job template of the CronJob its class names, and records the end of every Job in its namespace, whoever started it (ADR 0042). It starts work on schedules by time of day from the values, expects a Job at each tick of the CronJobs it does not start and records a tick without one, tells the owner of what failed or did not happen through a task of class `notify` (withheld until switched on), and keeps readings of the account's usage, for each model its agents use, and each routine run's cost (ADR 0043, 0052). It carries messages between sessions, agents and the owner as events in its log, delivered into a running session by the harness's hooks and starting a session that is not running again as its agent (ADR 0045) | Built and running on the local cluster (`cmd/dispatcher`, `internal/dispatch`); schedules only the usage reading so far; notices withheld; admission rule built, off |
 | **Task ledger** | One row per task: trigger, state, what it is waiting for, session ID, branch, cost, verifier result, handoff note. State, waits and attempts are the dispatcher's tasks table; the rest is to come | Partly built, in the dispatcher |
 | **Worker** | One pod per task. Runs the agent, then the verifier, then records the episode | Proposed |
 | **Verifier** | A check separate from the agent's own claim. On failure the task continues with the result | Proposed |
@@ -172,8 +172,12 @@ expired by then.
 - The service draws from the same usage windows as the owner's interactive
   Claude Code. The dispatcher reserves headroom for the owner.
 - Signal: the harness's stream carries rate-limit events with each window's
-  utilization and reset time. Built (ADR 0043): an hourly reading
-  (`usage.observed`, the cheapest model asked for one word) and each
+  utilization and reset time. Built (ADR 0043, 0052): readings of each
+  model the installation's definitions name (`usage.observed`, the model
+  asked for one word: the cheapest every hour, the others every six hours;
+  a plan can limit one model on its own, which a call to another does not
+  show, and a call refused for a limit is recorded as that model's
+  reading, with the limit, its reset and the harness's words) and each
   routine run's cost and last reading (`run.usage`), as events in the
   dispatcher's log kept for the period of events that belong to no task.
   The proxy's own record of every agent's model use (`model.usage`, ADR
@@ -185,7 +189,9 @@ expired by then.
 - Policy: urgent tasks always run. Backlog tasks run only while utilization is
   under a curve that reaches full at reset. Built first as a threshold, off
   by default (ADR 0043): below a priority, a task is held while a window is
-  above a utilization and has not reset; a reading too old admits. The dreamer and benchmark runs are
+  above a utilization and has not reset; a reading too old admits. A task
+  whose ladder starts with a model refused until a time to come waits for
+  it, whatever its priority (ADR 0052). The dreamer and benchmark runs are
   backlog jobs.
 - Per run: `maxBudgetUsd` and `maxTurns` are hard stops.
 

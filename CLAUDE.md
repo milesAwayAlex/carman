@@ -100,10 +100,14 @@ Built so far:
   template), records `run.missed` for a CronJob's tick with no Job, tells
   the owner of failures and of what did not happen through a `notify` task
   (withheld as `notice.withheld` until `dispatcher.notices.enabled`), and
-  keeps the account's usage: an hourly reading (`agent-usage`,
-  `usage.observed`) and each routine run's cost (`run.usage`), shown first
-  by `dispatch status`. An admission rule that holds low-priority work
-  while a usage window is high is built and off.
+  keeps the account's usage: hourly readings (`agent-usage`,
+  `usage.observed`) of every model the definitions name, the cheapest
+  every hour and the others every six hours, a refusal for a limit
+  recorded as a reading (ADR 0052, proposed), and each routine run's cost
+  (`run.usage`), shown first by `dispatch status`, each model's standing
+  most constrained first. An admission rule that holds low-priority work
+  while a usage window is high, and a task whose ladder starts with a
+  refused model, is built and off.
 
 - Messages (ADR 0045): sessions, agents by name and the owner
   write to each other with `dispatcher peers|send|reply|inbox|message`
