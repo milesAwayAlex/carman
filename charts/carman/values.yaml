@@ -123,6 +123,8 @@ dispatcher:
   #     startWithin: 1h           # later than this, the start is told as not started
   #     timeout: 1h               # how long an attempt may run
   #     priority: 10              # higher first; the admission rule holds low ones
+  #     after: dreamer            # start after that schedule's task submitted before (ADR 0062)
+  #     afterWithin: 40m          # but wait at most this; that schedule's timeout unless said
   schedules: []
   # For every CronJob it does not start, the dispatcher expects a Job at
   # each tick of one not suspended, within the CronJob's own catch-up
@@ -470,14 +472,18 @@ dreamer:
 backup:
   # Off until there is somewhere outside the cluster to keep the copies.
   enabled: false
-  # After the dreamer, so that a night's copy has that night's tidying (UTC):
-  # its time and deadline are the order, which nothing else states.
+  # After the dreamer, so that a night's copy has that night's tidying (UTC).
   schedule: "47 10 * * *"
   # The dispatcher starts it on that schedule, its CronJob a suspended
   # template (ADR 0059). It uses no model: never held, and in the places
   # kept for scheduled work.
   dispatched: false
   priority: 100
+  # Dispatched, it starts after the night's dreamer has ended, however it
+  # ended, waiting at most afterWithin (the dreamer's timeout unless said;
+  # ADR 0062). A dreamer not dispatched, or not run that night, holds nothing.
+  after: dreamer
+  afterWithin: ""
   # Where the copies are kept: a restic repository, in a store the platform
   # gives. A bucket that speaks S3 (s3:https://HOST/BUCKET/PATH), a cloud's
   # own (gs:BUCKET:/PATH) or, for a trial, a directory.
@@ -638,6 +644,8 @@ egress:
 #                                     # the owner always may, its own sessions may, and any session
 #                                     # may answer a message it was sent. None listed: nobody else (ADR 0047)
 #       priority: 10                  # its tasks' priority, when dispatched
+#       after: dreamer                # when dispatched, start after that schedule's latest task ends (ADR 0062)
+#       afterWithin: 1h               # waiting at most this (that schedule's timeout unless said)
 #       catchUpSeconds: 172800        # how late a missed run may still start (a day, unless said)
 #       waitForLimitMinutes: 600      # wait this long for the plan's usage limit to reset; needs deadlineSeconds to match
 #       models: [claude-sonnet-5-5]   # the ladder

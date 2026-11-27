@@ -384,6 +384,10 @@ type SubmitRequest struct {
 	Payload        json.RawMessage `json:"payload,omitempty"`
 	StartBy        time.Time       `json:"start_by,omitzero"`
 	AttemptTimeout string          `json:"attempt_timeout"`
+	// After is a class the task starts after (dispatch.TaskSpec.After);
+	// AfterWithin a duration, such as 1h.
+	After       string `json:"after,omitempty"`
+	AfterWithin string `json:"after_within,omitempty"`
 }
 
 // Task is a task's status as the API shows it.
@@ -399,6 +403,8 @@ type Task struct {
 	Reason         string          `json:"reason,omitempty"`
 	Detail         string          `json:"detail,omitempty"`
 	Wait           *dispatch.Wait  `json:"wait,omitempty"`
+	After          string          `json:"after,omitempty"`
+	AfterWithin    string          `json:"after_within,omitempty"`
 }
 
 func view(st dispatch.TaskStatus) Task {
@@ -406,7 +412,15 @@ func view(st dispatch.TaskStatus) Task {
 		ID: st.Spec.ID, Class: st.Spec.Class, Priority: st.Spec.Priority, Payload: st.Spec.Payload,
 		StartBy: st.Spec.StartBy, AttemptTimeout: st.Spec.AttemptTimeout.String(),
 		State: st.State, Attempt: st.Attempt, Reason: string(st.Reason.Kind), Detail: st.Reason.Detail, Wait: st.Reason.Wait,
+		After: st.Spec.After, AfterWithin: afterWithin(st.Spec),
 	}
+}
+
+func afterWithin(t dispatch.TaskSpec) string {
+	if t.After == "" {
+		return ""
+	}
+	return t.AfterWithin.String()
 }
 
 func (s *Server) submit(_ http.ResponseWriter, r *http.Request, _ Role) (any, error) {
@@ -419,9 +433,14 @@ func (s *Server) submit(_ http.ResponseWriter, r *http.Request, _ Role) (any, er
 		return nil, fmt.Errorf("%w: attempt_timeout is a positive duration, such as 1h", errBadRequest)
 	}
 	spec := dispatch.TaskSpec{ID: req.ID, Class: req.Class, Priority: req.Priority, Payload: req.Payload,
-		StartBy: req.StartBy, AttemptTimeout: timeout}
+		StartBy: req.StartBy, AttemptTimeout: timeout, After: req.After}
 	if spec.ID == "" || spec.Class == "" {
 		return nil, fmt.Errorf("%w: a task needs an id and a class", errBadRequest)
+	}
+	if req.After != "" || req.AfterWithin != "" {
+		if spec.AfterWithin, err = time.ParseDuration(req.AfterWithin); err != nil || spec.After == "" || spec.AfterWithin <= 0 {
+			return nil, fmt.Errorf("%w: after names a class and after_within is a positive duration, such as 1h", errBadRequest)
+		}
 	}
 	if s.Check != nil {
 		if err := s.Check(r.Context(), spec); err != nil {

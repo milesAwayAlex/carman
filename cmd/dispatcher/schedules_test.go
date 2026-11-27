@@ -61,3 +61,20 @@ func TestR2DeclareSchedulesReplacesTheList(t *testing.T) {
 type nopStarter struct{}
 
 func (nopStarter) Start(context.Context, dispatch.Attempt) error { return nil }
+
+// A schedule after another waits, by default, as long as the other may run.
+func TestR2ScheduleAfterFromValues(t *testing.T) {
+	ss, err := parseSchedules(`[{"name":"dreamer","class":"dreamer-job","cron":"17 10 * * *","timeout":"40m"},
+		{"name":"backup","class":"backup","cron":"47 10 * * *","after":"dreamer"},
+		{"name":"other","class":"other","cron":"0 1 * * *","after":"nothing","afterWithin":"5m"}]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ss[1].Template.After != "dreamer-job" || ss[2].Template.After != "nothing" || ss[1].Template.AfterWithin != 40*time.Minute ||
+		ss[2].Template.AfterWithin != 5*time.Minute || ss[0].Template.After != "" {
+		t.Errorf("read %+v", ss)
+	}
+	if _, err := parseSchedules(`[{"name":"a","class":"c","cron":"* * * * *","afterWithin":"5m"}]`); err == nil {
+		t.Error("afterWithin without after was accepted")
+	}
+}

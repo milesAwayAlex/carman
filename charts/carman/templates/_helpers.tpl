@@ -74,29 +74,42 @@ dispatcher.schedules, each agent with dispatched: true, and the usage
 reading. An agent's run may start up to its catch-up late before it counts
 as not started, and is given ten minutes beyond its Job's own deadline, so
 that the Job's failure, not an overrun, is what is told. */ -}}
+{{- /* A schedule s with the after and afterWithin of the values v, when
+set (ADR 0062). */ -}}
+{{- define "dispatcher.after" -}}
+{{- $s := index . 0 }}{{- $v := index . 1 }}
+{{- if $v.after }}{{- $_ := set $s "after" $v.after }}{{ end }}
+{{- if $v.afterWithin }}{{- $_ := set $s "afterWithin" $v.afterWithin }}{{ end }}
+{{- toJson $s }}
+{{- end -}}
+
 {{- define "dispatcher.schedules" -}}
 {{- $out := list }}
 {{- range .Values.dispatcher.schedules }}{{ $out = append $out . }}{{ end }}
 {{- range .Values.agents }}
 {{- if and .dispatched (not .interactive) }}
-{{- $out = append $out (dict "name" (printf "agent-%s" .name) "class" (printf "agent-%s" .name) "cron" .schedule "timeZone" "UTC" "startWithin" (printf "%ds" (int (.catchUpSeconds | default 86400))) "timeout" (printf "%ds" (add (int (.deadlineSeconds | default 3600)) 600)) "priority" (int (.priority | default 0))) }}
+{{- $s := dict "name" (printf "agent-%s" .name) "class" (printf "agent-%s" .name) "cron" .schedule "timeZone" "UTC" "startWithin" (printf "%ds" (int (.catchUpSeconds | default 86400))) "timeout" (printf "%ds" (add (int (.deadlineSeconds | default 3600)) 600)) "priority" (int (.priority | default 0)) }}
+{{- $out = append $out (include "dispatcher.after" (list $s .) | fromJson) }}
 {{- end }}
 {{- end }}
 {{- /* The installation's own nightly and twice-daily jobs, each when its
 value says (ADR 0059); the dreamer only while it is switched on. */ -}}
 {{- with .Values.dreamer }}
 {{- if and .dispatched (not .suspend) }}
-{{- $out = append $out (dict "name" "dreamer" "class" "dreamer" "cron" .schedule "timeZone" "UTC" "startWithin" (printf "%ds" (int .catchUpSeconds)) "timeout" (printf "%ds" (add (int .deadlineSeconds) 600)) "priority" (int .priority)) }}
+{{- $s := dict "name" "dreamer" "class" "dreamer" "cron" .schedule "timeZone" "UTC" "startWithin" (printf "%ds" (int .catchUpSeconds)) "timeout" (printf "%ds" (add (int .deadlineSeconds) 600)) "priority" (int .priority) }}
+{{- $out = append $out (include "dispatcher.after" (list $s .) | fromJson) }}
 {{- end }}
 {{- end }}
 {{- with .Values.backup }}
 {{- if and .enabled .dispatched }}
-{{- $out = append $out (dict "name" "backup" "class" "backup" "cron" .schedule "timeZone" "UTC" "startWithin" (printf "%ds" (int .catchUpSeconds)) "timeout" (printf "%ds" (add (int .deadlineSeconds) 600)) "priority" (int .priority)) }}
+{{- $s := dict "name" "backup" "class" "backup" "cron" .schedule "timeZone" "UTC" "startWithin" (printf "%ds" (int .catchUpSeconds)) "timeout" (printf "%ds" (add (int .deadlineSeconds) 600)) "priority" (int .priority) }}
+{{- $out = append $out (include "dispatcher.after" (list $s .) | fromJson) }}
 {{- end }}
 {{- end }}
 {{- with .Values.agent.warm }}
 {{- if and .enabled .dispatched }}
-{{- $out = append $out (dict "name" "agent-warm" "class" "agent-warm" "cron" .schedule "timeZone" "UTC" "startWithin" (printf "%ds" (int .catchUpSeconds)) "timeout" (printf "%ds" (add (int .deadlineSeconds) 600)) "priority" (int .priority)) }}
+{{- $s := dict "name" "agent-warm" "class" "agent-warm" "cron" .schedule "timeZone" "UTC" "startWithin" (printf "%ds" (int .catchUpSeconds)) "timeout" (printf "%ds" (add (int .deadlineSeconds) 600)) "priority" (int .priority) }}
+{{- $out = append $out (include "dispatcher.after" (list $s .) | fromJson) }}
 {{- end }}
 {{- end }}
 {{- if .Values.usage.enabled }}

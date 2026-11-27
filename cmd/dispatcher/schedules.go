@@ -23,6 +23,12 @@ type scheduleValue struct {
 	StartWithin string `json:"startWithin"`
 	Timeout     string `json:"timeout"`
 	Priority    int    `json:"priority"`
+	// After names a schedule (or, when none has the name, a class) whose
+	// task, submitted before this one's, this schedule's task starts after
+	// (ADR 0062); AfterWithin how long it waits at most, by default that
+	// schedule's timeout, or an hour when there is none.
+	After       string `json:"after"`
+	AfterWithin string `json:"afterWithin"`
 }
 
 // parseSchedules reads the schedules the installation lists.
@@ -35,6 +41,10 @@ func parseSchedules(raw string) ([]dispatch.Schedule, error) {
 		return nil, fmt.Errorf("DISPATCHER_SCHEDULES: %w", err)
 	}
 	seen := map[string]bool{}
+	byName := map[string]scheduleValue{}
+	for _, v := range vs {
+		byName[v.Name] = v
+	}
 	var out []dispatch.Schedule
 	for _, v := range vs {
 		if seen[v.Name] {
@@ -49,6 +59,22 @@ func parseSchedules(raw string) ([]dispatch.Schedule, error) {
 		}
 		if s.StartWithin, err = parseDuration(v.StartWithin, 0); err != nil {
 			return nil, fmt.Errorf("DISPATCHER_SCHEDULES: %s: startWithin: %w", v.Name, err)
+		}
+		if v.After != "" {
+			s.Template.After = v.After
+			other, ok := byName[v.After]
+			if ok {
+				s.Template.After = other.Class
+			}
+			def, err := parseDuration(other.Timeout, time.Hour)
+			if err != nil {
+				def = time.Hour // the other schedule's own error is told
+			}
+			if s.Template.AfterWithin, err = parseDuration(v.AfterWithin, def); err != nil {
+				return nil, fmt.Errorf("DISPATCHER_SCHEDULES: %s: afterWithin: %w", v.Name, err)
+			}
+		} else if v.AfterWithin != "" {
+			return nil, fmt.Errorf("DISPATCHER_SCHEDULES: %s: afterWithin without after", v.Name)
 		}
 		if s.Cron == "" {
 			return nil, fmt.Errorf("DISPATCHER_SCHEDULES: %s has no cron expression", v.Name)
@@ -93,7 +119,7 @@ func declareSchedules(ctx context.Context, d scheduleStore, want []dispatch.Sche
 			return err
 		}
 		keep[s.Name] = true
-		log.Info("scheduled", "schedule", s.Name, "class", s.Template.Class, "cron", s.Cron, "time_zone", s.TimeZone)
+		log.Info("scheduled", "schedule", s.Name, "class", s.Template.Class, "cron", s.Cron, "time_zone", s.TimeZone, "after", s.Template.After)
 	}
 	have, err := d.Schedules(ctx)
 	if err != nil {

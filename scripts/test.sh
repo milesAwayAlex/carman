@@ -91,6 +91,8 @@ if command -v helm >/dev/null; then
         awk -v n="$name" '$1 == "kind:" {cj = ($2 == "CronJob")} cj && $1 == "name:" && $2 == n {mine = 1} mine && $1 == "suspend:" {print $2; exit}' <<<"$out" | grep -qx true ||
             { echo "$name's CronJob is not suspended where the dispatcher starts it" >&2; exit 1; }
     done
+    grep -F '\"name\":\"backup\"' <<<"$out" | grep -F '\"after\":\"dreamer\"' >/dev/null ||
+        { echo "the dispatched backup is not set after the dreamer (ADR 0062)" >&2; exit 1; }
     ! "${nightly[@]}" --set dreamer.dispatched=true --set dreamer.suspend=true | grep -F '\"name\":\"dreamer\"' >/dev/null ||
         { echo "the dispatcher is given the schedule of a dreamer switched off" >&2; exit 1; }
     ! "${nightly[@]}" | grep -F '\"name\":\"backup\"' >/dev/null || { echo "the dispatcher schedules a backup nobody moved to it" >&2; exit 1; }

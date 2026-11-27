@@ -3,6 +3,7 @@ package pgxdispatch
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -373,11 +374,23 @@ func (w *wtx) fireSchedules() error {
 	if err != nil {
 		return err
 	}
+	type due struct {
+		s       sched
+		latest  time.Time
+		skipped int
+	}
+	var dues []due
 	for _, s := range ss {
 		latest, skipped := s.spec.Due(s.last, w.now)
-		if latest.IsZero() {
-			continue
+		if !latest.IsZero() {
+			dues = append(dues, due{s, latest, skipped})
 		}
+	}
+	// The earliest tick first, so that a task after another is submitted
+	// after it when both were missed.
+	sort.SliceStable(dues, func(i, j int) bool { return dues[i].latest.Before(dues[j].latest) })
+	for _, dd := range dues {
+		s, latest, skipped := dd.s, dd.latest, dd.skipped
 		if _, err := w.exec(`UPDATE schedules SET last_tick = $2 WHERE name = $1`, s.spec.Name, latest); err != nil {
 			return err
 		}
