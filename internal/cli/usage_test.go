@@ -129,3 +129,55 @@ func TestR7MessageRunUsageEmitted(t *testing.T) {
 		t.Errorf("no dispatcher: exit %d, %q", code, errs.String())
 	}
 }
+
+// TestR7ARoutineRecordsWhatItHadNoToolFor: the part of a routine's report
+// the improvement loop reads (what it had no tool for, its questions for
+// the owner) is recorded as routine.report, bounded, marked as an agent's
+// words; a report without either records nothing.
+func TestR7ARoutineRecordsWhatItHadNoToolFor(t *testing.T) {
+	report := `Run 20261127-0300.
+
+- Retired two entries about the old proxy.
+- I checked the chart with the read-only kubectl prefix: it agrees.
+- I would have checked the tracker for the ticket an entry names, and had no tool for it.
+
+Questions for the owner
+- Is the backup's store meant to be kept a year?
+
+Left alone: three scoped entries.
+
+To undo: cmem consolidate revert 20261127-0300 'REASON'`
+	part := reportPart(report)
+	for _, want := range []string{"tracker", "Is the backup's store meant to be kept a year?"} {
+		if !strings.Contains(part, want) {
+			t.Errorf("the part lacks %q:\n%s", want, part)
+		}
+	}
+	for _, not := range []string{"Retired", "chart", "Left alone", "revert"} {
+		if strings.Contains(part, not) {
+			t.Errorf("the part has %q:\n%s", not, part)
+		}
+	}
+	if reportPart("Done: two entries merged.") != "" {
+		t.Error("a report with nothing for the loop gave a part")
+	}
+	if long := reportPart("I had no tool for " + strings.Repeat("x", 5000)); len([]rune(long)) > reportMax+1 {
+		t.Errorf("the part is %d long", len([]rune(long)))
+	}
+
+	var got api.EmitRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&got)
+		io.WriteString(w, `{"id":"x"}`)
+	}))
+	defer srv.Close()
+	env := map[string]string{"DISPATCHER_URL": srv.URL, "DISPATCHER_TOKEN": "agent-token"}
+	var out, errs bytes.Buffer
+	c := &command{ctx: context.Background(), getenv: func(k string) string { return env[k] }, stdout: &out, stderr: &errs}
+	c.emitReport(runUsage{Agent: "dreamer", Routine: "consolidate", Started: time.Now()}, report)
+	var data map[string]string
+	json.Unmarshal(got.Data, &data)
+	if got.Type != TypeRoutineReport || got.Subject != "dreamer" || data["written_by"] != "agent" || !strings.Contains(data["report"], "tracker") {
+		t.Errorf("emitted %+v (%v); stderr %q", got, data, errs.String())
+	}
+}
