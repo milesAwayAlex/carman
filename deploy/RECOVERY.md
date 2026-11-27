@@ -93,8 +93,10 @@ Then run `scripts/deploy.sh devvm check`. What it can report, and what to do:
 
 ## Backing up
 
-With `backup.enabled` in the values, a nightly job copies the library to
-a store outside the cluster and reads the store back (ADR 0038;
+With `backup.enabled` in the values, a nightly job copies the library,
+the dispatcher's database, the installation's definition, the
+conversations jobs have kept and each interactive agent's sessions to a
+store outside the cluster and reads the store back (ADR 0038;
 `deploy/README.md` has the settings). A night that fails tells the owner,
 where the installation has a command for that. What it has kept:
 
@@ -132,6 +134,80 @@ The library in place is not deleted: it is moved aside in the same volume as
 `/data/library.replaced-TIME`, and can be removed once you are satisfied. The
 service restarts and reads the restored library. Notes written after the
 backup was made are not in it.
+
+## An interactive agent's home is lost
+
+The nightly job keeps the agent's sessions as `sessions-NAME`: the
+harness's transcripts, the list of sessions `agent-open` reopens, and the
+harness's state and settings. Not its checkouts: those are cloned again,
+and what was not pushed from them is gone. In the commands, CONTEXT and
+NAMESPACE are the installation's, NAME the agent's.
+
+1. Deploy, so that the agent's StatefulSet is there; its pod starts on a
+   new, empty home (`home-agent-NAME-0`). If the old claim is still there
+   and damaged, delete it first and then the pod
+   (`scripts/deploy.sh CONTEXT agent restart NAME`).
+2. Get the copy (the latest, or one with its id from `copies`):
+
+       scripts/deploy.sh CONTEXT copies | grep sessions-NAME
+       scripts/deploy.sh CONTEXT copy sessions-NAME [COPY] > sessions-NAME.tar
+       tar -tvf sessions-NAME.tar | head          # a look before it goes back
+
+   It is everything the agent's conversations hold: keep the file only as
+   long as needed, where only you can read it.
+3. Put it in the home, over what the new pod wrote at its start:
+
+       kubectl --context CONTEXT -n NAMESPACE exec -i agent-NAME-0 -- tar -x -C /home/agent < sessions-NAME.tar
+
+4. Check out again what the sessions work in. The directories are in the
+   list, and a session whose directory is missing is not opened:
+
+       kubectl --context CONTEXT -n NAMESPACE exec agent-NAME-0 -- agent-open
+
+5. Restart the pod, which opens every remembered session on its
+   conversation: `scripts/deploy.sh CONTEXT agent restart NAME`.
+
+**Check:** `scripts/deploy.sh CONTEXT agent attach NAME`. Each session in
+the list has a window of its name, and in it the harness shows the
+conversation as it was at the copy, earlier turns above the prompt.
+Without attaching, the windows are listed by
+`kubectl ... exec agent-NAME-0 -- tmux -S /tmp/tmux-10001/default list-windows -t main`.
+A conversation opened from an older copy than the newest one is fine: it
+goes on from where the copy ends.
+
+## The kept conversations are lost
+
+With `agent.sessionStorage`, jobs keep their conversations on the volume
+`agent-sessions`, and the nightly job copies it as `conversations`.
+
+1. Deploy: the chart makes the claim again, empty.
+2. `scripts/deploy.sh CONTEXT copy conversations [COPY] > conversations.tar`
+3. Write it into the volume, from an interactive agent's pod, which mounts
+   it at `/sessions`:
+
+       kubectl --context CONTEXT -n NAMESPACE exec -i agent-NAME-0 -- tar -x -C /sessions < conversations.tar
+
+   With no interactive agent, from a pod made for it (AGENT-IMAGE is the
+   installation's `agent.image`):
+
+       kubectl --context CONTEXT -n NAMESPACE run conversations-back --rm -i --restart=Never \
+         --image=AGENT-IMAGE --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"runAsUser":10001,"runAsGroup":10001,"fsGroup":10001,"seccompProfile":{"type":"RuntimeDefault"}},
+           "containers":[{"name":"conversations-back","image":"AGENT-IMAGE","stdin":true,"stdinOnce":true,"command":["tar","-x","-C","/sessions"],
+             "securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}},
+             "volumeMounts":[{"name":"s","mountPath":"/sessions"}]}],
+           "volumes":[{"name":"s","persistentVolumeClaim":{"claimName":"agent-sessions"}}]}}' < conversations.tar
+
+   One conversation alone: name it after the archive, as
+   `AGENT/DIR/ID.jsonl` (`tar -tf conversations.tar | grep ID`).
+
+**Check:** `scripts/deploy.sh CONTEXT agent resume` lists the kept
+conversations with their agents; `scripts/deploy.sh CONTEXT agent resume
+ID` opens one as its agent, with its earlier turns.
+
+If `copy` or `copies` waits and then fails, the pod it reads the store from
+could not start: it mounts the volumes the nightly job copies, and one of
+them is missing or on another node (`kubectl ... get pvc`, and `describe`
+the pod `backup-read-*`). Make the claim exist first, as above.
 
 ## The volume is gone
 
@@ -230,7 +306,10 @@ being asked. The change is made only after they have said they have it.
 
 - Anything that tells you a night's backup never ran. A night that ran and
   failed does tell you.
-- A copy of an interactive agent's home, or of the conversations jobs leave.
+- A copy of what is in an interactive agent's checkouts. Its sessions are
+  copied (below); work in a checkout that is not pushed is not.
+- Copying conversations on a cluster of several nodes (`deploy/README.md`,
+  Backup).
 - Starting the VM with the laptop.
 - Anything that tells you the service is down, other than the line a session
   shows when it starts.
