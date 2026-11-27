@@ -86,12 +86,19 @@ fi
 fails=0
 note() { echo "ok: $*"; }
 bad() { echo "WRONG: $*" >&2; fails=$((fails + 1)); }
-# reaches NAMESPACE POD HOST PORT: whether a connection opens.
-reaches() { "${k[@]}" -n "$1" exec "$2" -- sh -c "nc -w 2 $3 $4 </dev/null >/dev/null 2>&1"; }
+# tried NAMESPACE POD HOST PORT: open or closed, as the pod itself says; a
+# try is ended after four seconds (the image's nc waits two minutes on a
+# connection that is dropped, whatever it is told). Nothing, if the pod
+# could not be asked: that is not "closed".
+tried() { "${k[@]}" -n "$1" exec "$2" -- sh -c "if timeout 4 nc -w 2 $3 $4 </dev/null >/dev/null 2>&1; then echo open; else echo closed; fi" 2>/dev/null | tail -1; }
 expect() {  # open|closed NAMESPACE POD WHO HOST PORT WHAT
-    local got=closed
-    ! reaches "$2" "$3" "$5" "$6" || got=open
-    if [ "$got" = "$1" ]; then note "$4: $7 is $1"; else bad "$4: $7 is $got, and should be $1"; fi
+    local got
+    got="$(tried "$2" "$3" "$5" "$6" || true)"
+    case "$got" in
+    "$1") note "$4: $7 is $1" ;;
+    open | closed) bad "$4: $7 is $got, and should be $1" ;;
+    *) bad "$4: $7 could not be tried: the pod $3 in $2 did not answer ($("${k[@]}" -n "$2" get pod "$3" -o 'jsonpath={.status.phase}' 2>&1))" ;;
+    esac
 }
 
 stranger="ingress-check-$(date +%H%M%S)"
@@ -106,9 +113,10 @@ cleanup() {
 }
 trap cleanup EXIT
 "${k[@]}" create namespace "$stranger" >/dev/null
-pod "$stranger" stranger '{"app": "stranger"}' "sleep 600"
-pod "$ns" ingress-check-agent '{"app": "ingress-check", "app.kubernetes.io/component": "agent"}' "sleep 600"
-pod "$ns" ingress-check-other '{"app": "ingress-check"}' "sleep 600"
+pod "$stranger" stranger '{"app": "stranger"}' "sleep 3600"
+# The agent's pod listens too, so that its own address can be tried.
+pod "$ns" ingress-check-agent '{"app": "ingress-check", "app.kubernetes.io/component": "agent"}' "(while true; do nc -l -p 9999 </dev/null >/dev/null 2>&1; done) & sleep 3600"
+pod "$ns" ingress-check-other '{"app": "ingress-check"}' "sleep 3600"
 sleep 3   # a pod's own rules are in place a moment after it starts
 
 echo "from a pod elsewhere on the cluster (namespace $stranger, no rules of its own):"
@@ -118,8 +126,6 @@ expect closed "$stranger" stranger "a stranger" "dispatcher.$ns.svc" 8379 "the d
 expect closed "$stranger" stranger "a stranger" "dispatcher-db.$ns.svc" 5432 "the dispatcher's database"
 [ -z "$trials" ] || expect closed "$stranger" stranger "a stranger" "egress.$ns.svc" "$trials" "the meter's port for trials"
 agent_ip="$("${k[@]}" -n "$ns" get pod ingress-check-agent -o 'jsonpath={.status.podIP}')"
-"${k[@]}" -n "$ns" exec ingress-check-agent -- sh -c "(while true; do nc -l -p 9999 </dev/null >/dev/null 2>&1; done) &" >/dev/null 2>&1 || true
-sleep 1
 expect closed "$stranger" stranger "a stranger" "$agent_ip" 9999 "an agent's pod"
 
 echo "from an agent's pod of the namespace:"
@@ -135,8 +141,8 @@ expect open "$ns" ingress-check-other "another pod" dispatcher 8379 "the dispatc
 
 if [ -n "$sandbox" ] && "${k[@]}" get namespace "$sandbox" >/dev/null 2>&1; then
     sandbox_pods=1
-    pod "$sandbox" ingress-check-plain '{"app": "ingress-check"}' "sleep 600"
-    [ -z "$trials" ] || pod "$sandbox" ingress-check-trial '{"app": "ingress-check", "reaches-the-model": "true"}' "sleep 600"
+    pod "$sandbox" ingress-check-plain '{"app": "ingress-check"}' "sleep 3600"
+    [ -z "$trials" ] || pod "$sandbox" ingress-check-trial '{"app": "ingress-check", "reaches-the-model": "true"}' "sleep 3600"
     sleep 3
     echo "from the agents' sandbox ($sandbox):"
     expect closed "$sandbox" ingress-check-plain "a sandbox pod" "egress.$ns.svc" 3128 "the proxy"

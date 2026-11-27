@@ -34,6 +34,13 @@ for file in $(sed -n 's/^COPY \(.*\) [^ ]*$/\1/p' deploy/agent/Dockerfile | tr '
         grep -q -E "deploy/agent/$file( |\$)" "$list" || { echo "$list does not copy deploy/agent/$file, which the agent image needs" >&2; exit 1; }
     done
 done
+# Every script a pod of the chart starts with waits, once, until the network
+# knows the pod (ADR 0066): by agent_setup, or by dispatcher ready itself.
+for first in run-routine usage-reading agent-session agent-resume backup-state warm-harness; do
+    grep -q -e 'agent_setup' -e 'dispatcher ready' "deploy/agent/$first" ||
+        { echo "deploy/agent/$first is a pod's first command and does not wait for the network to know the pod (agent_setup, or dispatcher ready)" >&2; exit 1; }
+done
+grep -q 'dispatcher ready' deploy/agent/agent-env || { echo "agent_setup does not wait for the network to know the pod" >&2; exit 1; }
 # A new home starts the harness at its prompt: the first-start screens seen,
 # the directory agent-open opens trusted, and nothing the home had lost.
 if python3 -c "" 2>/dev/null; then  # one that runs: a stub that only names itself does not

@@ -93,6 +93,10 @@ fi
 
 # The proxy and its certificate, and the installation's commands.
 [ ! -r /usr/local/lib/agent-env ] || . /usr/local/lib/agent-env
+# A pod just made is not known to the cluster's network at once (ADR 0066):
+# wait here, once, before the first thing is asked of the memory, the
+# dispatcher or the store.
+! command -v dispatcher >/dev/null 2>&1 || dispatcher ready || true
 set -u
 [ -n "${BACKUP_REPOSITORY:-}" ] || { echo "backup-state: BACKUP_REPOSITORY must be set" >&2; exit 2; }
 [ -n "${RESTIC_PASSWORD:-}${RESTIC_PASSWORD_FILE:-}" ] || { echo "backup-state: RESTIC_PASSWORD must be set" >&2; exit 2; }
