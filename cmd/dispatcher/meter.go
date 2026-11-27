@@ -61,10 +61,24 @@ func meterCmd(ctx context.Context) error {
 
 	ledger := &meter.Ledger{Idle: idle, Longest: longest}
 	host, _ := os.Hostname()
+	started := time.Now()
 	sender := &meter.Sender{Ledger: ledger, Every: 15 * time.Second, Meter: host, Log: log, Keep: 5000}
-	if du, tf := os.Getenv("DISPATCHER_URL"), os.Getenv("DISPATCHER_TOKEN_FILE"); du != "" && tf != "" {
+	observer := &meter.Observer{Every: 5 * time.Minute}
+	if os.Getenv("METER_READINGS") == "off" {
+		observer = nil
+	}
+	budget := &meter.Budget{}
+	du, tf := os.Getenv("DISPATCHER_URL"), os.Getenv("DISPATCHER_TOKEN_FILE")
+	dispatcher := func() (*api.Client, error) {
+		token, err := os.ReadFile(tf)
+		if err != nil {
+			return nil, err
+		}
+		return &api.Client{URL: du, Token: strings.TrimSpace(string(token))}, nil
+	}
+	if du != "" && tf != "" {
 		sender.Emit = func(ctx context.Context, r meter.Record) error {
-			token, err := os.ReadFile(tf)
+			c, err := dispatcher()
 			if err != nil {
 				return err
 			}
@@ -75,12 +89,14 @@ func meterCmd(ctx context.Context) error {
 			}
 			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
-			c := &api.Client{URL: du, Token: strings.TrimSpace(string(token))}
 			return c.Do(ctx, http.MethodPost, "/v1/events", nil, api.EmitRequest{
 				ID: meter.EventID(r), Type: meter.TypeModelUsage, Subject: subject, Source: "proxy", Time: r.To, Data: data}, nil)
 		}
+		go readingsLoop(ctx, observer, dispatcher, log)
+		go standingLoop(ctx, budget, dispatcher, host, started, log)
 	} else {
-		log.Warn("no dispatcher: what agents use of the model is recorded in this log only")
+		log.Warn("no dispatcher: what agents use of the model is recorded in this log only, the account's standing is not recorded, and no agent is held to a budget")
+		observer = nil
 	}
 	done := make(chan struct{})
 	go func() { sender.Run(ctx); close(done) }()
@@ -111,6 +127,8 @@ func meterCmd(ctx context.Context) error {
 		Ledger:       ledger,
 		Log:          log,
 		Shapes:       os.Getenv("METER_SHAPES") == "on",
+		Observer:     observer,
+		Budget:       budget,
 	}
 	// It answers at once: a request before the pods are listed lists them.
 	srv := &http.Server{Addr: listen, Handler: proxy, ReadHeaderTimeout: 30 * time.Second}
@@ -134,4 +152,84 @@ func envOr(name, def string) string {
 		return v
 	}
 	return def
+}
+
+// readingsLoop sends the readings the answers' headers gave, every few
+// seconds, and at once when a status changed. One that cannot be sent is
+// tried again, a few dozen at most: a reading is soon stale.
+func readingsLoop(ctx context.Context, o *meter.Observer, dispatcher func() (*api.Client, error), log *slog.Logger) {
+	if o == nil {
+		return
+	}
+	t := time.NewTicker(15 * time.Second)
+	defer t.Stop()
+	var pending []meter.Reading
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		case <-o.Wake():
+		}
+		pending = append(pending, o.Take()...)
+		if len(pending) > 50 {
+			pending = pending[len(pending)-50:]
+		}
+		for len(pending) > 0 {
+			if err := sendReading(ctx, dispatcher, pending[0]); err != nil {
+				log.Warn("a reading of the account's standing not recorded yet", "model", pending[0].Model, "error", err)
+				break
+			}
+			pending = pending[1:]
+		}
+	}
+}
+
+func sendReading(ctx context.Context, dispatcher func() (*api.Client, error), rd meter.Reading) error {
+	c, err := dispatcher()
+	if err != nil {
+		return err
+	}
+	data, _ := json.Marshal(rd)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return c.Do(ctx, http.MethodPost, "/v1/events", nil, api.EmitRequest{
+		ID:   meter.TypeUsageObserved + "/" + rd.Model + "/" + rd.Seen.UTC().Format(time.RFC3339Nano),
+		Type: meter.TypeUsageObserved, Subject: rd.Model, Source: "proxy", Time: rd.Seen, Data: data}, nil)
+}
+
+// standingLoop asks the dispatcher for agents' limits and what they used
+// by the log, leaving out what this meter counted since it started: at
+// once, then every half minute. A meter that restarts takes up the day's
+// count from the log; one that cannot ask keeps the standing it had.
+func standingLoop(ctx context.Context, b *meter.Budget, dispatcher func() (*api.Client, error), name string, started time.Time, log *slog.Logger) {
+	every, err := time.ParseDuration(envOr("METER_STANDING_EVERY", "30s"))
+	if err != nil {
+		log.Error("METER_STANDING_EVERY is a duration; using 30s", "error", err)
+		every = 30 * time.Second
+	}
+	q := url.Values{"meter": {name}, "since": {started.UTC().Format(time.RFC3339Nano)}}
+	failing := false
+	for {
+		var s meter.Standing
+		c, err := dispatcher()
+		if err == nil {
+			cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			err = c.Do(cctx, http.MethodGet, "/v1/meter/standing", q, nil, &s)
+			cancel()
+		}
+		switch {
+		case err == nil:
+			b.Set(s)
+			failing = false
+		case !failing && ctx.Err() == nil:
+			log.Warn("agents' limits cannot be read from the dispatcher; keeping what was read before", "error", err)
+			failing = true
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(every):
+		}
+	}
 }

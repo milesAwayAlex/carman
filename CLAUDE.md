@@ -78,7 +78,10 @@ Built so far:
   knows the caller by its pod's address, refuses a pod that is no agent's,
   and records what each agent's pod used, by model and kind of token, as
   `model.usage` in the dispatcher's log; `dispatch status` sets each run's
-  own report against it. `pod` puts the credential back in the pods.
+  own report against it. It reads the account's standing from the
+  answers' headers as `usage.observed`, so the reading job asks only a
+  model nobody called, and holds an agent to its `proxyLimit` in weighted
+  tokens (`dispatcher limit`; ADR new-usage-and-budget-at-the-proxy). `pod` puts the credential back in the pods.
 
 - The owner's attention (ADR 0036): an agent tells the owner with the
   installation's `notify-owner` command, and a job's conversation is kept

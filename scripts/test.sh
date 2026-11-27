@@ -79,6 +79,11 @@ if command -v helm >/dev/null; then
         echo "the chart renders a writtenBy that names no agent" >&2
         exit 1
     fi
+    # Agents' limits at the proxy reach the dispatcher (ADR new-usage-and-budget-at-the-proxy).
+    "${render[@]}" --set-json 'agents=[{"name":"a","routines":["x"],"proxyLimit":{"day":40000000}},{"name":"b","routines":["x"]}]' \
+        --set-json 'dreamer.proxyLimit={"pod":8000000}' |
+        grep -F 'value: "{\"a\":{\"day\":40000000},\"dreamer\":{\"pod\":8000000}}"' >/dev/null ||
+        { echo "the chart does not hand the dispatcher agents' limits at the proxy" >&2; exit 1; }
     # R7: the usage reading reads every model the definitions name, the
     # reading's own every hour, and a value adds or removes one.
     "${render[@]/templates\/dispatcher.yaml/templates/dispatched.yaml}" \

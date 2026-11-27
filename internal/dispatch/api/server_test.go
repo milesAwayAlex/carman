@@ -229,6 +229,12 @@ func TestR10MeterRole(t *testing.T) {
 	}{
 		{"meter.pod.token", "POST", "/v1/events", `{"id":"u1","type":"model.usage","subject":"dreamer","source":"proxy"}`, 200},
 		{"meter.pod.token", "POST", "/v1/events", `{"type":"run.usage","subject":"dreamer"}`, 403},
+		{"meter.pod.token", "POST", "/v1/events", `{"id":"r1","type":"usage.observed","subject":"claude-haiku-5-5","source":"proxy"}`, 200},
+		{"meter.pod.token", "POST", "/v1/events", `{"type":"model.limit","subject":"dreamer","data":{}}`, 403},
+		{"meter.pod.token", "GET", "/v1/meter/standing", "", 200},
+		{"agent.pod.token", "GET", "/v1/meter/standing", "", 403},
+		{"agent.pod.token", "GET", "/v1/usage/latest", "", 200},
+		{"agent.pod.token", "POST", "/v1/events", `{"type":"model.limit","subject":"dreamer","data":{}}`, 403},
 		{"meter.pod.token", "GET", "/v1/events", "", 403},
 		{"meter.pod.token", "GET", "/v1/inbox", "", 403},
 		{"agent.pod.token", "POST", "/v1/events", `{"type":"model.usage","subject":"dreamer"}`, 403},
@@ -239,7 +245,7 @@ func TestR10MeterRole(t *testing.T) {
 			t.Errorf("%s %s %s as %s: %d, want %d", c.method, c.path, c.body, c.token, got, c.want)
 		}
 	}
-	if len(store.emitted) != 2 || store.emitted[0].ID != "meter/u1" || store.emitted[0].Source != "meter/proxy" {
+	if len(store.emitted) != 3 || store.emitted[0].ID != "meter/u1" || store.emitted[0].Source != "meter/proxy" || store.emitted[1].Type != "usage.observed" {
 		t.Errorf("emitted %+v", store.emitted)
 	}
 }
