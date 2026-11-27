@@ -393,6 +393,65 @@ if command -v tmux >/dev/null; then
 else
     skip "agent-view: no tmux"
 fi
+# agent-wake (ADR new-a-session-that-does-not-hear-is-noticed), where there
+# is a tmux, in servers of its own: a line is typed into the window of the
+# process named, found from a child of what the window runs, where the
+# window is at an empty prompt and nobody looks at it; a line a person left
+# half typed is not sent off, a window a client looks at is left alone, and
+# a process in no window is said to be in none.
+if command -v tmux >/dev/null; then
+    wake="$(mktemp -d)"
+    (
+        set -e
+        unset TMUX TMUX_PANE
+        pod() { tmux -S "$wake/pod" -f /dev/null "$@"; }
+        mine() { tmux -S "$wake/mine" -f /dev/null "$@"; }
+        gone() { pod kill-server 2>/dev/null || true; mine kill-server 2>/dev/null || true; }
+        trap gone EXIT
+        # What stands for the harness: its prompt, a child of its own, and
+        # the line it is given written down.
+        cat > "$wake/harness" <<'SH'
+#!/bin/sh
+sleep 300 &
+echo $! > "$1.pid"
+printf '\342\235\257\302\240'
+IFS= read -r line
+printf '%s\n' "$line" > "$1"
+sleep 300
+SH
+        chmod +x "$wake/harness"
+        pod new-session -d -s main -n free -x 100 -y 24 "$wake/harness $wake/free"
+        pod new-window -d -t main: -n half "$wake/harness $wake/half"
+        pod new-window -d -t main: -n seen "$wake/harness $wake/seen"
+        pod select-window -t main:=seen
+        mine new-session -d -s o -x 100 -y 24 "tmux -S $wake/pod -f /dev/null attach -t main"
+        for _ in $(seq 100); do [ -s "$wake/free.pid" ] && [ -s "$wake/half.pid" ] && [ -s "$wake/seen.pid" ] && [ -n "$(pod list-clients)" ] && break; sleep 0.1; done
+        [ -n "$(pod list-clients)" ] || { echo "agent-wake: the check's client did not attach" >&2; exit 1; }
+        sleep 0.3
+        run() { AGENT_TMUX="$(command -v tmux)" AGENT_TMUX_SOCKET="$wake/pod" sh deploy/agent/agent-wake "$@" >/dev/null 2>&1; echo $?; }
+        pod send-keys -t main:=half -l 'a person is half way'
+        sleep 0.3
+        code="$(run "$(cat "$wake/half.pid")" 'the line')"
+        [ "$code" = 5 ] && [ ! -e "$wake/half" ] || { echo "agent-wake typed over a line left half typed, or ended with $code, not 5" >&2; exit 1; }
+        code="$(AGENT_WAKE_TELL=1 run "$(cat "$wake/seen.pid")" 'the line')"
+        [ "$code" = 4 ] && [ ! -e "$wake/seen" ] || { echo "agent-wake typed into a window a client looks at, or ended with $code, not 4" >&2; exit 1; }
+        code="$(run $$ 'the line')"
+        [ "$code" = 3 ] || { echo "agent-wake of a process in no window ends with $code, not 3" >&2; exit 1; }
+        code="$(run "$(cat "$wake/free.pid")" 'the line the watcher types')"
+        for _ in $(seq 50); do [ -s "$wake/free" ] && break; sleep 0.1; done
+        [ "$code" = 0 ] && [ "$(cat "$wake/free" 2>/dev/null)" = 'the line the watcher types' ] ||
+            { echo "agent-wake did not type its line into a free window at its prompt: exit $code, got '$(cat "$wake/free" 2>/dev/null)'" >&2; exit 1; }
+        # Once the person has left, their window is typed into too.
+        mine kill-server
+        for _ in $(seq 50); do [ -z "$(pod list-clients)" ] && break; sleep 0.1; done
+        code="$(run "$(cat "$wake/seen.pid")" 'after they left')"
+        for _ in $(seq 50); do [ -s "$wake/seen" ] && break; sleep 0.1; done
+        [ "$code" = 0 ] && [ "$(cat "$wake/seen" 2>/dev/null)" = 'after they left' ] || { echo "agent-wake does not type once the client has gone: exit $code" >&2; exit 1; }
+    ) || { rm -rf "$wake"; exit 1; }
+    rm -rf "$wake"
+else
+    skip "agent-wake: no tmux"
+fi
 # agent-open --reopen (ADR 0053), against a fake tmux and real processes: a
 # name not remembered is refused, a window that is gone is made, the shell a
 # dead harness left is replaced, and a window that runs a harness, a shell

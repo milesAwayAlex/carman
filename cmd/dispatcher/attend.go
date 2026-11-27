@@ -144,6 +144,19 @@ const (
 	reopenWindowBusy    = 4
 )
 
+// What agent-wake's exit says.
+const (
+	wakeNoPane   = 3
+	wakeAttended = 4
+	wakeNotEmpty = 5
+)
+
+// wakeLine is what the watcher types into the window of an idle session
+// with no listener that a message waits for: it starts a turn, whose hooks
+// take the message and start a listener again. It says what it is, since
+// the harness takes it for its user's words.
+const wakeLine = "A message waits for this session and it had no listener, so this line was typed into its window by the pod's watcher (dispatcher attend), not by a person: the message comes with it."
+
 // attempt is what was done for a name that messages wait for.
 type attempt struct {
 	Tries    int       `json:"tries"`
@@ -155,8 +168,10 @@ type attempt struct {
 // attender is the watcher's state between its passes.
 type attender struct {
 	c     *api.Client
-	open  []string // the command that opens a remembered session: agent-open --reopen
-	state string   // where attempts are kept, to outlive the watcher
+	open  []string       // the command that opens a remembered session: agent-open --reopen
+	wake  []string       // the command that types a line into a session's window: agent-wake
+	deaf  map[string]int // passes a session was found idle, unheard, with messages waiting, in a row
+	state string         // where attempts are kept, to outlive the watcher
 	pod   string
 	out   io.Writer
 	now   func() time.Time
@@ -190,7 +205,7 @@ func (a *attender) logf(format string, args ...any) {
 }
 
 func (a *attender) load() {
-	a.gone, a.tries, a.limited = map[string]int{}, map[string]*attempt{}, map[string]string{}
+	a.gone, a.tries, a.limited, a.deaf = map[string]int{}, map[string]*attempt{}, map[string]string{}, map[string]int{}
 	if b, err := os.ReadFile(a.state); err == nil {
 		_ = json.Unmarshal(b, &a.tries)
 	}
@@ -260,6 +275,22 @@ func (a *attender) pass(ctx context.Context) error {
 		waiting[w.Name] = true
 		a.attend(ctx, w)
 	}
+	// Sessions that are open and idle, have no listener, and are waited
+	// for: each is given a turn by a line typed into its window.
+	unheard := map[string]bool{}
+	for _, u := range at.Unheard {
+		unheard[u.Session] = true
+		waiting[wakeKey(u.Session)] = true
+		a.deaf[u.Session]++
+		if a.deaf[u.Session] >= deafAfter {
+			a.wakeUp(ctx, u)
+		}
+	}
+	for id := range a.deaf {
+		if !unheard[id] {
+			delete(a.deaf, id)
+		}
+	}
 	for n := range a.tries {
 		if !waiting[n] {
 			// Taken, or no longer waited for: start afresh next time.
@@ -268,6 +299,123 @@ func (a *attender) pass(ctx context.Context) error {
 	}
 	a.save()
 	return nil
+}
+
+// deafAfter is how many passes in a row a session must be unheard: its
+// listener is away for a moment between two calls, and after a dispatcher
+// starts again.
+const deafAfter = 2
+
+func wakeKey(session string) string { return "wake:" + session }
+
+// wakeUp gives an idle session with no listener, that messages wait for, a
+// turn: a line typed into its window, where nobody is at it. Where it
+// cannot, it says why on the messages, once for each reason, and looks
+// again at the next pass; a line that was typed and did not have the
+// messages taken is typed again after a while, a few times.
+func (a *attender) wakeUp(ctx context.Context, u message.Unheard) {
+	name := or(u.Name, "no name")
+	key := wakeKey(u.Session)
+	t := a.tries[key]
+	if t != nil && !subset(u.Messages, t.Messages) {
+		t.Tries, t.Outcome = 0, ""
+		t.Messages = u.Messages
+	}
+	if t == nil {
+		t = &attempt{Messages: u.Messages}
+		a.tries[key] = t
+	}
+	if t.Tries > 0 && a.now().Sub(t.Last) < backoff(t.Tries) {
+		return
+	}
+	if t.Tries >= maxTries {
+		if t.Tries == maxTries {
+			a.hold(ctx, u.Messages, "wake-gave-up", fmt.Sprintf("a line was typed into the window of session %s in pod %s %d times and it did not take its messages; "+
+				"no more is typed until another message comes. It gets them at its next turn: a person can type in it", name, a.pod, t.Tries))
+			a.logf("%s: typed into %d times without its messages being taken; stopped", name, t.Tries)
+			t.Tries++
+		}
+		return
+	}
+	pid, alive := harnessPid(u.Session)
+	if !alive {
+		// No record of its harness, or the process has gone (which the
+		// look at harnesses above tells the dispatcher).
+		if t.Outcome != "no-record" {
+			t.Outcome = "no-record"
+			a.hold(ctx, u.Messages, "wake-no-record", fmt.Sprintf("session %s is idle in pod %s with no listener, and the pod has no record of its harness's process "+
+				"(it was not started with the image's hooks), so nothing is typed into its window; it gets the message at its next turn", name, a.pod))
+		}
+		return
+	}
+	cmd := exec.CommandContext(ctx, a.wake[0], append(append([]string{}, a.wake[1:]...), strconv.Itoa(pid), wakeLine)...)
+	if t.Outcome != "attended" {
+		cmd.Env = append(os.Environ(), "AGENT_WAKE_TELL=1")
+	}
+	out, err := cmd.CombinedOutput()
+	code := 0
+	if err != nil {
+		code = -1
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			code = ee.ExitCode()
+		}
+	}
+	said := strings.TrimSpace(string(out))
+	switch code {
+	case 0:
+		if t.Outcome == "typed" {
+			a.hold(ctx, u.Messages, fmt.Sprintf("wake-again-%d", t.Tries), fmt.Sprintf("a line was typed into the window of session %s in pod %s at %s and it has not taken its messages; "+
+				"typed again now, and at most %d times", name, a.pod, t.Last.UTC().Format(time.RFC3339), maxTries))
+		}
+		t.Outcome = "typed"
+		t.Tries++
+		t.Last = a.now()
+		a.logf("%s: idle with no listener and %d message(s) waiting; a line was typed into its window: %s", name, len(u.Messages), said)
+	case wakeNoPane:
+		if t.Outcome != "no-pane" {
+			a.hold(ctx, u.Messages, "wake-no-pane", fmt.Sprintf("session %s is idle in pod %s with no listener, and runs in no window of the pod's tmux, "+
+				"so nothing can be typed to start its turn; it gets the message at its next turn", name, a.pod))
+			a.logf("%s: idle with no listener, in no window of the pod's tmux: %s", name, said)
+		}
+		t.Outcome = "no-pane"
+	case wakeAttended:
+		if t.Outcome != "attended" {
+			a.hold(ctx, u.Messages, "wake-attended", fmt.Sprintf("session %s is idle in pod %s with no listener, and a person's terminal is at its window, so nothing is typed into it "+
+				"(a line typed over one a person is typing would be sent off with theirs). The person is told there; it gets the message with the next line they type, "+
+				"or the pod's watcher types one once they have left", name, a.pod))
+			a.logf("%s: idle with no listener; a client is at its window, nothing typed", name)
+		}
+		t.Outcome = "attended"
+	case wakeNotEmpty:
+		if t.Outcome != "not-empty" {
+			a.hold(ctx, u.Messages, "wake-not-empty", fmt.Sprintf("session %s is idle in pod %s with no listener, and its window is not at an empty prompt (a line half typed and left, or a menu), "+
+				"so nothing is typed into it; it gets the message at its next turn, or the pod's watcher types a line once the prompt is empty", name, a.pod))
+			a.logf("%s: idle with no listener; its window is not at an empty prompt, nothing typed: %s", name, said)
+		}
+		t.Outcome = "not-empty"
+	default:
+		a.logf("%s: agent-wake failed (%d): %s", name, code, said)
+	}
+}
+
+// harnessPid is the process recorded as a session's harness, and whether
+// it is there now.
+func harnessPid(session string) (int, bool) {
+	if strings.ContainsAny(session, "/") {
+		return 0, false
+	}
+	b, err := os.ReadFile(filepath.Join(harnessDir(), session))
+	if err != nil {
+		return 0, false
+	}
+	var pid int
+	var start string
+	if _, err := fmt.Sscan(string(b), &pid, &start); err != nil || pid <= 1 {
+		return 0, false
+	}
+	_, now, err := procStat(pid)
+	return pid, err == nil && now == start
 }
 
 // attend opens a name that messages wait for, once, then again only after
@@ -368,6 +516,7 @@ func attendCmd(ctx context.Context, flags map[string][]string) error {
 	a := &attender{
 		c:     c,
 		open:  strings.Fields(one(flags, "open", "agent-open --reopen")),
+		wake:  strings.Fields(one(flags, "wake", "agent-wake")),
 		state: one(flags, "state", filepath.Join(harnessDir(), "attend.json")),
 		pod:   or(os.Getenv("HOSTNAME"), "this pod"),
 		out:   os.Stderr,

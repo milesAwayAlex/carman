@@ -50,6 +50,10 @@ const RoleLabel = "dispatcher-role"
 // ErrIdentity is a token that does not say who is calling.
 var ErrIdentity = errors.New("the token does not prove a pod of this installation")
 
+// ErrExpired is a token the cluster signed that is no longer, or not yet,
+// good: it still says which pod presents it.
+var ErrExpired = fmt.Errorf("%w: it has expired", ErrIdentity)
+
 type Verifier struct {
 	Client *Client
 	Now    func() time.Time
@@ -114,6 +118,14 @@ func (v *Verifier) Verify(ctx context.Context, token string) (message.Caller, er
 	v.mu.Unlock()
 	cl, err := v.check(ctx, token)
 	if err != nil {
+		// A token of this cluster's that has expired names its pod: a
+		// client that goes on showing one is a pod whose sessions hear
+		// nothing, which the dispatcher counts (message.Service.Refused).
+		if errors.Is(err, ErrExpired) && cl.Kube.Namespace == v.Client.Namespace && cl.Kube.Pod.Name != "" {
+			return message.Caller{}, &message.RefusedCaller{Pod: cl.Kube.Pod.Name, PodUID: cl.Kube.Pod.UID, Err: err,
+				Why: "it shows a token for the dispatcher that expired at " + time.Unix(cl.Exp, 0).UTC().Format("2006-01-02 15:04 UTC") +
+					": a command that has run since before the cluster replaced the token, and shows the old one"}
+		}
 		return message.Caller{}, err
 	}
 	if cl.Kube.Namespace != v.Client.Namespace || cl.Kube.Pod.Name == "" {
@@ -192,7 +204,7 @@ func (v *Verifier) check(ctx context.Context, token string) (claims, error) {
 		return cl, fmt.Errorf("%w: it is not for the dispatcher (audience %v)", ErrIdentity, []string(cl.Aud))
 	}
 	if cl.Exp == 0 || now >= cl.Exp+30 || (cl.Nbf != 0 && now < cl.Nbf-30) {
-		return cl, fmt.Errorf("%w: it has expired", ErrIdentity)
+		return cl, ErrExpired
 	}
 	return cl, nil
 }

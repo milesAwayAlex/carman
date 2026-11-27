@@ -1,0 +1,67 @@
+#!/bin/sh
+# Gives an open, idle harness session of a standing agent's pod a turn, by
+# typing one line into its window (ADR 0053's watcher, dispatcher attend):
+# for a session that a message waits for and that has no listener, since
+# only a turn's hooks take the message and start a listener again.
+#
+#   agent-wake PID 'LINE'    PID: the session's harness process
+#
+# A line typed into a window where a person has typed half a line of their
+# own is sent off with theirs (seen on the harness, 2.1.326). So the line is
+# typed only where that cannot be:
+#
+#   0  typed
+#   3  no pane of the pod's tmux runs that process
+#   4  a client is looking at its window: a person is there, or may be
+#   5  its window is not at an empty prompt (a line half typed and left, a
+#      menu, tmux's copy mode, or a prompt this does not know)
+#
+# With AGENT_WAKE_TELL=1, a client looking at the window is told, on its
+# status line, that a message waits and comes with the next line typed.
+set -eu
+[ $# -eq 2 ] || { echo "usage: agent-wake PID 'LINE'" >&2; exit 1; }
+pid="$1" line="$2"
+case "$pid" in '' | *[!0-9]*) echo "agent-wake: PID is a process id" >&2; exit 1 ;; esac
+
+# The session's tmux, by its own program and socket, as agent-open finds it.
+sock="${AGENT_TMUX_SOCKET:-/tmp/tmux-$(id -u)/default}"
+bin="${AGENT_TMUX:-$(cat /tmp/agent-tmux 2>/dev/null || true)}"
+t() { "${bin:-tmux}" -S "$sock" "$@"; }
+
+# The pane whose process is the harness or an ancestor of it.
+panes="$(t list-panes -a -F '#{pane_pid} #{pane_id} #{window_id}' 2>/dev/null)" || { echo "agent-wake: no tmux here" >&2; exit 3; }
+p="$pid" pane="" window=""
+for _ in 1 2 3 4 5 6 7 8; do
+    [ "$p" -gt 1 ] 2>/dev/null || break
+    found="$(printf '%s\n' "$panes" | awk -v p="$p" '$1 == p {print $2, $3; exit}')"
+    if [ -n "$found" ]; then
+        pane="${found% *}" window="${found#* }"
+        break
+    fi
+    p="$(awk '/^PPid:/ {print $2}' "/proc/$p/status" 2>/dev/null || true)"
+done
+[ -n "$pane" ] || { echo "agent-wake: process $pid runs in no pane of the pod's tmux" >&2; exit 3; }
+
+# A client that looks at the window: a person is there, or may come back to
+# the line they left.
+looking="$(t list-clients -F '#{window_id} #{client_name}' 2>/dev/null | awk -v w="$window" '$1 == w {print $2}')"
+if [ -n "$looking" ]; then
+    if [ "${AGENT_WAKE_TELL:-}" = 1 ]; then
+        for c in $looking; do
+            t display-message -c "$c" -d 10000 "A message waits for this session, which has no listener: it comes with the next line typed here." 2>/dev/null || true
+        done
+    fi
+    echo "agent-wake: a client is looking at the window" >&2
+    exit 4
+fi
+
+# The line the cursor is on is the harness's prompt, with nothing typed.
+[ "$(t display-message -p -t "$pane" '#{pane_in_mode}')" = 0 ] || { echo "agent-wake: the window is in tmux's copy mode" >&2; exit 5; }
+y="$(t display-message -p -t "$pane" '#{cursor_y}')"
+now="$(t capture-pane -p -t "$pane" -S "$y" -E "$y" | LC_ALL=C sed "s/$(printf '\302\240')/ /g; s/[[:space:]]*\$//")"
+[ "$now" = "❯" ] || { echo "agent-wake: the window is not at an empty prompt" >&2; exit 5; }
+
+t send-keys -t "$pane" -l "$line"
+sleep 0.3
+t send-keys -t "$pane" Enter
+echo "agent-wake: typed into $pane"

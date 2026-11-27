@@ -57,7 +57,7 @@ ARG TARGETARCH
 COPY cmem-${TARGETARCH} /usr/local/bin/cmem
 # The dispatcher's client: how an agent records its usage (ADR 0043).
 COPY dispatcher-${TARGETARCH} /usr/local/bin/dispatcher
-COPY run-routine usage-reading backup-state warm-harness agent-session agent-attach agent-resume agent-open agent-definition agent-view child-harness renew-credential oauth-credential /usr/local/bin/
+COPY run-routine usage-reading backup-state warm-harness agent-session agent-attach agent-resume agent-open agent-definition agent-view agent-wake child-harness renew-credential oauth-credential /usr/local/bin/
 COPY agent-env /usr/local/lib/agent-env
 COPY attention.md /usr/local/lib/agent-attention.md
 # The memory hook, which agent-env puts in the harness's settings when an
@@ -70,7 +70,7 @@ COPY settings.json /usr/local/lib/agent-settings.json
 # which sets PATH anew: give it the agent's environment again.
 RUN ln -s /usr/local/lib/agent-env /etc/profile.d/agent-env.sh
 COPY routines /routines
-RUN chmod 0755 /usr/local/bin/cmem /usr/local/bin/dispatcher /usr/local/bin/run-routine /usr/local/bin/usage-reading /usr/local/bin/backup-state /usr/local/bin/warm-harness /usr/local/bin/agent-session /usr/local/bin/agent-attach /usr/local/bin/agent-resume /usr/local/bin/agent-open /usr/local/bin/agent-definition /usr/local/bin/agent-view /usr/local/bin/child-harness /usr/local/bin/renew-credential /usr/local/bin/oauth-credential && cmem help > /dev/null
+RUN chmod 0755 /usr/local/bin/cmem /usr/local/bin/dispatcher /usr/local/bin/run-routine /usr/local/bin/usage-reading /usr/local/bin/backup-state /usr/local/bin/warm-harness /usr/local/bin/agent-session /usr/local/bin/agent-attach /usr/local/bin/agent-resume /usr/local/bin/agent-open /usr/local/bin/agent-definition /usr/local/bin/agent-view /usr/local/bin/agent-wake /usr/local/bin/child-harness /usr/local/bin/renew-credential /usr/local/bin/oauth-credential && cmem help > /dev/null
 USER 10001
 ENV HOME=/home/agent LANG=C.UTF-8
 ENTRYPOINT ["run-routine"]

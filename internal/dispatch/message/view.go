@@ -195,6 +195,9 @@ type Peer struct {
 	Mode     string `json:"mode,omitempty"`
 	Standing bool   `json:"standing,omitempty"`
 	ForOwner int    `json:"for_owner,omitempty"`
+	// Refused says, for a session whose pod's client the dispatcher is
+	// refusing, since when and why; empty otherwise.
+	Refused string `json:"refused,omitempty"`
 }
 
 // Peers are who is worth writing to: the owner, the agents a message
@@ -274,6 +277,10 @@ func (s *Service) Peers(ctx context.Context, c Caller, since time.Duration, all 
 			if x.State == Idle && !listening.listening(x.ID) {
 				p.State = "idle, not listening: it gets messages at its next turn"
 			}
+			if r, ok := s.refusedNow(x.PodUID); ok && !(x.State == Idle && listening.listening(x.ID)) {
+				p.Refused = r.words()
+				p.State += "; " + p.Refused
+			}
 			running = append(running, p)
 			continue
 		}
@@ -339,6 +346,9 @@ func (r *Router) Run(ctx context.Context) {
 		every = 3 * time.Second
 	}
 	sweep := time.Time{}
+	if err := r.Service.CloseRefusals(ctx); err != nil && ctx.Err() == nil {
+		r.Logger.Warn("ending the refusals an earlier dispatcher left open", "error", err)
+	}
 	for {
 		if err := r.Pass(ctx); err != nil && ctx.Err() == nil {
 			r.Logger.Warn("routing messages", "error", err)
@@ -350,6 +360,10 @@ func (r *Router) Run(ctx context.Context) {
 			if err := r.Service.SendAgain(ctx); err != nil && ctx.Err() == nil {
 				r.Logger.Warn("sending again what stopped at the plan's limit", "error", err)
 			}
+			if err := r.Service.TellWaiting(ctx); err != nil && ctx.Err() == nil {
+				r.Logger.Warn("telling senders of messages that have waited", "error", err)
+			}
+			r.Service.QuietRefusals(ctx)
 			sweep = time.Now()
 		}
 		select {

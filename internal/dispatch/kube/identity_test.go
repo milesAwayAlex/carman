@@ -8,12 +8,15 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"carman/internal/dispatch/message"
 )
 
 // A fake API server: the issuer's keys, and pods.
@@ -108,6 +111,22 @@ func TestR2Identity(t *testing.T) {
 	} {
 		if who, err := v.Verify(ctx, tok); err == nil {
 			t.Errorf("%s: accepted as %+v", name, who)
+		}
+	}
+	// An expired token of this cluster's still says which pod shows it, so
+	// that a pod refused again and again can be named; one signed by
+	// another key, or for another namespace, says nothing.
+	var rc *message.RefusedCaller
+	_, err = v.Verify(ctx, token(t, key, "k1", podClaims("dispatcher", "carman", "pod-a", "u-a", time.Now().Add(-time.Hour))))
+	if !errors.As(err, &rc) || rc.Pod != "pod-a" || rc.PodUID != "u-a" || !strings.Contains(rc.Why, "expired") || !errors.Is(err, ErrIdentity) {
+		t.Errorf("an expired token does not name its pod: %v", err)
+	}
+	for name, tok := range map[string]string{
+		"another key":       token(t, other, "k1", podClaims("dispatcher", "carman", "pod-a", "u-a", time.Now().Add(-time.Hour))),
+		"another namespace": token(t, key, "k1", podClaims("dispatcher", "other", "pod-a", "u-a", time.Now().Add(-time.Hour))),
+	} {
+		if _, err := v.Verify(ctx, tok); err == nil || errors.As(err, &rc) {
+			t.Errorf("an expired token of %s names a pod: %v", name, err)
 		}
 	}
 	if alive, err := cl.PodAlive(ctx, "pod-a", "u-a"); err != nil || !alive {

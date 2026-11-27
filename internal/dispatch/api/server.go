@@ -259,6 +259,12 @@ func (s *Server) authenticate(r *http.Request) (Role, message.Caller, error) {
 		c, err := s.Verify(r.Context(), token)
 		if err != nil {
 			s.Log.Warn("a token was refused", "error", err)
+			// One that still names its pod is counted: refused again and
+			// again, it is recorded once and shown (message.Refused).
+			var rc *message.RefusedCaller
+			if errors.As(err, &rc) && s.Messages != nil {
+				s.Messages.Refused(r.Context(), rc.Pod, rc.PodUID, rc.Why)
+			}
 			return "", message.Caller{}, fmt.Errorf("%w: %v", errUnauthorized, err)
 		}
 		if c.Meter {

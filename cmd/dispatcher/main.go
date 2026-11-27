@@ -18,6 +18,8 @@
 // database from DISPATCHER_DATABASE_URL or else libpq's PG* variables,
 // DISPATCHER_MAX_RUNNING (1), DISPATCHER_RETENTION (720h, task history),
 // DISPATCHER_RETENTION_UNOWNED (4320h, events that belong to no task),
+// DISPATCHER_MESSAGE_WAIT_NOTICE (10m: a message undelivered that long
+// tells its sender why, once; off for never),
 // DISPATCHER_NAMESPACE (the pod's own), DISPATCHER_BUILD,
 // DISPATCHER_SCHEDULES (a JSON list: name, class, cron, timeZone,
 // startWithin, timeout, priority), DISPATCHER_WRITERS (a JSON object: each
@@ -115,8 +117,9 @@ dispatcher message ID [--body | --from]   what became of a message, and its answ
 dispatcher watch SESSION                  be told, by a message, when it next goes idle
 dispatcher lift SENDER                    the owner: lift the limit on runs a sender's messages start
 dispatcher whoami                         what the dispatcher makes of this caller
-dispatcher attend [--every 10s] [--once]  in a standing agent's pod: say when a session's harness has gone, and open
-                                          again a remembered session a message waits for (ADR 0053)
+dispatcher attend [--every 10s] [--once]  in a standing agent's pod: say when a session's harness has gone, open again
+                                          a remembered session a message waits for (ADR 0053), and type a line into the
+                                          window of an idle one with no listener that a message waits for
 dispatcher hook claude-code [--wait D]    the harness's hook that carries messages into a running session
 
 The list of improvements to the platform (ADR 0058):
@@ -369,6 +372,9 @@ func status(ctx context.Context, c *api.Client, pos []string) error {
 	if err := standing(ctx, c); err != nil {
 		return err
 	}
+	if err := refusedClients(ctx, c, os.Stdout); err != nil {
+		return err
+	}
 	for _, state := range []dispatch.State{dispatch.Running, dispatch.Pending, dispatch.Waiting} {
 		var ts []api.Task
 		if err := c.Do(ctx, http.MethodGet, "/v1/tasks", url.Values{"state": {string(state)}}, nil, &ts); err != nil {
@@ -409,6 +415,43 @@ func status(ctx context.Context, c *api.Client, pos []string) error {
 		}
 		fmt.Printf("  %s  %-22s %-9s%s%s  %s  %s, by %s\n", j.Ended.UTC().Format("2006-01-02 15:04"), j.Template, j.Outcome, reason, code, took, j.Job, j.By)
 	}
+	return nil
+}
+
+// refusedClients says which pods' clients the dispatcher is refusing again
+// and again, as its log records it (client.refused with no
+// client.refused.ended): their sessions hear no message while idle.
+func refusedClients(ctx context.Context, c *api.Client, out io.Writer) error {
+	var began, ended []api.Record
+	if err := c.Do(ctx, http.MethodGet, "/v1/events", url.Values{"type": {message.TypeClientRefused}, "last": {"100"}}, nil, &began); err != nil {
+		return err
+	}
+	if len(began) == 0 {
+		return nil
+	}
+	if err := c.Do(ctx, http.MethodGet, "/v1/events", url.Values{"type": {message.TypeClientRefusedEnded}, "last": {"200"}}, nil, &ended); err != nil {
+		return err
+	}
+	done := map[string]bool{}
+	for _, e := range ended {
+		done[strings.TrimPrefix(e.ID, message.TypeClientRefusedEnded+"/")] = true
+	}
+	var lines []string
+	for _, b := range began {
+		var r message.Refusal
+		if done[strings.TrimPrefix(b.ID, message.TypeClientRefused+"/")] || json.Unmarshal(b.Data, &r) != nil {
+			continue
+		}
+		who := ""
+		if r.Agent != "" {
+			who = fmt.Sprintf(" (agent %s, %d session(s))", r.Agent, len(r.Sessions))
+		}
+		lines = append(lines, fmt.Sprintf("  pod %s%s, since %s: %s", r.Pod, who, r.Since.UTC().Format("2006-01-02 15:04 UTC"), r.Why))
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	fmt.Fprintf(out, "refused again and again: %d pod(s) with a client the dispatcher refuses; a listener or the watcher there may hear nothing (peers says which sessions do not listen)\n%s\n", len(lines), strings.Join(lines, "\n"))
 	return nil
 }
 
@@ -488,6 +531,13 @@ func serve(ctx context.Context) error {
 	runsPeriod, err := duration("DISPATCHER_MESSAGE_RUNS_PERIOD", message.DefaultRunsPeriod)
 	if err != nil {
 		return err
+	}
+	// How long a message may wait undelivered before its sender is told.
+	waitNotice := time.Duration(-1)
+	if v := os.Getenv("DISPATCHER_MESSAGE_WAIT_NOTICE"); v != "off" {
+		if waitNotice, err = duration("DISPATCHER_MESSAGE_WAIT_NOTICE", message.DefaultWaitNotice); err != nil || waitNotice <= 0 {
+			return errors.New("DISPATCHER_MESSAGE_WAIT_NOTICE is a duration, such as 10m, or off")
+		}
 	}
 	opts.RetentionByType = map[string]time.Duration{}
 	for _, t := range message.Types {
@@ -675,7 +725,8 @@ func serve(ctx context.Context) error {
 	if cluster.Client != nil {
 		messages = &message.Service{Store: d, Cluster: cluster, Context: contextName, Namespace: namespace,
 			Priority: 50, Timeout: 30 * time.Minute, Retention: messagesKept, Writers: writers, Place: os.Getenv("DISPATCHER_PLACE"), Log: logger,
-			RunsPerSender: runsPerSender, RunsPeriod: runsPeriod, AgainAfterLimit: os.Getenv("DISPATCHER_MESSAGE_AGAIN_AFTER_LIMIT") == "true"}
+			RunsPerSender: runsPerSender, RunsPeriod: runsPeriod, AgainAfterLimit: os.Getenv("DISPATCHER_MESSAGE_AGAIN_AFTER_LIMIT") == "true",
+			WaitNotice: waitNotice}
 		go (&message.Router{Service: messages, Logger: logger}).Run(work)
 	}
 

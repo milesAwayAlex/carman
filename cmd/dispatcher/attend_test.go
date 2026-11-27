@@ -309,3 +309,129 @@ func TestR2AttendLimitStop(t *testing.T) {
 		}
 	}
 }
+
+// fakeWake is an agent-wake that records how it was called (the process,
+// and whether it was to tell a person at the window) and exits with what
+// its file says.
+func fakeWake(t *testing.T, dir string) (cmd []string, calls func() []string, exit func(int)) {
+	t.Helper()
+	script := filepath.Join(dir, "agent-wake")
+	log := filepath.Join(dir, "wake-calls")
+	code := filepath.Join(dir, "wake-exit")
+	os.WriteFile(code, []byte("0"), 0o644)
+	os.WriteFile(script, []byte("#!/bin/sh\necho \"$1 tell=${AGENT_WAKE_TELL:-0} $2\" >> "+log+"\necho typed\nexit $(cat "+code+")\n"), 0o755)
+	return []string{script}, func() []string {
+			b, _ := os.ReadFile(log)
+			if len(b) == 0 {
+				return nil
+			}
+			return strings.Split(strings.TrimSpace(string(b)), "\n")
+		}, func(n int) {
+			os.WriteFile(code, []byte(itoa(n)), 0o644)
+		}
+}
+
+// TestR2AttendWakesAnUnheardSession: a session that is open and idle with
+// no listener, and that a message waits for, is given a turn by a line
+// typed into its window: at the second look, not the first; once, then
+// again only after a while and a few times if its messages still wait; and
+// not at all where a person is at the window or a line is half typed there,
+// which the message's sender is told once, and which is looked at again at
+// every pass until the window is free.
+func TestR2AttendWakesAnUnheardSession(t *testing.T) {
+	dir := t.TempDir()
+	procRoot = filepath.Join(dir, "proc")
+	t.Cleanup(func() { procRoot = "/proc" })
+	t.Setenv("DISPATCHER_HARNESS_DIR", filepath.Join(dir, "harness"))
+	os.MkdirAll(harnessDir(), 0o700)
+	fakeProc(t, procRoot, 200, 1, "777", "/home/a/.local/bin/claude --name notes")
+	os.WriteFile(filepath.Join(harnessDir(), "s-deaf"), []byte("200 777\n"), 0o600)
+	wake, calls, exit := fakeWake(t, dir)
+	unheard := []message.Unheard{{Session: "s-deaf", Name: "notes", Messages: []string{"m1"}}}
+	f := &fakeAttend{attend: message.Attend{Running: []message.Session{{ID: "s-deaf", Name: "notes"}}, Unheard: unheard}}
+	now := time.Now()
+	a := newAttender(t, f, []string{"true"}, filepath.Join(dir, "attend.json"), &now)
+	a.wake = wake
+	pass := func() {
+		t.Helper()
+		if err := a.pass(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A listener is away for a moment: nothing at the first look.
+	pass()
+	if len(calls()) != 0 {
+		t.Fatalf("typed at the first look: %v", calls())
+	}
+	// A person is at the window: nothing typed, the sender told once, the
+	// person told once, and looked at again at each pass.
+	exit(wakeAttended)
+	pass()
+	pass()
+	pass()
+	if got := calls(); len(got) != 3 || !strings.HasPrefix(got[0], "200 tell=1 ") || !strings.HasPrefix(got[1], "200 tell=0 ") || !strings.Contains(got[0], "typed into its window by the pod's watcher") {
+		t.Fatalf("with a person at the window: %v", got)
+	}
+	if keys := strings.Join(f.holdKeys(), ","); keys != "m1:wake-attended" {
+		t.Errorf("the sender is not told once why nothing was typed: %s", keys)
+	}
+	// A line half typed and left: the same, with its own reason.
+	exit(wakeNotEmpty)
+	pass()
+	pass()
+	if keys := strings.Join(f.holdKeys(), ","); keys != "m1:wake-attended,m1:wake-not-empty" {
+		t.Errorf("a window not at an empty prompt: %s", keys)
+	}
+	// The window is free: the line is typed, once.
+	exit(0)
+	pass()
+	typed := len(calls())
+	pass()
+	now = now.Add(time.Minute)
+	pass()
+	if len(calls()) != typed {
+		t.Errorf("typed again before its time: %v", calls())
+	}
+	// Still waiting after a while: typed again, the sender told, at most
+	// maxTries times in all.
+	for range 12 {
+		now = now.Add(time.Hour)
+		pass()
+	}
+	if n := len(calls()) - typed + 1; n != maxTries {
+		t.Errorf("typed %d times, want %d", n, maxTries)
+	}
+	keys := strings.Join(f.holdKeys(), ",")
+	if !strings.Contains(keys, "m1:wake-again-1") || strings.Count(keys, "m1:wake-gave-up") != 1 {
+		t.Errorf("the sender is not told of the lines typed in vain, and once that no more are: %s", keys)
+	}
+	// Another message comes: it starts afresh.
+	f.mu.Lock()
+	f.attend.Unheard = []message.Unheard{{Session: "s-deaf", Name: "notes", Messages: []string{"m1", "m2"}}}
+	f.mu.Unlock()
+	before := len(calls())
+	pass()
+	if len(calls()) != before+1 {
+		t.Errorf("not typed for a new message: %v", calls()[before:])
+	}
+	// Taken: forgotten, and a later one starts at the first look again.
+	f.mu.Lock()
+	f.attend.Unheard = nil
+	f.mu.Unlock()
+	pass()
+	if _, kept := a.tries[wakeKey("s-deaf")]; kept || len(a.deaf) != 0 {
+		t.Errorf("what was done for a session that has taken its messages is kept: %+v %v", a.tries, a.deaf)
+	}
+	// A session with no record of its harness: nothing is typed, and the
+	// sender is told why, once.
+	f.mu.Lock()
+	f.attend.Unheard = []message.Unheard{{Session: "s-norecord", Name: "x", Messages: []string{"m3"}}}
+	f.mu.Unlock()
+	before = len(calls())
+	for range 3 {
+		pass()
+	}
+	if len(calls()) != before || strings.Count(strings.Join(f.holdKeys(), ","), "m3:wake-no-record") != 1 {
+		t.Errorf("a session with no record: %v, %v", calls()[before:], f.holdKeys())
+	}
+}

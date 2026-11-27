@@ -23,6 +23,9 @@ type Attend struct {
 	// Waiting are the messages that wait for a named session of the
 	// caller's agent that is not running, by name.
 	Waiting []Awaited `json:"waiting"`
+	// Unheard are the sessions that run in the caller's pod, idle with no
+	// listener, that messages wait for.
+	Unheard []Unheard `json:"unheard"`
 }
 
 // Awaited is a name of a session that messages wait for.
@@ -42,7 +45,7 @@ func (s *Service) podOnly(c Caller) error {
 
 // Attending is what the caller's pod has to attend to.
 func (s *Service) Attending(ctx context.Context, c Caller) (Attend, error) {
-	out := Attend{Running: []Session{}, Waiting: []Awaited{}}
+	out := Attend{Running: []Session{}, Waiting: []Awaited{}, Unheard: []Unheard{}}
 	if err := s.podOnly(c); err != nil {
 		return out, err
 	}
@@ -94,6 +97,9 @@ func (s *Service) Attending(ctx context.Context, c Caller) (Attend, error) {
 			a.Messages = append(a.Messages, r.Subject)
 		}
 		out.Waiting = append(out.Waiting, a)
+	}
+	if out.Unheard, err = s.unheard(ctx, c, out.Running); err != nil {
+		return out, err
 	}
 	return out, nil
 }

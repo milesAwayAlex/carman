@@ -59,7 +59,7 @@ const (
 
 // Types are the event types of messaging, for their retention.
 var Types = []string{TypeSent, TypeDelivered, TypeUndelivered, TypeRead, TypeWaiting, TypeRefused,
-	TypeSessionStarted, TypeSessionEnded, TypeWatch, TypeWatched}
+	TypeSessionStarted, TypeSessionEnded, TypeWatch, TypeWatched, TypeClientRefused, TypeClientRefusedEnded, TypeWaited}
 
 // Message is what a message.sent event carries.
 type Message struct {
@@ -245,8 +245,15 @@ type Service struct {
 	// Place is the name of the owner's own machine, whose sessions run
 	// outside the cluster (ADR 0049); empty when there is none.
 	Place string
-	Log   *slog.Logger
-	Now   func() time.Time
+	// WaitNotice is how long a message may wait undelivered before its
+	// sender is told why, once (DefaultWaitNotice when zero; below zero,
+	// never).
+	WaitNotice time.Duration
+	Log        *slog.Logger
+	Now        func() time.Time
+
+	// refused are the pods whose client is being refused.
+	refused refusals
 }
 
 func (s *Service) now() time.Time {
@@ -573,17 +580,14 @@ func (s *Service) route(ctx context.Context, m Message, lifted bool) (string, er
 	}
 	if running {
 		listening.tell(x.ID, "message")
-		where := "in pod " + x.Pod
-		if s.isPlace(x.Agent) {
-			where = "on the owner's machine"
+		words, key := s.hearing(ctx, x)
+		if key != "" {
+			// It does not reach the session by itself: the message says why.
+			if _, err := s.Store.Claim(ctx, s.waiting(m.ID, key, Wait{Reason: words})); err != nil {
+				return "", err
+			}
 		}
-		if x.State == Idle && listening.listening(x.ID) {
-			return fmt.Sprintf("for session %s of agent %s, idle %s: it is woken by it", short(x.ID), x.Agent, where), nil
-		}
-		if x.State == Idle {
-			return fmt.Sprintf("for session %s of agent %s, idle %s but not listening: it gets it at its next turn", short(x.ID), x.Agent, where), nil
-		}
-		return fmt.Sprintf("for session %s of agent %s, busy %s: it gets it after its next tool call, or when its turn ends", short(x.ID), x.Agent, where), nil
+		return words, nil
 	}
 	if s.isPlace(x.Agent) {
 		return s.waitForHost(ctx, m, x)

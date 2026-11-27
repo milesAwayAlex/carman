@@ -131,6 +131,8 @@ spec:
               value: {{ .Values.dispatcher.messages.runsPeriod | default "3h" | quote }}
             - name: DISPATCHER_MESSAGE_AGAIN_AFTER_LIMIT
               value: {{ .Values.dispatcher.messages.againAfterLimit | default false | quote }}
+            - name: DISPATCHER_MESSAGE_WAIT_NOTICE
+              value: {{ .Values.dispatcher.messages.waitNotice | default "10m" | quote }}
             # What it starts by itself (ADR 0043): the schedules listed, the
             # agents it schedules, and the usage reading.
             - name: DISPATCHER_SCHEDULES

@@ -428,7 +428,7 @@ build_agent() {
     local root="$build_root/agent"
     rm -rf "$root" && mkdir -p "$root"
     linux_cmem "$root" with-dispatcher
-    cp deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/usage-reading deploy/agent/backup-state deploy/agent/warm-harness deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/agent-open deploy/agent/agent-definition deploy/agent/agent-view deploy/agent/child-harness deploy/agent/oauth-credential deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json "$root/"
+    cp deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/usage-reading deploy/agent/backup-state deploy/agent/warm-harness deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/agent-open deploy/agent/agent-definition deploy/agent/agent-view deploy/agent/agent-wake deploy/agent/child-harness deploy/agent/oauth-credential deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json "$root/"
     cp -R routines "$root/routines"
     # A new tag whenever anything in it changes.
     # CARMAN_AGENT_BASE names an image to build on in place of the plain one:
