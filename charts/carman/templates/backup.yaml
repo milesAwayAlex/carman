@@ -16,6 +16,8 @@ metadata:
 spec:
   schedule: {{ .Values.backup.schedule | quote }}
   timeZone: "Etc/UTC"
+  # Started by the dispatcher on the same schedule where it says (ADR 0059).
+  suspend: {{ .Values.backup.dispatched | default false }}
   startingDeadlineSeconds: {{ .Values.backup.catchUpSeconds }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3

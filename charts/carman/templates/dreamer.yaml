@@ -22,10 +22,16 @@ kind: CronJob
 metadata:
   name: dreamer
   namespace: {{ .Release.Namespace }}
+  {{- if .Values.dreamer.dispatched }}
+  # The dispatcher starts it (ADR 0059), and this CronJob is its template
+  # only. Whether the dreamer is switched on is kept here.
+  annotations:
+    dispatcher/scheduled: {{ ternary "off" "on" (.Values.dreamer.suspend | default false) | quote }}
+  {{- end }}
 spec:
   schedule: {{ .Values.dreamer.schedule | quote }}
   timeZone: "Etc/UTC"
-  suspend: {{ .Values.dreamer.suspend }}
+  suspend: {{ or .Values.dreamer.dispatched .Values.dreamer.suspend }}
   # A cluster that was not running at the scheduled time (a laptop asleep)
   # starts the run when it is back, if that is within this long.
   startingDeadlineSeconds: {{ .Values.dreamer.catchUpSeconds }}

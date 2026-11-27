@@ -58,6 +58,19 @@ if command -v helm >/dev/null; then
         --set-json 'dreamer.models=["m-a","m-b"]' --set-json 'dreamer.modelsFor={"x":["m-c"]}' \
         --set usage.model=m-0 --set-json 'usage.addModels=["m-e"]' --set-json 'usage.skipModels=["m-b"]' --set-json 'usage.everyHoursFor={"m-c":2}' |
         grep -F 'value: "m-0=1,m-a=6,m-d=6,m-c=2,m-e=6"' >/dev/null || { echo "the chart does not hand the usage reading the installation's models" >&2; exit 1; }
+    # R2: the dreamer, the backup and the warm job are started by the
+    # dispatcher where their values say, their CronJobs suspended (ADR 0059).
+    nightly=(helm template t charts/carman --set memory.image=m:0 --set agent.image=r.example/a:0 --set dispatcher.image=d:0
+        --set backup.enabled=true --set backup.repository=r --set agent.warm.enabled=true)
+    out="$("${nightly[@]}" --set dreamer.dispatched=true --set dreamer.suspend=false --set backup.dispatched=true --set agent.warm.dispatched=true)"
+    for name in dreamer backup agent-warm; do
+        grep -F "\\\"name\\\":\\\"$name\\\"" <<<"$out" >/dev/null || { echo "the dispatcher is not given $name's schedule" >&2; exit 1; }
+        awk -v n="$name" '$1 == "kind:" {cj = ($2 == "CronJob")} cj && $1 == "name:" && $2 == n {mine = 1} mine && $1 == "suspend:" {print $2; exit}' <<<"$out" | grep -qx true ||
+            { echo "$name's CronJob is not suspended where the dispatcher starts it" >&2; exit 1; }
+    done
+    ! "${nightly[@]}" --set dreamer.dispatched=true --set dreamer.suspend=true | grep -F '\"name\":\"dreamer\"' >/dev/null ||
+        { echo "the dispatcher is given the schedule of a dreamer switched off" >&2; exit 1; }
+    ! "${nightly[@]}" | grep -F '\"name\":\"backup\"' >/dev/null || { echo "the dispatcher schedules a backup nobody moved to it" >&2; exit 1; }
     # The owner's machine (ADR 0049): its writtenBy, a name of its own, and
     # a way in from outside only where the addresses are given.
     "${render[@]}" --set-json 'agents=[{"name":"a","routines":["x"]}]' --set-json 'dispatcher.host.writtenBy=["a"]' |

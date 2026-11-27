@@ -82,6 +82,23 @@ that the Job's failure, not an overrun, is what is told. */ -}}
 {{- $out = append $out (dict "name" (printf "agent-%s" .name) "class" (printf "agent-%s" .name) "cron" .schedule "timeZone" "UTC" "startWithin" (printf "%ds" (int (.catchUpSeconds | default 86400))) "timeout" (printf "%ds" (add (int (.deadlineSeconds | default 3600)) 600)) "priority" (int (.priority | default 0))) }}
 {{- end }}
 {{- end }}
+{{- /* The installation's own nightly and twice-daily jobs, each when its
+value says (ADR 0059); the dreamer only while it is switched on. */ -}}
+{{- with .Values.dreamer }}
+{{- if and .dispatched (not .suspend) }}
+{{- $out = append $out (dict "name" "dreamer" "class" "dreamer" "cron" .schedule "timeZone" "UTC" "startWithin" (printf "%ds" (int .catchUpSeconds)) "timeout" (printf "%ds" (add (int .deadlineSeconds) 600)) "priority" (int .priority)) }}
+{{- end }}
+{{- end }}
+{{- with .Values.backup }}
+{{- if and .enabled .dispatched }}
+{{- $out = append $out (dict "name" "backup" "class" "backup" "cron" .schedule "timeZone" "UTC" "startWithin" (printf "%ds" (int .catchUpSeconds)) "timeout" (printf "%ds" (add (int .deadlineSeconds) 600)) "priority" (int .priority)) }}
+{{- end }}
+{{- end }}
+{{- with .Values.agent.warm }}
+{{- if and .enabled .dispatched }}
+{{- $out = append $out (dict "name" "agent-warm" "class" "agent-warm" "cron" .schedule "timeZone" "UTC" "startWithin" (printf "%ds" (int .catchUpSeconds)) "timeout" (printf "%ds" (add (int .deadlineSeconds) 600)) "priority" (int .priority)) }}
+{{- end }}
+{{- end }}
 {{- if .Values.usage.enabled }}
 {{- with .Values.usage }}
 {{- $out = append $out (dict "name" "usage" "class" "agent-usage" "cron" .schedule "timeZone" "UTC" "startWithin" "30m" "timeout" (printf "%ds" (add (int .deadlineSeconds) 600)) "priority" (int .priority)) }}

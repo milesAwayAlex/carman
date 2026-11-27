@@ -742,7 +742,13 @@ EOF
     build_agent
     # Whether the dreamer's schedule is on is a setting of the cluster, not of
     # the manifest: a deploy leaves it as it was, and off the first time.
-    dreaming="$("${kube[@]}" get cronjob dreamer -o 'jsonpath={.spec.suspend}' 2>/dev/null || true)"
+    # One the dispatcher starts is always suspended, and keeps it in an annotation (ADR 0059).
+    dreaming="$("${kube[@]}" get cronjob dreamer -o 'jsonpath={.metadata.annotations.dispatcher/scheduled}' 2>/dev/null || true)"
+    case "$dreaming" in
+    on) dreaming=false ;;
+    off) dreaming=true ;;
+    *) dreaming="$("${kube[@]}" get cronjob dreamer -o 'jsonpath={.spec.suspend}' 2>/dev/null || true)" ;;
+    esac
     # What the egress proxy is to hold a credential for, from the values.
     # Images with a registry: a warm image (agent.warm) refuses one without.
     egress="$(helm template carman charts/carman --namespace "$namespace" "${chart_values[@]}" --set memory.image=registry.invalid/m:0 --set agent.image=registry.invalid/a:0 --set dispatcher.image=registry.invalid/d:0 --show-only templates/egress.yaml)" ||
@@ -1146,8 +1152,15 @@ dreamer)
     on | off)
         "${kube[@]}" get secret model-credential >/dev/null 2>&1 || [ "$3" = off ] ||
             die "the dreamer needs a model credential first: ... | scripts/deploy.sh $context secret model-credential"
-        "${kube[@]}" patch cronjob dreamer --type merge -p "{\"spec\":{\"suspend\":$([ "$3" = off ] && echo true || echo false)}}" >/dev/null
-        echo "the dreamer's schedule is $3: $("${kube[@]}" get cronjob dreamer -o 'jsonpath={.spec.schedule}') (UTC)"
+        if [ -n "$("${kube[@]}" get cronjob dreamer -o 'jsonpath={.metadata.annotations.dispatcher/scheduled}' 2>/dev/null)" ]; then
+            # The dispatcher starts it: its CronJob stays suspended, and the
+            # dispatcher reads its schedules when it starts (ADR 0059).
+            "${kube[@]}" annotate --overwrite cronjob dreamer "dispatcher/scheduled=$3" >/dev/null
+            echo "the dreamer is $3 from the next deploy (scripts/deploy.sh $context), which gives the dispatcher its schedule: $("${kube[@]}" get cronjob dreamer -o 'jsonpath={.spec.schedule}') (UTC)"
+        else
+            "${kube[@]}" patch cronjob dreamer --type merge -p "{\"spec\":{\"suspend\":$([ "$3" = off ] && echo true || echo false)}}" >/dev/null
+            echo "the dreamer's schedule is $3: $("${kube[@]}" get cronjob dreamer -o 'jsonpath={.spec.schedule}') (UTC)"
+        fi
         ;;
     run)
         job="dreamer-$(date -u +%Y%m%d-%H%M%S)"

@@ -109,6 +109,11 @@ spec:
               value: {{ .Values.dispatcher.image | quote }}
             - name: DISPATCHER_MAX_RUNNING
               value: {{ .Values.dispatcher.maxRunning | quote }}
+            # Places kept for scheduled work, of so high a priority (ADR 0059).
+            - name: DISPATCHER_RESERVE_PLACES
+              value: {{ .Values.dispatcher.reserve.places | quote }}
+            - name: DISPATCHER_RESERVE_FROM
+              value: {{ .Values.dispatcher.reserve.from | quote }}
             - name: DISPATCHER_RETENTION
               value: {{ .Values.dispatcher.retention | quote }}
             - name: DISPATCHER_RETENTION_UNOWNED

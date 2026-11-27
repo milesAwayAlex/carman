@@ -49,6 +49,13 @@ dispatcher:
   tokensSecret: dispatcher-tokens
   # How many tasks it runs at once. One until pacing decides more.
   maxRunning: 1
+  # Places of those kept for work of priority `from` or more (the scheduled
+  # jobs: the dreamer, the backup, the warm job, the usage reading), so that
+  # they do not wait behind long work a message started (priority 50).
+  # Fewer than maxRunning; 0 keeps none (ADR 0059).
+  reserve:
+    places: 0
+    from: 60
   # How long the log keeps a finished task and its events, counted from its
   # end; and events that belong to no task (every Job's end, and later the
   # account's usage readings), counted from their arrival. Longer for the
@@ -255,6 +262,12 @@ agent:
     # only on a difference; each run prints one line saying what it did.
     schedule: "41 */12 * * *"
     catchUpSeconds: 43200
+    deadlineSeconds: 1800
+    # The dispatcher starts it on that schedule, its CronJob a suspended
+    # template (ADR 0059). Above the admission rule's threshold and in the
+    # places kept for scheduled work: it uses no model.
+    dispatched: false
+    priority: 100
     # The registry's host as the job reaches it, where that is not how a
     # node does: a registry on a node's own loopback is reached from a pod
     # at an address of the node's. Put in place of the host in agent.image
@@ -336,6 +349,12 @@ dreamer:
   # A night's run that was missed is still started up to this long after
   # its time; later than that, the next night's run is soon enough.
   catchUpSeconds: 43200
+  # The dispatcher starts it on that schedule, its CronJob a suspended
+  # template (ADR 0059); `dreamer on|off` then says whether it does. Above
+  # the admission rule's threshold, so that a high window does not starve
+  # it (its own budget bounds it), and in the places kept for scheduled work.
+  dispatched: false
+  priority: 60
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}
@@ -365,8 +384,14 @@ dreamer:
 backup:
   # Off until there is somewhere outside the cluster to keep the copies.
   enabled: false
-  # After the dreamer, so that a night's copy has that night's tidying (UTC).
+  # After the dreamer, so that a night's copy has that night's tidying (UTC):
+  # its time and deadline are the order, which nothing else states.
   schedule: "47 10 * * *"
+  # The dispatcher starts it on that schedule, its CronJob a suspended
+  # template (ADR 0059). It uses no model: never held, and in the places
+  # kept for scheduled work.
+  dispatched: false
+  priority: 100
   # Where the copies are kept: a restic repository, in a store the platform
   # gives. A bucket that speaks S3 (s3:https://HOST/BUCKET/PATH), a cloud's
   # own (gs:BUCKET:/PATH) or, for a trial, a directory.
