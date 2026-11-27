@@ -210,9 +210,19 @@ type Check struct {
 	Attached string `json:"attached,omitempty"`
 	Matches  string `json:"matches,omitempty"`
 	Not      bool   `json:"not,omitempty"`
+	// NoCall: the task made no call of this command that went through.
+	NoCall string `json:"no_call,omitempty"`
 }
 
 func (c Check) holds(task string, s State) (bool, error) {
+	if c.NoCall != "" {
+		for _, call := range s.Calls {
+			if call.Task == task && call.Code == 0 && len(call.Argv) > 0 && call.Argv[0] == c.NoCall {
+				return false, nil
+			}
+		}
+		return true, nil
+	}
 	if c.Fact != "" {
 		facts := s.Facts
 		if after, ok := s.After[task]; ok {
@@ -270,7 +280,7 @@ func Score(tasks []Task, s State) ([]Result, error) {
 			}
 			r.Pass = r.Pass && ok
 			if !ok {
-				r.Failed = append(r.Failed, or(c.Fact, c.Attached))
+				r.Failed = append(r.Failed, or(or(c.Fact, c.Attached), "no "+c.NoCall))
 			}
 		}
 		for _, c := range t.Stale {

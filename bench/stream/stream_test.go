@@ -95,7 +95,7 @@ func (k knowing) work(task Task) {
 		k.do("attach", "change", strings.Fields(k.do("change", "open", "search"))[1])
 	case strings.Contains(ticket, "name count"):
 		k.do("attach", "count", "3")
-	case strings.Contains(ticket, "name about"):
+	case strings.Contains(ticket, `name "about"`):
 		k.do("attach", "about", "The ledger keeps the accounts.\nPayments write to it.")
 	case strings.Contains(ticket, "release note"):
 		k.do("attach", "release-note", "A release.\nIt has changes.\nReviewed-by: platform")

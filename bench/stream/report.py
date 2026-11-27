@@ -61,10 +61,14 @@ later = lambda r, rule, l: not l["met"]
 row("a lesson needed again: followed", lambda a: rate(sum(l["used"] for _, _, l in pairs(a, later)), len(pairs(a, later))))
 row("  refusals each time", lambda a: "%.2f" % (sum(l["refused"] for _, _, l in pairs(a, later)) / max(1, len(pairs(a, later)))))
 row("  at its first meeting: refusals", lambda a: "%.2f" % (sum(l["refused"] for _, _, l in pairs(a, lambda r, rule, l: l["met"])) / max(1, len(pairs(a, lambda r, rule, l: l["met"])))))
-row("  had it and followed it", lambda a: rate(sum(1 for _, _, l in pairs(a, later) if l["had"] and l["used"]), len(pairs(a, later))))
-row("  had it, did not follow", lambda a: rate(sum(1 for _, _, l in pairs(a, later) if l["had"] and not l["used"]), len(pairs(a, later))))
-row("  did not have it, followed", lambda a: rate(sum(1 for _, _, l in pairs(a, later) if not l["had"] and l["used"]), len(pairs(a, later))))
-row("  did not have it, did not", lambda a: rate(sum(1 for _, _, l in pairs(a, later) if not l["had"] and not l["used"]), len(pairs(a, later))))
+# What a session was given is read from the memory service's log: an arm
+# whose memory is not that service's (none, the harness's own) has no such record.
+logged = lambda a: a in ("notes", "tidied")
+had = lambda a, h, u: rate(sum(1 for _, _, l in pairs(a, later) if l["had"] == h and l["used"] == u), len(pairs(a, later))) if logged(a) else "not recorded"
+row("  had it and followed it", lambda a: had(a, True, True))
+row("  had it, did not follow", lambda a: had(a, True, False))
+row("  did not have it, followed", lambda a: had(a, False, True))
+row("  did not have it, did not", lambda a: had(a, False, False))
 
 
 def refused(a, *names):
