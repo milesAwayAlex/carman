@@ -196,7 +196,9 @@ message vouched for by the dispatcher, which is the surveyor's only way
 to another agent; with `improvement.send` off it is recorded with its
 text and not sent. The owner is told in one line, at most once a day,
 that items wait for his decision; with `improvement.notify` off the line
-is recorded only. Nothing is merged or deployed by the loop.
+is recorded only. Nothing is merged or deployed by the loop. The surveyor
+reads what others wrote, so it is held to the one command it uses,
+`dispatcher improve` (ADR 0061, proposed).
 
 ### Worker details (proposed)
 
@@ -677,7 +679,8 @@ Decisions are recorded one per file in `docs/adr/`. The index,
    It reads the installation's definitions and may be given read-only MCP
    tools to check a claim; it is told its limits (ADR 0044). (2026-11-25)
    It may also be given command prefixes that only read, such as
-   `gh pr view` (ADR 0046, proposed).
+   `gh pr view` (ADR 0046, proposed). Any agent may be held the same
+   way, by naming its tools in its entry (ADR 0061, proposed).
    Not yet: distilling long documents, a comparison of models, a check on
    unattended runs.
 8. Walking skeleton of the task path: one trigger, one worker, one verifier,
