@@ -4,6 +4,8 @@
 {{- $renewed := list }}{{- range $renewals }}{{- $renewed = append $renewed .key }}{{- end }}
 {{- $hosts := list }}{{- $keys := list }}
 {{- range $creds }}{{- $hosts = append $hosts .host }}{{- if not (has .key $renewed) }}{{- $keys = append $keys .key }}{{- end }}{{- end }}
+{{- $model := include "egress.model" . }}
+{{- if $model }}{{- $hosts = append $hosts .Values.egress.model.host }}{{- end }}
 # The egress proxy: the one way out of the cluster for agent pods (ADR 0031).
 # Today it passes every connection through and logs where it went. It is
 # where credentials for outside services will be attached, so that an agent
@@ -49,6 +51,33 @@ spec:
       targetPort: proxy
 ---
 {{ include "pod.account" (dict "name" "egress" "root" .) }}
+{{- if $model }}
+---
+# The meter reads which pod has which address, and nothing else.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: egress-meter
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: egress-meter
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: egress-meter
+subjects:
+  - kind: ServiceAccount
+    name: egress
+    namespace: {{ .Release.Namespace }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -68,6 +97,10 @@ spec:
     metadata:
       labels:
         app: egress
+        {{- if $model }}
+        # To the dispatcher, this pod is the meter of model use (ADR 0050).
+        dispatcher-role: meter
+        {{- end }}
         {{- with (include "pod.labels" .) }}{{ . | trim | nindent 8 }}{{- end }}
       annotations:
         # A changed configuration restarts the proxy.
@@ -131,6 +164,60 @@ spec:
               mountPath: /home/agent
               subPath: {{ .key }}
         {{- end }}
+        {{- if $model }}
+        # The meter (ADR 0050): the proxy hands it every request to the
+        # model's API with the address it came from. It refuses an address
+        # that is no agent's pod, puts the model's credential on the rest,
+        # and records what each pod used, in the dispatcher's log. Only this
+        # container has the credential; agents reach the proxy's port and
+        # nothing else in this pod, and the meter answers only inside it.
+        - name: meter
+          image: {{ .Values.egress.model.image | default (required "dispatcher.image is required" .Values.dispatcher.image) }}
+          imagePullPolicy: IfNotPresent
+          command: ["dispatcher", "meter"]
+          env:
+            - name: METER_LISTEN
+              value: "127.0.0.1:{{ .Values.egress.model.port }}"
+            - name: METER_UPSTREAM
+              value: "https://{{ .Values.egress.model.host }}"
+            - name: METER_CREDENTIAL_FILE
+              value: /etc/meter/credential/token
+            - name: METER_IDLE
+              value: {{ .Values.egress.model.idle | quote }}
+            - name: METER_LONGEST
+              value: {{ .Values.egress.model.longest | quote }}
+            {{- if .Values.egress.model.shapes }}
+            - name: METER_SHAPES
+              value: "on"
+            {{- end }}
+            {{- if .Values.dispatcher.enabled }}
+            - name: DISPATCHER_URL
+              value: http://dispatcher.{{ .Release.Namespace }}.svc:{{ .Values.dispatcher.service.port }}
+            - name: DISPATCHER_TOKEN_FILE
+              value: /var/run/secrets/dispatcher/token
+            {{- end }}
+          resources:
+            {{- toYaml .Values.egress.model.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: model-credential
+              mountPath: /etc/meter/credential
+              readOnly: true
+            # The pod's account, to read which pod has which address; the
+            # rest of the pod has no account token.
+            - name: meter-account
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+            {{- if .Values.dispatcher.enabled }}
+            - name: dispatcher-identity
+              mountPath: /var/run/secrets/dispatcher
+              readOnly: true
+            {{- end }}
+        {{- end }}
         - name: envoy
           image: {{ .Values.egress.image }}
           imagePullPolicy: IfNotPresent
@@ -160,6 +247,8 @@ spec:
             - name: credentials
               mountPath: /etc/envoy/credentials
               readOnly: true
+            {{- end }}
+            {{- if or $creds $model }}
             - name: tls
               mountPath: /etc/envoy/tls
               readOnly: true
@@ -181,11 +270,43 @@ spec:
         - name: credentials
           secret:
             secretName: {{ .Values.egress.credentialsSecret }}
+        {{- end }}
+        {{- if or $creds $model }}
         # The certificate the proxy answers with, issued by scripts/deploy.sh
         # from an authority of this installation.
         - name: tls
           secret:
             secretName: egress-tls
+        {{- end }}
+        {{- if $model }}
+        - name: model-credential
+          secret:
+            secretName: {{ .Values.agent.modelSecret }}
+            items: [{key: token, path: token}]
+        - name: meter-account
+          projected:
+            sources:
+              - serviceAccountToken:
+                  expirationSeconds: 3600
+                  path: token
+              - configMap:
+                  name: kube-root-ca.crt
+                  items: [{key: ca.crt, path: ca.crt}]
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef: {fieldPath: metadata.namespace}
+        {{- if .Values.dispatcher.enabled }}
+        # A token the cluster makes for this pod to show the dispatcher,
+        # which knows it as the meter by the pod's label.
+        - name: dispatcher-identity
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: dispatcher
+                  expirationSeconds: 3600
+                  path: token
+        {{- end }}
         {{- end }}
 ---
 # An agent pod may talk to the memory service, the egress proxy and the
@@ -274,6 +395,26 @@ spec:
       ports:
         - {protocol: UDP, port: 53}
         - {protocol: TCP, port: 53}
+    {{- if $model }}
+    # The meter (ADR 0050): the dispatcher, where it records model use, and
+    # the cluster's API, where it reads which pod has which address.
+    {{- if .Values.dispatcher.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: dispatcher
+      ports:
+        - {protocol: TCP, port: {{ .Values.dispatcher.service.port }}}
+    {{- end }}
+    {{- with .Values.agent.sandbox.api.addresses }}
+    - to:
+        {{- range . }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: {{ $.Values.agent.sandbox.api.port }}}
+    {{- end }}
+    {{- end }}
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

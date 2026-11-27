@@ -173,8 +173,11 @@ type Cluster interface {
 // vouches for it, or the owner's own machine (Host, ADR 0049), whose Agent
 // is the place's name. The session a caller names is its own claim.
 type Caller struct {
-	Owner  bool
-	Host   bool
+	Owner bool
+	Host  bool
+	// Meter is the egress proxy's pod (ADR 0050), which may only say what
+	// agents used of the model.
+	Meter  bool
 	Agent  string
 	Pod    string
 	PodUID string

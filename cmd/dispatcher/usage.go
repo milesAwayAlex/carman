@@ -14,11 +14,13 @@ import (
 	"os"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"carman/internal/dispatch"
 	"carman/internal/dispatch/api"
+	"carman/internal/dispatch/meter"
 )
 
 // Usage readings in the log.
@@ -180,6 +182,13 @@ func standing(ctx context.Context, c *api.Client) error {
 		}
 		fmt.Printf("  runs, %s: $%.2f: %s\n", p.name, total, strings.Join(parts, ", "))
 	}
+	var seen []api.Record
+	if err := c.Do(ctx, http.MethodGet, "/v1/events", url.Values{"type": {meter.TypeModelUsage}, "last": {"2000"}}, nil, &seen); err != nil {
+		return err
+	}
+	for _, l := range modelStanding(now, runs, seen) {
+		fmt.Println(l)
+	}
 	return nil
 }
 
@@ -233,4 +242,195 @@ func observe(ctx context.Context, c *api.Client, flags map[string][]string) erro
 	}
 	fmt.Printf("recorded usage.observed: %s; the reading cost $%.4f\n", strings.Join(parts, ", "), cost)
 	return nil
+}
+
+// tokenKinds are the kinds of token a run reports and the proxy records,
+// as the model's API names them, with a short name for a line.
+var tokenKinds = [][2]string{
+	{"input_tokens", "in"}, {"output_tokens", "out"},
+	{"cache_creation_input_tokens", "cache write"}, {"cache_read_input_tokens", "cache read"},
+}
+
+type tokens map[string]int64
+
+func (t tokens) add(o map[string]int64) {
+	for _, k := range tokenKinds {
+		t[k[0]] += o[k[0]]
+	}
+}
+
+func (t tokens) String() string {
+	var parts []string
+	for _, k := range tokenKinds {
+		parts = append(parts, fmt.Sprintf("%s %s", k[1], count(t[k[0]])))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func count(n int64) string {
+	switch {
+	case n >= 10_000_000:
+		return fmt.Sprintf("%.0fM", float64(n)/1e6)
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1e6)
+	case n >= 10_000:
+		return fmt.Sprintf("%.0fk", float64(n)/1e3)
+	}
+	return strconv.FormatInt(n, 10)
+}
+
+// agrees says whether a run's own count and the proxy's are the same, to
+// within a token in a thousand.
+func agrees(run, seen tokens) bool {
+	for _, k := range tokenKinds {
+		a, b := run[k[0]], seen[k[0]]
+		d := a - b
+		if d < 0 {
+			d = -d
+		}
+		if d > max(a, b)/1000 {
+			return false
+		}
+	}
+	return true
+}
+
+// modelStanding is what the egress proxy saw of the model (ADR 0050), by
+// agent, beside what the runs said of themselves: model.usage records are
+// the proxy's, run.usage the runs'. A run is set against the proxy's
+// record of the pod it ran in; where they disagree, both are shown. The
+// proxy's record of a pod comes a few minutes after its last request.
+func modelStanding(now time.Time, runs, seen []api.Record) []string {
+	type use struct {
+		tokens   tokens
+		requests int64
+		refused  int64
+	}
+	five, seven := map[string]*use{}, map[string]*use{}
+	byPod := map[string]tokens{}
+	lastSeen := map[string]time.Time{}
+	var refused int64
+	refusedFrom := map[string]bool{}
+	for _, r := range seen {
+		var u struct {
+			Agent    string           `json:"agent"`
+			Pod      string           `json:"pod"`
+			Requests int64            `json:"requests"`
+			Refused  int64            `json:"refused"`
+			Address  string           `json:"address"`
+			Tokens   map[string]int64 `json:"tokens"`
+		}
+		_ = json.Unmarshal(r.Data, &u)
+		if now.Sub(r.Time) > 7*24*time.Hour {
+			continue
+		}
+		if u.Agent == "" {
+			refused += u.Refused
+			refusedFrom[u.Address] = true
+			continue
+		}
+		for _, p := range []struct {
+			m   map[string]*use
+			ago time.Duration
+		}{{five, 5 * time.Hour}, {seven, 7 * 24 * time.Hour}} {
+			if now.Sub(r.Time) <= p.ago {
+				if p.m[u.Agent] == nil {
+					p.m[u.Agent] = &use{tokens: tokens{}}
+				}
+				p.m[u.Agent].tokens.add(u.Tokens)
+				p.m[u.Agent].requests += u.Requests
+			}
+		}
+		if u.Pod != "" {
+			if byPod[u.Pod] == nil {
+				byPod[u.Pod] = tokens{}
+			}
+			byPod[u.Pod].add(u.Tokens)
+			if r.Time.After(lastSeen[u.Pod]) {
+				lastSeen[u.Pod] = r.Time
+			}
+		}
+	}
+	var out []string
+	if len(seen) == 0 {
+		return []string{"  model use at the proxy: no record (agent.modelCredential is pod, or nothing has asked yet)"}
+	}
+	for _, p := range []struct {
+		name string
+		m    map[string]*use
+	}{{"last five hours", five}, {"last seven days", seven}} {
+		var parts []string
+		for _, a := range slices.Sorted(maps.Keys(p.m)) {
+			parts = append(parts, fmt.Sprintf("%s (%s; %d requests)", a, p.m[a].tokens, p.m[a].requests))
+		}
+		if len(parts) == 0 {
+			parts = []string{"none"}
+		}
+		out = append(out, fmt.Sprintf("  model use at the proxy, %s: %s", p.name, strings.Join(parts, "; ")))
+	}
+	if refused > 0 {
+		out = append(out, fmt.Sprintf("  refused at the proxy, last seven days: %d requests, from %s (no agent's pod)",
+			refused, strings.Join(slices.Sorted(maps.Keys(refusedFrom)), ", ")))
+	}
+	// Runs, by the pod they ran in, against the proxy's record of it.
+	type run struct {
+		agent    string
+		routines []string
+		tokens   tokens
+		ended    time.Time
+	}
+	pods := map[string]*run{}
+	for _, r := range runs {
+		var u struct {
+			Agent   string           `json:"agent"`
+			Pod     string           `json:"pod"`
+			Routine string           `json:"routine"`
+			Tokens  map[string]int64 `json:"tokens"`
+			Ended   time.Time        `json:"ended"`
+		}
+		_ = json.Unmarshal(r.Data, &u)
+		if u.Pod == "" || now.Sub(r.Time) > 7*24*time.Hour {
+			continue
+		}
+		if pods[u.Pod] == nil {
+			pods[u.Pod] = &run{agent: u.Agent, tokens: tokens{}}
+		}
+		p := pods[u.Pod]
+		p.routines = append(p.routines, u.Routine)
+		p.tokens.add(u.Tokens)
+		if u.Ended.After(p.ended) {
+			p.ended = u.Ended
+		}
+	}
+	agree, unseen := 0, 0
+	var differ []string
+	for _, name := range slices.Sorted(maps.Keys(pods)) {
+		p := pods[name]
+		s, ok := byPod[name]
+		switch {
+		case !ok && now.Sub(p.ended) < 5*time.Minute:
+			differ = append(differ, fmt.Sprintf("    %s (%s: %s): ended %s ago; the proxy's record of it is not in yet",
+				name, p.agent, strings.Join(p.routines, ", "), now.Sub(p.ended).Round(time.Second)))
+		case !ok:
+			unseen++
+		case agrees(p.tokens, s):
+			agree++
+		default:
+			note := ""
+			if now.Sub(lastSeen[name]) < 5*time.Minute {
+				note = " (the proxy's record may not be complete yet)"
+			}
+			differ = append(differ, fmt.Sprintf("    %s (%s: %s) DISAGREES%s:\n      the run says  %s\n      the proxy saw %s",
+				name, p.agent, strings.Join(p.routines, ", "), note, p.tokens, s))
+		}
+	}
+	if len(pods) > 0 {
+		line := fmt.Sprintf("  runs against the proxy's record, last seven days: %d agree", agree)
+		if unseen > 0 {
+			line += fmt.Sprintf(", %d ran where the proxy recorded nothing (before ADR 0050, or with the credential in the pod)", unseen)
+		}
+		out = append(out, line)
+		out = append(out, differ...)
+	}
+	return out
 }

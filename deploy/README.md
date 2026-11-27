@@ -362,6 +362,52 @@ there. The renewal says in its log when the service ends the sign-in; do
 the same again then. An agent reaches the service as any other, for example
 as an MCP server by its address.
 
+### The model's credential, and what each agent used
+
+The model's credential can be held at the proxy too (ADR 0050), by one
+switch in the values:
+
+    agent:
+      modelCredential: proxy    # pod (as before), both, or proxy
+
+- `pod`: every agent pod has the credential from `agent.modelSecret` in its
+  environment, and calls to the model go through the proxy as a tunnel it
+  cannot read. The chart renders exactly as before ADR 0050.
+- `both`: a meter beside the proxy, in the dispatcher's image, puts the
+  credential on every request to `egress.model.host`, and pods still hold
+  it. For trying the proxy's way with nothing taken away.
+- `proxy`: as `both`, and agent pods have a placeholder
+  (`agent.modelPlaceholder`) in its place. The harness takes any value.
+
+Going back is `pod` and a deploy; a pod made under `proxy` keeps the
+placeholder until it is made again. The standing agent's pod is replaced
+only by hand: it keeps whatever it had until `scripts/deploy.sh CONTEXT
+agent restart NAME`.
+
+The meter knows the caller by the pod's address, from the cluster (it may
+read pods in the namespace, and reaches the cluster's API at
+`agent.sandbox.api`, which the network policy needs where
+`egress.closedTo` closes it). A request from an address that is no agent's
+pod (no label `agent`, no `AGENT_NAME`) is refused with 403 and counted. A
+header that claims another address is not believed. What each agent's pod
+used, by model and kind of token, is a line in the meter's log and a
+`model.usage` event in the dispatcher's log, one for each pod and model when
+the pod has been quiet for `egress.model.idle` (2m) or has been asking for
+`egress.model.longest` (15m):
+
+    kubectl --context CONTEXT -n NAMESPACE logs deploy/egress -c meter
+    scripts/deploy.sh CONTEXT dispatch status      # by agent, and each run against it
+    scripts/deploy.sh CONTEXT dispatch log --type model.usage --last 20
+
+`dispatch status` sets each run's own `run.usage` against the proxy's
+record of the pod it ran in, and shows both where they differ. Measured
+2026-11-26: they agreed to the token, for a consolidation run and for each
+trial request (the hourly reading reports a cost, not tokens). The model is reached only while the proxy and its meter are
+up, and the proxy's pod restarts when the dispatcher's image changes.
+`egress.model.shapes: true` logs the names of the headers, events and
+fields of usage that pass, never their values: how the harness was looked
+at when this was built.
+
 Services you run on the cluster for your agents (a database, a cache) are
 reached directly: name their namespaces under `agent.namespaces`, and every
 agent pod may reach the pods there. Everything else still goes through the
@@ -595,14 +641,19 @@ DISPATCHER_HOOK=off claude -p 'PROMPT'                 # only the dispatcher's
 claude --setting-sources project,local -p 'PROMPT'     # none of the user settings: no hooks, no permissions, no env
 ```
 
-Such a harness has **no model credential**: the pod has one
-(`CLAUDE_CODE_OAUTH_TOKEN`, from `agent.modelSecret`), and the harness
-removes it, with the other model credentials it knows, from the
-environment of every command it runs. A trial that needs a model does not
-run from inside a run yet. The way that keeps the credential out of every
-process would be the one the other services have (ADR 0031): the egress
-proxy adds the model credential to requests for the model's API, and the
-pods hold none, so a child harness needs only a placeholder.
+Such a harness has **no model credential** of its own: the harness removes
+`CLAUDE_CODE_OAUTH_TOKEN`, with the other model credentials it knows, from
+the environment of every command it runs. Where the proxy holds the
+model's credential (`agent.modelCredential: proxy`, ADR 0050) a child
+harness needs only a placeholder, any value, and is counted as its pod's
+agent:
+
+```
+CLAUDE_CODE_OAUTH_TOKEN=held-by-the-egress-proxy CMEM_HOOK=off claude -p 'PROMPT'
+```
+
+Under `pod` the pod's credential is in its first process's environment
+and a trial that needs a model does not run from inside a run.
 
  (`scripts/deploy.sh CONTEXT agent restart NAME`); the dreamer
 has none yet.

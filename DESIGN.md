@@ -44,9 +44,12 @@ Notes on billing:
 - Anthropic's legal page steers "products or services" built on the Agent SDK
   toward API keys, and says plan limits assume "ordinary, individual usage".
   The owner has made the call; this note records the risk.
-- The credential is a token from `claude setup-token`, mounted as
-  `CLAUDE_CODE_OAUTH_TOKEN`. `ANTHROPIC_API_KEY` must not be set in the pod:
-  headless mode uses a key whenever one is present.
+- The credential is a token from `claude setup-token`. Agent pods have
+  `CLAUDE_CODE_OAUTH_TOKEN` set to a placeholder, and the egress proxy's
+  meter puts the token on each request to the model (ADR 0050, proposed;
+  `agent.modelCredential: proxy`; `pod` puts it back in their environment).
+  `ANTHROPIC_API_KEY` must not be set in the pod: headless mode uses a key
+  whenever one is present.
 - Any component that calls a model on its own would need a separate provider.
   This is one reason the memory service calls no model (ADR 0006).
 - The subscription has a monthly spend limit per model, and background agents
@@ -152,6 +155,10 @@ expired by then.
   (`usage.observed`, the cheapest model asked for one word) and each
   routine run's cost and last reading (`run.usage`), as events in the
   dispatcher's log kept for the period of events that belong to no task.
+  The proxy's own record of every agent's model use (`model.usage`, ADR
+  0050) is the count that does not depend on what an agent says; the
+  answers it passes also carry the windows in their headers, which could
+  replace the hourly reading.
 - Where the policy acts: the dispatcher's admission, asked before each start
   with what is running; a task it holds says why.
 - Policy: urgent tasks always run. Backlog tasks run only while utilization is
@@ -420,6 +427,16 @@ which are the weakest parts. Three things are meant to keep that manageable:
   tag it moves. Its start links that copy where the installer would have put
   it, and installs as before when the copy is missing or does not run. An
   interactive agent keeps its own copy.
+- Agents leave the cluster only through the egress proxy, which holds every
+  credential and puts it on the request for its own host (ADR 0031, 0035).
+  The model's credential is held by a meter beside the proxy (ADR 0050,
+  proposed): the proxy hands it every request to the model's API with the
+  caller's address, the meter refuses an address that is no agent's pod of
+  the namespace, puts the credential on the rest, and adds up from the
+  answers what each agent's pod used, by model and kind of token. Those
+  records reach the dispatcher's log as `model.usage`, from the proxy's pod
+  as the meter role, never through an agent; `dispatch status` shows them
+  by agent beside what runs say of themselves, and where the two disagree.
 - Beside the proxy and the memory, agents reach the namespaces the
   installation names for its own services, and have one namespace where
   they may run what a task needs, bounded by a quota and closed to the

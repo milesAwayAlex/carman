@@ -61,6 +61,14 @@ Built so far:
   and can be given plugins, MCP servers, a cloud
   identity and commands of the installation's own.
 
+- The model's credential at the proxy (ADR 0050, proposed): with
+  `agent.modelCredential: proxy` agent pods hold a placeholder, and a meter
+  beside the proxy puts the credential on each request to the model. It
+  knows the caller by its pod's address, refuses a pod that is no agent's,
+  and records what each agent's pod used, by model and kind of token, as
+  `model.usage` in the dispatcher's log; `dispatch status` sets each run's
+  own report against it. `pod` puts the credential back in the pods.
+
 - The owner's attention (ADR 0036): an agent tells the owner with the
   installation's `notify-owner` command, and a job's conversation is kept
   so that the owner can resume it as the agent that had it, in a pod of

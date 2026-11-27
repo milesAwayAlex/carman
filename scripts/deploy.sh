@@ -456,7 +456,9 @@ EOF
     # the manifest: a deploy leaves it as it was, and off the first time.
     dreaming="$("${kube[@]}" get cronjob dreamer -o 'jsonpath={.spec.suspend}' 2>/dev/null || true)"
     # What the egress proxy is to hold a credential for, from the values.
-    egress="$(helm template carman charts/carman --namespace "$namespace" "${chart_values[@]}" --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 --show-only templates/egress.yaml 2>/dev/null || true)"
+    # Images with a registry: a warm image (agent.warm) refuses one without.
+    egress="$(helm template carman charts/carman --namespace "$namespace" "${chart_values[@]}" --set memory.image=registry.invalid/m:0 --set agent.image=registry.invalid/a:0 --set dispatcher.image=registry.invalid/d:0 --show-only templates/egress.yaml)" ||
+        die "the egress proxy's settings do not render; see above"
     egress_hosts="$(printf '%s\n' "$egress" | sed -n 's/^  hosts: "\(.*\)"$/\1/p')"
     egress_keys="$(printf '%s\n' "$egress" | sed -n 's/^  keys: "\(.*\)"$/\1/p')"
     if [ -n "$egress_hosts" ]; then
@@ -524,6 +526,11 @@ EOF
     printf '%s\n' "$rendered" | kubectl --context "$context" apply -f -   # every object names its namespace; one is not this one
     # Applying does not remove what the values no longer ask for.
     [ -n "$warm_ref" ] || "${kube[@]}" delete cronjob/agent-warm networkpolicy/warm-job-reaches-the-registry serviceaccount/agent-warm --ignore-not-found >/dev/null
+    # The meter's right to read pods, where the proxy no longer holds the
+    # model's credential (agent.modelCredential pod, ADR 0050).
+    # (grep reads to the end: one that stops early fails the pipe.)
+    printf '%s\n' "$rendered" | grep '^  name: egress-meter$' >/dev/null ||
+        "${kube[@]}" delete rolebinding/egress-meter role/egress-meter --ignore-not-found >/dev/null
     "${kube[@]}" rollout status statefulset/cmem --timeout=120s
     if "${kube[@]}" get deployment dispatcher >/dev/null 2>&1; then
         ! "${kube[@]}" get statefulset dispatcher-db >/dev/null 2>&1 || "${kube[@]}" rollout status statefulset/dispatcher-db --timeout=180s

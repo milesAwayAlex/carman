@@ -148,6 +148,17 @@ agent:
   image: ""
   # The secret holding the harness's model credential, under the key `token`.
   modelSecret: model-credential
+  # Who holds that credential (ADR 0050):
+  #   pod    every agent pod has it in its environment, and the proxy passes
+  #          calls to the model through untouched, as before ADR 0050. The
+  #          way back.
+  #   both   the egress proxy's meter puts it on every request to the model
+  #          and records what each agent's pod used; pods still have it.
+  #          For trying the proxy's way before pods give it up.
+  #   proxy  only the meter has it; agent pods have modelPlaceholder.
+  modelCredential: pod
+  # What an agent pod has in its place, under proxy. Not a secret.
+  modelPlaceholder: sk-ant-oat01-held-by-the-egress-proxy
   # What every agent is given, beside what its own entry says: environment
   # variables (placeholders, never credentials), directories of the node
   # mounted at the same path, and groups of the node (see an agent's
@@ -396,6 +407,27 @@ egress:
   #     - {host: api.example.com, key: example}
   credentials: []
   credentialsSecret: egress-credentials
+  # The model's API, when the proxy holds its credential
+  # (agent.modelCredential both or proxy, ADR 0050). A meter beside the
+  # proxy, in the dispatcher's image, puts the credential on each request
+  # and adds up what each agent's pod used, by model and kind of token, as
+  # a model.usage event in the dispatcher's log for each pod and model: one
+  # when the pod has asked nothing for `idle`, or has been asking for
+  # `longest`. It reads which pod has which address from the cluster's API
+  # (agent.sandbox.api names that API's addresses where egress.closedTo
+  # would close them).
+  model:
+    host: api.anthropic.com
+    port: 3130
+    image: ""            # dispatcher.image unless set
+    idle: 2m
+    longest: 15m
+    # Log the names of what passes (headers, events, fields of usage),
+    # never their values.
+    shapes: false
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+      limits: {memory: 256Mi}
   # Credentials that do not last: for a host listed above, a command that is
   # run beside the proxy every so often and prints the header value to use
   # (for example a tool that keeps a sign-in and prints the hour's token).

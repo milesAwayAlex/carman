@@ -8,6 +8,7 @@
 //	dispatcher log [--after N] [--type T] [--limit N] [--last N]
 //	dispatcher dump > FILE                the database, as SQL that psql restores
 //	HARNESS | dispatcher reading [--model M]   record the account's usage from a harness's stream-json
+//	dispatcher meter                      the egress proxy's meter of model use (ADR 0050; settings in meter.go)
 //
 // The client reads DISPATCHER_URL and DISPATCHER_TOKEN. The service reads
 // DISPATCHER_TOKENS (role=token,...), DISPATCHER_LISTEN (:8379), the
@@ -70,6 +71,7 @@ dispatcher status [ID]
 dispatcher log [--after N] [--type T] [--limit N] [--last N]
 dispatcher dump > FILE
 HARNESS --output-format stream-json --verbose | dispatcher reading [--model M]
+dispatcher meter                          the egress proxy's meter of model use (ADR 0050)
 
 Messages (ADR 0045), as this session (DISPATCHER_SESSION) or as the owner;
 on the owner's machine (ADR 0049) with DISPATCHER_URL, DISPATCHER_TOKEN (the
@@ -90,6 +92,9 @@ func run(ctx context.Context, args []string) error {
 	}
 	if args[0] == "serve" {
 		return serve(ctx)
+	}
+	if args[0] == "meter" {
+		return meterCmd(ctx)
 	}
 	if args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 		fmt.Println(usage)

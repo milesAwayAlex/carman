@@ -70,11 +70,7 @@ containers:
           secretKeyRef:
             name: {{ $root.Values.memory.tokensSecret }}
             key: {{ .memoryRole | default (ternary "laptop" "worker" (default false .interactive)) }}
-      - name: CLAUDE_CODE_OAUTH_TOKEN
-        valueFrom:
-          secretKeyRef:
-            name: {{ $root.Values.agent.modelSecret }}
-            key: token
+      {{- include "agent.modelCredential" $root | nindent 6 }}
       # Who this is, for whatever it says about itself.
       {{- with $root.Values.agent.sandbox.namespace }}
       - name: AGENT_SANDBOX

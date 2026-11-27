@@ -73,6 +73,8 @@ func TestR2Identity(t *testing.T) {
 		"pod-env":  `{"metadata":{"name":"pod-env","uid":"u-e"},"spec":{"containers":[{"env":[{"name":"AGENT_NAME","value":"desk"}]}]},"status":{"phase":"Running"}}`,
 		"pod-none": `{"metadata":{"name":"pod-none","uid":"u-n"},"status":{"phase":"Running"}}`,
 		"pod-done": `{"metadata":{"name":"pod-done","uid":"u-d","labels":{"agent":"trial"}},"status":{"phase":"Succeeded"}}`,
+		"egress":   `{"metadata":{"name":"egress","uid":"u-m","labels":{"dispatcher-role":"meter"}},"status":{"phase":"Running"}}`,
+		"pod-both": `{"metadata":{"name":"pod-both","uid":"u-b","labels":{"agent":"trial","dispatcher-role":"meter"}},"status":{"phase":"Running"}}`,
 	})
 	v := &Verifier{Client: cl}
 	ctx := context.Background()
@@ -83,6 +85,14 @@ func TestR2Identity(t *testing.T) {
 	}
 	if who, err := v.Verify(ctx, token(t, key, "k1", podClaims("dispatcher", "carman", "pod-env", "u-e", soon))); err != nil || who.Agent != "desk" {
 		t.Errorf("an agent by its AGENT_NAME: %+v, %v", who, err)
+	}
+	// The egress proxy's pod is the meter (ADR 0050); an agent's pod that
+	// says it is the meter is still the agent.
+	if who, err := v.Verify(ctx, token(t, key, "k1", podClaims("dispatcher", "carman", "egress", "u-m", soon))); err != nil || !who.Meter || who.Agent != "" {
+		t.Errorf("the meter's pod: %+v, %v", who, err)
+	}
+	if who, err := v.Verify(ctx, token(t, key, "k1", podClaims("dispatcher", "carman", "pod-both", "u-b", soon))); err != nil || who.Meter || who.Agent != "trial" {
+		t.Errorf("an agent's pod labelled as the meter: %+v, %v", who, err)
 	}
 	for name, tok := range map[string]string{
 		"another audience":    token(t, key, "k1", podClaims([]string{"https://kubernetes.default.svc"}, "carman", "pod-a", "u-a", soon)),

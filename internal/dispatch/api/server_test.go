@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -146,5 +147,57 @@ func TestR2HostRole(t *testing.T) {
 	}
 	if _, err := ParseTokens("owner=o,host=h"); err != nil {
 		t.Errorf("a host token: %v", err)
+	}
+}
+
+// TestR10MeterRole: the egress proxy's pod (ADR 0050) may emit what agents
+// used of the model and nothing else; nobody else but the owner may emit
+// model.*, so an agent cannot add to or answer for the proxy's record.
+func TestR10MeterRole(t *testing.T) {
+	store := &fakeStore{}
+	s := &Server{
+		Store:  store,
+		Tokens: map[string]Role{"o": RoleOwner, "a": RoleAgent},
+		Verify: func(_ context.Context, tok string) (message.Caller, error) {
+			switch tok {
+			case "meter.pod.token":
+				return message.Caller{Meter: true, Pod: "egress-1"}, nil
+			case "agent.pod.token":
+				return message.Caller{Agent: "dreamer", Pod: "dreamer-1"}, nil
+			}
+			return message.Caller{}, errors.New("no")
+		},
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	call := func(token, method, path, body string) int {
+		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	for _, c := range []struct {
+		token, method, path, body string
+		want                      int
+	}{
+		{"meter.pod.token", "POST", "/v1/events", `{"id":"u1","type":"model.usage","subject":"dreamer","source":"proxy"}`, 200},
+		{"meter.pod.token", "POST", "/v1/events", `{"type":"run.usage","subject":"dreamer"}`, 403},
+		{"meter.pod.token", "GET", "/v1/events", "", 403},
+		{"meter.pod.token", "GET", "/v1/inbox", "", 403},
+		{"agent.pod.token", "POST", "/v1/events", `{"type":"model.usage","subject":"dreamer"}`, 403},
+		{"a", "POST", "/v1/events", `{"type":"model.usage","subject":"dreamer"}`, 403},
+		{"o", "POST", "/v1/events", `{"type":"model.usage","subject":"dreamer"}`, 200},
+	} {
+		if got := call(c.token, c.method, c.path, c.body); got != c.want {
+			t.Errorf("%s %s %s as %s: %d, want %d", c.method, c.path, c.body, c.token, got, c.want)
+		}
+	}
+	if len(store.emitted) != 2 || store.emitted[0].ID != "meter/u1" || store.emitted[0].Source != "meter/proxy" {
+		t.Errorf("emitted %+v", store.emitted)
 	}
 }
