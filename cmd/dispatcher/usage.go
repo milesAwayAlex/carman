@@ -127,15 +127,16 @@ func latestByModel(rs []dispatch.Record) map[string]dispatch.Record {
 	return out
 }
 
-// latestShared is the newest record whose reading has the shared windows.
+// latestShared is the newest record whose reading has the shared windows,
+// with their resets: a refusal's reading names the windows without them.
 func latestShared(rs []dispatch.Record) (dispatch.Record, reading, bool) {
 	for i := len(rs) - 1; i >= 0; i-- {
 		var rd reading
 		if json.Unmarshal(rs[i].Data, &rd) != nil {
 			continue
 		}
-		for n := range rd.Info.Windows {
-			if sharedWindows[n] {
+		for n, w := range rd.Info.Windows {
+			if sharedWindows[n] && w.ResetsAt > 0 {
 				return rs[i], rd, true
 			}
 		}
@@ -442,7 +443,8 @@ func standing(ctx context.Context, c *api.Client) error {
 }
 
 // A refusal for a limit, in the harness's words, and the reset it names
-// (as cmem routine reads them).
+// (as cmem routine reads them). Seen for real: "You've hit your individual
+// spend limit · … · your Fable limit resets 6pm (UTC)".
 var (
 	usageLimit = regexp.MustCompile(`(?i)(hit|reached) your [a-z ]*limit|usage limit|spend limit`)
 	limitReset = regexp.MustCompile(`(?i)resets\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*\(UTC\)`)
@@ -631,7 +633,11 @@ func observe(ctx context.Context, c *api.Client, flags map[string][]string) erro
 	}
 	for _, n := range sortedWindows(rd.Info.Windows) {
 		w := rd.Info.Windows[n]
-		parts = append(parts, fmt.Sprintf("%s %.0f%% (resets %s)", n, w.Utilization*100, w.resets().Format("2006-01-02 15:04 UTC")))
+		when := "no reset given"
+		if w.ResetsAt > 0 {
+			when = "resets " + w.resets().Format("2006-01-02 15:04 UTC")
+		}
+		parts = append(parts, fmt.Sprintf("%s %.0f%% (%s)", n, w.Utilization*100, when))
 	}
 	fmt.Printf("recorded usage.observed for %s: %s; the reading cost $%.4f\n", model, strings.Join(parts, ", "), o.cost)
 	return nil

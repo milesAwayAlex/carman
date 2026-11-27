@@ -126,16 +126,26 @@ not json
 
 // TestR7ReadStreamRefused: a call refused for a limit is a reading of its
 // model, with the limit, its reset and the harness's words, whichever of
-// the shapes it comes in. The shapes are made up after the harness's own
-// schema; none was seen from a real refusal.
+// the shapes it comes in. The first two cases give the one reading recorded
+// from a real refusal (its info has no resetsAt, so its reset came from the
+// words); the stream it came from was not kept, so either may be its shape.
+// The other cases are made up after the harness's own schema, unconfirmed.
 func TestR7ReadStreamRefused(t *testing.T) {
 	now := time.Date(2026, 11, 27, 7, 0, 0, 0, time.UTC)
 	msg := "You've hit your limit · your model limit resets 6pm (UTC)"
+	const realMsg = "You've hit your individual spend limit · ask your admin to raise it at … · your Fable limit resets 6pm (UTC)"
+	const realInfo = `{"status":"rejected","rateLimitType":"seven_day_overage_included","unifiedWindows":{"five_hour":{"utilization":0.08,"status":"allowed"},"seven_day":{"utilization":0.71,"status":"allowed"},"seven_day_overage_included":{"utilization":1,"status":"rejected"}}}`
 	for _, c := range []struct {
 		name, stream string
 		limit        string
 		resets       int64
 	}{
+		{"seen: a rejected rate_limit_event", `{"type":"rate_limit_event","rate_limit_info":` + realInfo + `}
+{"type":"result","is_error":true,"result":"` + realMsg + `"}`,
+			"seven_day_overage_included", 1795802400},
+		{"seen: the error message's record alone", `{"type":"assistant","error":"rate_limit","is_api_error_message":true,"api_error":"usage_limit_reached","api_error_params":{"rate_limit_info":` + realInfo + `},"message":{"content":[{"type":"text","text":"` + realMsg + `"}]}}
+{"type":"result","is_error":true,"result":"` + realMsg + `"}`,
+			"seven_day_overage_included", 1795802400},
 		{"the error message's own record", `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"five_hour":{"utilization":0,"resetsAt":1795766400}}}}
 {"type":"assistant","error":"rate_limit","is_api_error_message":true,"api_error":"usage_limit_reached","api_error_params":{"rate_limit_info":{"status":"rejected","rateLimitType":"seven_day_overage_included","resetsAt":1795802400,"isUsingOverage":false}},"message":{"content":[{"type":"text","text":"` + msg + `"}]}}
 {"type":"result","subtype":"success","is_error":true,"result":"` + msg + `","total_cost_usd":0}`,
@@ -156,6 +166,20 @@ func TestR7ReadStreamRefused(t *testing.T) {
 		if o.refused.Limit != c.limit || int64(o.refused.ResetsAt) != c.resets || o.refused.Message == "" {
 			t.Errorf("%s: refused %+v", c.name, *o.refused)
 		}
+	}
+
+	// The reading as recorded: refused until the words' reset, and its
+	// windows, which name no reset, are not taken for the shared standing.
+	rec := []byte(`{"model":"claude-fable-5-2","every_hours":1,"refused":{"limit":"seven_day_overage_included","resets_at":1795802400,"message":"` + realMsg + `"},"rate_limit_info":` + realInfo + `}`)
+	var rd reading
+	if err := json.Unmarshal(rec, &rd); err != nil {
+		t.Fatal(err)
+	}
+	if until, refused := rd.refusedUntil(); !refused || until.Unix() != 1795802400 || rd.refusedLimit() != "seven_day_overage_included" {
+		t.Errorf("the recorded refusal reads as %v %v %q", until, refused, rd.refusedLimit())
+	}
+	if _, _, ok := latestShared([]dispatch.Record{{Seq: 1, Event: dispatch.Event{Data: rec}}}); ok {
+		t.Error("a refusal's windows without resets were taken as the shared standing")
 	}
 }
 
