@@ -212,7 +212,10 @@ order is in DESIGN.md, section 11.
 - Every test that checks a requirement names its ID (for example `M2`) so
   coverage of `REQUIREMENTS.md` can be listed.
 - Work in thin slices, each ending with a check that can be run. Slice work
-  happens on a `slice/NN-name` branch and is merged when its checks pass.
+  happens on a `slice/NAME` branch and is merged when its checks pass. Choose
+  no number: several sessions work at once. A new ADR is
+  `docs/adr/new-SLUG.md`, called ADR new-SLUG, and whoever merges numbers it
+  (`scripts/adr-number.sh`, which also moves a clashing number).
 - This is a tool anyone can use. Keep what belongs to one person's setup out
   of code, tests and docs: organisation names, private repository or service
   names, incidents, home-directory paths. Settings for one machine go in the

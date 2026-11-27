@@ -8,6 +8,8 @@ decision, and its consequences.
 - **Superseded by NNNN**: replaced. Only the status line changes.
 
 To change a decision, add a new record and mark the old one superseded.
+A new record is written as `new-SLUG.md` and numbered when it is merged
+(`scripts/adr-number.sh`).
 
 | # | Decision | Status |
 |---|---|---|

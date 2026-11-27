@@ -332,6 +332,35 @@ run; grep -qx -- '--name trial --model cheap-model' "$fake/harness" || { rm -rf 
 open --model default trial "$fake" && : > "$fake/harness" && run && grep -qx -- '--name trial' "$fake/harness" ||
     { rm -rf "$fake"; echo "agent-open --model default does not give the session back the pod's model" >&2; exit 1; }
 rm -rf "$fake"
+# ADR numbers (scripts/adr-number.sh): no two records share one; one not
+# numbered yet is named, and fails --strict, for the merge to number it.
+dup="$(ls docs/adr | sed -n 's/^\([0-9]\{4\}\)-.*/\1/p' | uniq -d)"
+[ -z "$dup" ] || { echo "two ADRs are numbered $dup: scripts/adr-number.sh OLD NEW renumbers one" >&2; exit 1; }
+for f in docs/adr/new-*.md; do [ ! -e "$f" ] || skip "the number of $f: scripts/adr-number.sh at the merge"; done
+# The script, in a repository of its own: a new record numbered with its
+# references, and a branch's clashing number moved without touching main's.
+adr="$(mktemp -d)"
+(
+    set -e
+    export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
+    script="$PWD/scripts/adr-number.sh"
+    cd "$adr" && git init -q -b main && mkdir docs docs/adr
+    echo "# One" > docs/adr/0001-one.md && printf '| [0001](0001-one.md) | One |\n' > docs/adr/README.md && echo "As ADR 0001 says." > notes.md
+    git add -A && git commit -q -m base && base="$(git rev-parse HEAD)"
+    echo "# Two, after ADR 0001" > docs/adr/0002-two.md
+    echo "# Mine" > docs/adr/new-mine.md
+    printf '| [0002](0002-two.md) | Two |\n| [new-mine](new-mine.md) | Mine |\n' >> docs/adr/README.md
+    echo "ADR new-mine and ADR 0002 (ADRs 0001, 0002)." >> notes.md
+    git add -A && git commit -q -m branch
+    # In a list after ||, set -e does not hold: each step is chained.
+    bash "$script" >/dev/null && bash "$script" 0002 0004 "$base" >/dev/null &&
+        [ -f docs/adr/0003-mine.md ] && [ -f docs/adr/0004-two.md ] && [ ! -e docs/adr/new-mine.md ] &&
+        [ "$(cat notes.md)" = "$(printf 'As ADR 0001 says.\nADR 0003 and ADR 0004 (ADRs 0001, 0004).')" ] &&
+        grep -qxF '| [0003](0003-mine.md) | Mine |' docs/adr/README.md && grep -qxF '| [0004](0004-two.md) | Two |' docs/adr/README.md &&
+        grep -qxF '| [0001](0001-one.md) | One |' docs/adr/README.md && grep -qxF '# Two, after ADR 0001' docs/adr/0004-two.md &&
+        ! bash "$script" 0001 0009 "$base" 2>/dev/null
+) || { rm -rf "$adr"; echo "scripts/adr-number.sh does not number a new ADR, or renumber a branch's, as it should" >&2; exit 1; }
+rm -rf "$adr"
 # child-harness: the model and the prompt, no hooks, none of the parent's
 # session, the proxy's placeholder as the credential.
 child="$(mktemp -d)"
