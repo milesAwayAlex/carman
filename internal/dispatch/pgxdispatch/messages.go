@@ -39,11 +39,16 @@ func (d *Dispatcher) Claim(ctx context.Context, e dispatch.Event) (bool, error) 
 
 // Unmarked are the messages sent to any of the addresses (any at all when
 // none is given) that have no event marked KIND (delivered, read) yet, in
-// the order they were sent.
+// the order they were sent. A message whose delivery was found to have
+// reached nobody (message.undelivered, ADR 0053) is undelivered until it
+// is delivered again.
 func (d *Dispatcher) Unmarked(ctx context.Context, to []string, kind string, limit int) ([]dispatch.Record, error) {
 	rows, err := d.pool.Query(ctx, `SELECT seq, id, type, source, subject, time, data FROM events m
 		WHERE m.type = 'message.sent' AND ($1::text[] IS NULL OR (m.data->>'to') = ANY($1))
-		  AND NOT EXISTS (SELECT 1 FROM events x WHERE x.id = $2 || m.subject)
+		  AND (NOT EXISTS (SELECT 1 FROM events x WHERE x.id = $2 || m.subject)
+		    OR ($2 = 'message.delivered/'
+		      AND EXISTS (SELECT 1 FROM events x WHERE x.id = 'message.undelivered/' || m.subject)
+		      AND NOT EXISTS (SELECT 1 FROM events x WHERE x.id = 'message.delivered/' || m.subject || '/again')))
 		ORDER BY seq LIMIT $3`, to, "message."+kind+"/", limit)
 	if err != nil {
 		return nil, err

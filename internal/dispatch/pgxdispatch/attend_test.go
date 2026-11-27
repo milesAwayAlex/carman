@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"carman/internal/dispatch/message"
 )
@@ -146,5 +147,109 @@ func TestR2StandingNotRemembered(t *testing.T) {
 	}
 	if w := waitReasons(t, s, m.ID); !strings.Contains(w, "not remembered") {
 		t.Errorf("the sender is not told why it waits: %s", w)
+	}
+}
+
+// TestR2WakeToAHarnessThatHasGone: a message a wake handed a session, with
+// no word from the session after, was handed to nobody if the pod's watcher
+// then finds the harness gone: it is delivered once more, marked as a
+// second time, and no more than that. One the session spoke after, one it
+// read, and one whose session said itself that it ended, are not.
+func TestR2WakeToAHarnessThatHasGone(t *testing.T) {
+	s, cl, _ := messaging(t)
+	ctx := context.Background()
+	d := pod("desk", "pod-d")
+	owner := message.Caller{Owner: true}
+	state := func(id string) string {
+		t.Helper()
+		st, err := s.Status(ctx, owner, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st.State
+	}
+	wake := func(session, to, body string) string {
+		t.Helper()
+		sent, err := s.Send(ctx, owner, "", to, body, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tk, err := s.Take(ctx, d, session, "wake", nil, time.Second)
+		if err != nil || len(tk.Messages) != 1 || tk.Messages[0].Again {
+			t.Fatalf("the wake of %s: %+v, %v", session, tk, err)
+		}
+		return sent.ID
+	}
+
+	// Handed by a wake to a listener its dead harness left; then found gone.
+	start(t, s, cl, d, "s-dead", "vpn", message.Idle)
+	lost := wake("s-dead", "desk/vpn", "do the thing")
+	if got := state(lost); got != "delivered" {
+		t.Fatalf("after the wake: %s", got)
+	}
+	if err := s.HarnessGone(ctx, d, "s-dead", "no process"); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(lost); got != "waiting" {
+		t.Errorf("a message woken into a harness that has gone is %s, want waiting", got)
+	}
+	a, err := s.Attending(ctx, d)
+	if err != nil || len(a.Waiting) != 1 || a.Waiting[0].Name != "vpn" || len(a.Waiting[0].Messages) != 1 {
+		t.Fatalf("the pod is not told to open the session for it: %+v, %v", a, err)
+	}
+	start(t, s, cl, d, "s-again", "vpn", message.Idle)
+	tk, err := s.Take(ctx, d, "s-again", "wake", nil, time.Second)
+	if err != nil || len(tk.Messages) != 1 || tk.Messages[0].ID != lost || !tk.Messages[0].Again ||
+		!strings.Contains(tk.Text, "a second time") || !strings.Contains(tk.Text, "same id") {
+		t.Fatalf("the second delivery: %+v, %v", tk, err)
+	}
+	if got := state(lost); got != "delivered" {
+		t.Errorf("after the second delivery: %s", got)
+	}
+	// Twice at most: the same thing again leaves it delivered.
+	if err := s.HarnessGone(ctx, d, "s-again", "no process"); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(lost); got != "delivered" {
+		t.Errorf("a message is delivered a third time: %s", got)
+	}
+	if a, _ := s.Attending(ctx, d); len(a.Waiting) != 0 {
+		t.Errorf("it waits again after two deliveries: %+v", a)
+	}
+
+	// The session spoke after the wake (a hook of its turn): it had it.
+	start(t, s, cl, d, "s-spoke", "notes", message.Idle)
+	kept := wake("s-spoke", "desk/notes", "one")
+	if _, err := s.Take(ctx, d, "s-spoke", "tool", nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.HarnessGone(ctx, d, "s-spoke", "no process"); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(kept); got != "delivered" {
+		t.Errorf("a message whose session spoke after the wake is %s", got)
+	}
+
+	// It read (answered) the message, and died before any hook.
+	start(t, s, cl, d, "s-read", "mail", message.Idle)
+	read := wake("s-read", "desk/mail", "two")
+	if _, err := s.Read(ctx, d, "s-read", []string{read}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.HarnessGone(ctx, d, "s-read", "no process"); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(read); got != "read" {
+		t.Errorf("a message its session read is %s", got)
+	}
+
+	// The session said itself that it ended: not the watcher's word.
+	start(t, s, cl, d, "s-left", "logs", message.Idle)
+	left := wake("s-left", "desk/logs", "three")
+	if err := s.Present(ctx, d, message.Presence{Session: "s-left", State: message.Ended}); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(left); got != "delivered" {
+		t.Errorf("a message whose session ended by its own word is %s", got)
 	}
 }

@@ -90,7 +90,7 @@ func (s *Service) Take(ctx context.Context, c Caller, session, how string, ids [
 		t, err := s.take(ctx, c, session, how, ids)
 		if err != nil || len(t.Messages) > 0 {
 			if err == nil {
-				s.setState(ctx, c, session, Busy)
+				s.woke(ctx, c, session, t.Messages)
 			}
 			return t, err
 		}
@@ -138,16 +138,65 @@ func (s *Service) take(ctx context.Context, c Caller, session, how string, ids [
 		if !slices.Contains(to, m.To) && m.To != AgentAddress(c.Agent) {
 			continue
 		}
-		ok, err := s.Store.Claim(ctx, s.mark(TypeDelivered, m.ID, Delivery{Session: SessionAddress(session), How: how, Pod: c.Pod, Agent: c.Agent}))
+		d := Delivery{Session: SessionAddress(session), How: how, Pod: c.Pod, Agent: c.Agent}
+		ok, err := s.Store.Claim(ctx, s.mark(TypeDelivered, m.ID, d))
 		if err != nil {
 			return t, err
+		}
+		if !ok {
+			// Delivered before. Once more, if that delivery was a wake to a
+			// harness that had gone (ADR 0053).
+			lost, err := s.Store.OfTypeAbout(ctx, TypeUndelivered, m.ID)
+			if err != nil {
+				return t, err
+			}
+			if len(lost) > 0 {
+				again := s.mark(TypeDelivered, m.ID, d)
+				again.ID += "/again"
+				if ok, err = s.Store.Claim(ctx, again); err != nil {
+					return t, err
+				}
+				m.Again = ok
+			}
 		}
 		if ok {
 			t.Messages = append(t.Messages, m)
 		}
 	}
+	if how != "wake" {
+		// Any other hook of the session is a word from its harness: what a
+		// wake handed it reached somebody.
+		s.heard(ctx, session)
+	}
 	t.Text = Format(t.Messages)
 	return t, nil
+}
+
+// woke records that a wake handed a session these messages, and that it
+// is busy with them; until the session is heard from, they may have
+// reached nobody.
+func (s *Service) woke(ctx context.Context, c Caller, session string, ms []Message) {
+	x, ok, err := s.Store.GetSession(ctx, session)
+	if err != nil || !ok {
+		return
+	}
+	x.State, x.Pod, x.PodUID = Busy, c.Pod, c.PodUID
+	for _, m := range ms {
+		if !slices.Contains(x.Woke, m.ID) {
+			x.Woke = append(x.Woke, m.ID)
+		}
+	}
+	_, _, _ = s.Store.PutSession(ctx, x)
+}
+
+// heard forgets what a wake handed a session: it has said something since.
+func (s *Service) heard(ctx context.Context, session string) {
+	x, ok, err := s.Store.GetSession(ctx, session)
+	if err != nil || !ok || len(x.Woke) == 0 {
+		return
+	}
+	x.Woke = nil
+	_, _, _ = s.Store.PutSession(ctx, x)
 }
 
 // Format is what a session is told with the messages it is handed.
@@ -177,6 +226,11 @@ func Format(ms []Message) string {
 			fmt.Fprintf(&b, " answers=%q", m.Answers)
 		}
 		fmt.Fprintf(&b, ">\n%s\n</message>\n", m.Body)
+		if m.Again {
+			b.WriteString("This message is handed over a second time: the first time it went to this session's harness as that harness ended, " +
+				"and nothing was heard from it after. You may have seen it already, under the same id. If your conversation shows that you acted on it, " +
+				"do not act on it twice: finish what was left, or answer that it was done.\n")
+		}
 		if m.From == "dispatcher" {
 			b.WriteString("This is from the dispatcher itself, which you asked to tell you this.\n\n")
 			continue
