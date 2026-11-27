@@ -533,6 +533,16 @@ func (s *Service) Route(ctx context.Context, m Message) (string, error) {
 	if s.isPlace(x.Agent) {
 		return s.waitForHost(ctx, m, x)
 	}
+	if x.Kind == "interactive" && x.Name != "" {
+		agents, err := s.agents(ctx)
+		if err != nil {
+			return "", err
+		}
+		if agents[x.Agent].Class == "" {
+			// A standing agent: its pod opens the session again (ADR 0053).
+			return s.waitForOpen(ctx, m, x)
+		}
+	}
 	return s.start(ctx, m, x.Agent, x.ID)
 }
 

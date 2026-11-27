@@ -46,12 +46,16 @@ func (s *Service) waitForHost(ctx context.Context, m Message, x Session) (string
 // no longer run, or are idle with nobody listening (a harness that died
 // without a word). A name is how a person finds a session again; its id
 // changes with every new conversation.
+//
+// A named session of a standing agent's pod (ADR 0053) takes, the same way,
+// the messages of the earlier sessions of its name that are not running:
+// opened again, the harness may start a new conversation.
 func (s *Service) heirs(ctx context.Context, c Caller, session string) ([]string, error) {
-	if !c.Host || session == "" {
+	if session == "" || c.Owner {
 		return nil, nil
 	}
 	me, ok, err := s.Store.GetSession(ctx, session)
-	if err != nil || !ok || me.Name == "" {
+	if err != nil || !ok || me.Name == "" || !c.Host && me.Kind != "interactive" {
 		return nil, err
 	}
 	all, err := s.Store.Sessions(ctx, c.Agent, s.now().Add(-s.keep()))
@@ -63,7 +67,17 @@ func (s *Service) heirs(ctx context.Context, c Caller, session string) ([]string
 		if x.ID == session || x.Name != me.Name {
 			continue
 		}
-		if !s.hostRunning(x) || (x.State == Idle && !listening.listening(x.ID)) {
+		if c.Host {
+			if !s.hostRunning(x) || (x.State == Idle && !listening.listening(x.ID)) {
+				out = append(out, SessionAddress(x.ID))
+			}
+			continue
+		}
+		on, err := s.Running(ctx, x)
+		if err != nil {
+			return nil, err
+		}
+		if !on && x.Kind == "interactive" {
 			out = append(out, SessionAddress(x.ID))
 		}
 	}

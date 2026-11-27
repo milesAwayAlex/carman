@@ -197,3 +197,49 @@ func (s *Server) whoami(_ http.ResponseWriter, r *http.Request, role Role) (any,
 }
 
 var _ = context.Background
+
+// A standing agent's pod attending to its own sessions (ADR 0053).
+
+type GoneRequest struct {
+	Session string `json:"session"`
+	Why     string `json:"why,omitempty"`
+}
+
+type HoldRequest struct {
+	Message string `json:"message"`
+	Key     string `json:"key"`
+	Reason  string `json:"reason"`
+}
+
+func (s *Server) attending(_ http.ResponseWriter, r *http.Request, _ Role) (any, error) {
+	m, c, err := s.messaging(r)
+	if err != nil {
+		return nil, err
+	}
+	a, err := m.Attending(r.Context(), c)
+	return a, messageErr(err)
+}
+
+func (s *Server) gone(_ http.ResponseWriter, r *http.Request, _ Role) (any, error) {
+	m, c, err := s.messaging(r)
+	if err != nil {
+		return nil, err
+	}
+	var req GoneRequest
+	if err := decode(r, &req); err != nil {
+		return nil, err
+	}
+	return map[string]string{"session": req.Session}, messageErr(m.HarnessGone(r.Context(), c, req.Session, req.Why))
+}
+
+func (s *Server) hold(_ http.ResponseWriter, r *http.Request, _ Role) (any, error) {
+	m, c, err := s.messaging(r)
+	if err != nil {
+		return nil, err
+	}
+	var req HoldRequest
+	if err := decode(r, &req); err != nil {
+		return nil, err
+	}
+	return map[string]string{"message": req.Message}, messageErr(m.Hold(r.Context(), c, req.Message, req.Key, req.Reason))
+}
