@@ -196,6 +196,31 @@ together, until the proxy keeps budgets. Two network policies let pods
 labelled for it out of the sandbox to that port and into the
 installation's namespace at it.
 
+### Who comes in, and a pod's first second (ADR new-who-comes-in-and-a-new-pods-first-second, proposed)
+
+Nothing outside the installation's namespace connects to a pod in it but
+by a way in that is named: a service reached through a load balancer
+says who its traffic comes from (`admitFrom`: a CIDR, or another
+namespace's pods by label), and labelled sandbox pods reach the meter's
+port for trials. The proxy, which puts credentials on what it passes,
+admits only the pods that leave through it, whether or not the namespace
+is isolated. On the kind of cluster this runs on, the network's rules
+reach a new pod 0.1 to 1.2 seconds after it starts: until then its own
+namespace refuses it, and its own rules do not hold it, which is why the
+destination's rules, not the stranger's, are what closes the
+installation. Every pod that is a client waits once at its start
+(`dispatcher ready`) until the dispatcher, the memory and the proxy
+answer.
+
+### A trial's own proxy and meter (ADR new-a-trial-has-a-proxy-of-its-own, proposed)
+
+A trial (ADR 0054) may have the chart's egress proxy and meter, made
+from the checkout (`TRIAL_PROXY`), so that a change to either is tried in
+the sandbox. Its meter sends to a stand-in for the model's API
+(`dispatcher stand-in`: the API's shapes, the headers of ADR 0064, one
+credential, the word "ok"), or on to the installation's meter for trials
+(ADR 0065), where the trial's proxy is the caller.
+
 ### Triggers (ADR 0063, proposed)
 
 Beside the clock, a command and a message, work starts when something

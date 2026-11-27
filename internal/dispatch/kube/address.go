@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -172,11 +173,27 @@ func (a *Addresses) apply(kind string, p podObject) {
 func (a *Addresses) Run(ctx context.Context) {
 	a.init()
 	wait := 2 * time.Second
+	listing := false
 	for ctx.Err() == nil {
 		rv, err := a.list(ctx)
+		if err == nil && listing {
+			// No watch here: the list is read again every few seconds.
+			select {
+			case <-ctx.Done():
+			case <-time.After(3 * time.Second):
+			}
+			continue
+		}
 		if err == nil {
 			wait = 2 * time.Second
 			err = a.watch(ctx, rv)
+			// An account that may list pods and not watch them (a trial's,
+			// in the sandbox): said once, and the list does instead.
+			if err != nil && strings.Contains(err.Error(), "403") {
+				a.log().Warn("pods cannot be watched here; listing them every few seconds instead", "error", err)
+				listing = true
+				continue
+			}
 		}
 		if err != nil && ctx.Err() == nil {
 			a.log().Warn("watching pods", "error", err, "again in", wait)
