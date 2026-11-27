@@ -39,4 +39,92 @@ spec:
         spec:
           {{- include "agent.podspec" (dict "root" $ "agent" .) | nindent 10 }}
 {{- end }}
+{{- /* A watch's job (ADR 0063): one look at its source, told to the
+dispatcher, which knows it by its name, watch-NAME, and its pod's own
+token. It has no model, no memory and no credential of its own: only the
+way out through the egress proxy that agents have. */ -}}
+{{- range .Values.dispatcher.watches }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: watch-{{ .name }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  schedule: "0 0 1 1 *"
+  timeZone: "Etc/UTC"
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app: watch-{{ .name }}
+            app.kubernetes.io/component: agent
+            {{- with (include "pod.labels" $) }}{{ . | trim | nindent 12 }}{{- end }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: agent
+          automountServiceAccountToken: false
+          {{- with (include "pod.placement" $) }}{{ . | trim | nindent 10 }}{{- end }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: watch
+              {{- include "agent.jobImage" $ | nindent 14 }}
+              command: ["dispatcher", "source"]
+              env:
+                - name: AGENT_NAME
+                  value: watch-{{ .name }}
+                - name: DISPATCHER_URL
+                  value: http://dispatcher.{{ $.Release.Namespace }}.svc:{{ $.Values.dispatcher.service.port }}
+                - name: WATCH
+                  value: {{ toJson (omit . "cron" "timeZone" "priority") | quote }}
+                {{- if $.Values.egress.enabled }}
+                - name: HTTPS_PROXY
+                  value: http://egress:3128
+                - name: NO_PROXY
+                  value: cmem,localhost,127.0.0.1,.svc,.svc.cluster.local
+                - name: EGRESS_CA
+                  value: /etc/agent/egress/ca.crt
+                {{- end }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: [ALL]}
+              resources:
+                requests: {cpu: 10m, memory: 32Mi}
+                limits: {memory: 128Mi}
+              volumeMounts:
+                - name: dispatcher-identity
+                  mountPath: /var/run/secrets/dispatcher
+                  readOnly: true
+                {{- if $.Values.egress.enabled }}
+                - name: egress-ca
+                  mountPath: /etc/agent/egress
+                  readOnly: true
+                {{- end }}
+          volumes:
+            - name: dispatcher-identity
+              projected:
+                sources:
+                  - serviceAccountToken:
+                      audience: dispatcher
+                      expirationSeconds: 3600
+                      path: token
+            {{- if $.Values.egress.enabled }}
+            - name: egress-ca
+              configMap:
+                name: egress-ca
+                optional: true
+            {{- end }}
+{{- end }}
 {{- end }}

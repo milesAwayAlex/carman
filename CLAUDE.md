@@ -166,6 +166,17 @@ Built so far:
   and `scripts/deploy.sh CONTEXT dispatch ...` runs the client on the
   owner's machine with it (`dispatch owner-token new|back`).
 
+- Triggers (ADR 0063, proposed): `dispatcher.rules` start a task of a
+  class when an event of a kind is in the log (`internal/dispatch/trigger`):
+  once per event, at most so often (`rule.held` otherwise), never for a
+  rule's own run, the run told what triggered it in `TASK_TRIGGER_*`.
+  `dispatcher.watches` are jobs with no model that ask a source on a
+  schedule (`dispatcher source`) and tell the dispatcher a digest, which
+  records `watch.changed`; `dispatcher.hooks` are doors at
+  `/v1/hooks/NAME` for calls signed with the hook's secret. Only tokens,
+  not text, are kept from outside and handed to a run.
+  `scripts/check-triggers.sh CONTEXT` tries it all in a trial.
+
 - The improvement loop (ADR 0058, proposed): the list of what should be
   improved in the platform is events in the dispatcher's log
   (`dispatcher improve`, the owner: `scripts/deploy.sh CONTEXT dispatch
@@ -185,7 +196,8 @@ Not built yet: the way in from a laptop to a service on a shared cluster,
 more than one machine of the owner's (one place per installation), the
 watcher of ADR 0053 on the owner's machine,
 the task-stream benchmark (M7), a second harness (M8), and for agents that
-do work outside memory: triggers other than a schedule, and a way for the
+do work outside memory: rules that chain or keep events for later (ADR
+0063), and a way for the
 owner to answer an agent's message where it arrives (today: `dispatch reply`
 from the laptop). The scheduled jobs
 are not yet moved onto the dispatcher on a real installation, and

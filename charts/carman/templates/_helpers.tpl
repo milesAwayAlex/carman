@@ -112,6 +112,10 @@ value says (ADR 0059); the dreamer only while it is switched on. */ -}}
 {{- $out = append $out (include "dispatcher.after" (list $s .) | fromJson) }}
 {{- end }}
 {{- end }}
+{{- /* A watch asks its source on its own schedule (ADR 0063). */ -}}
+{{- range .Values.dispatcher.watches }}
+{{- $out = append $out (dict "name" (printf "watch-%s" .name) "class" (printf "watch-%s" .name) "cron" (required "a watch needs a cron" .cron) "timeZone" (.timeZone | default "UTC") "startWithin" "10m" "timeout" "15m" "priority" (int (.priority | default 60))) }}
+{{- end }}
 {{- if .Values.usage.enabled }}
 {{- with .Values.usage }}
 {{- $out = append $out (dict "name" "usage" "class" "agent-usage" "cron" .schedule "timeZone" "UTC" "startWithin" "30m" "timeout" (printf "%ds" (add (int .deadlineSeconds) 600)) "priority" (int .priority)) }}
@@ -204,3 +208,18 @@ the agents of the list are agents of the installation. */ -}}
 {{- toJson . }}
 {{- end }}
 {{- end }}
+
+{{- /* The names of the watches (ADR 0063), with commas. An agent may not be
+named as a watch's job is: the dispatcher knows a watch's job by that name. */ -}}
+{{- define "dispatcher.watches" -}}
+{{- range .Values.agents }}
+{{- if hasPrefix "watch-" .name }}{{ fail (printf "agents: %s: a name that starts with watch- is a watch's job's (dispatcher.watches)" .name) }}{{ end }}
+{{- end }}
+{{- $names := list }}
+{{- range .Values.dispatcher.watches }}
+{{- if not (regexMatch "^[a-z0-9][a-z0-9-]{0,30}$" .name) }}{{ fail (printf "dispatcher.watches: %q: a watch's name is lowercase letters, digits and -" .name) }}{{ end }}
+{{- if eq (empty .url) (empty .command) }}{{ fail (printf "dispatcher.watches: %s has a url or a command, one of them" .name) }}{{ end }}
+{{- $names = append $names .name }}
+{{- end }}
+{{- join "," $names }}
+{{- end -}}

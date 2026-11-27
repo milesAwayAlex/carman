@@ -66,6 +66,7 @@ import (
 	"carman/internal/dispatch/message"
 	"carman/internal/dispatch/notice"
 	"carman/internal/dispatch/pgxdispatch"
+	"carman/internal/dispatch/trigger"
 )
 
 func main() {
@@ -87,6 +88,8 @@ git log --oneline PREVIOUS..COMMIT | dispatcher deployed COMMIT [--previous PREV
 HARNESS --output-format stream-json --verbose | dispatcher reading [--model M] [--every HOURS]
 dispatcher reading --due                  the models of USAGE_MODELS (MODEL=HOURS,...) to read this hour
 dispatcher meter                          the egress proxy's meter of model use (ADR 0050)
+dispatcher source [--print]               a watch's job (ADR 0063): ask the source WATCH describes and tell the dispatcher
+                                          a digest of what was kept; --print only prints it
 
 Messages (ADR 0045), as this session (DISPATCHER_SESSION) or as the owner;
 on the owner's machine (ADR 0049) with DISPATCHER_URL, DISPATCHER_TOKEN (the
@@ -149,6 +152,13 @@ func run(ctx context.Context, args []string) error {
 			return err
 		}
 		return messages(ctx, mc, args[0], pos, flags)
+	}
+	if args[0] == "source" {
+		_, flags, err := parse(args[1:])
+		if err != nil {
+			return err
+		}
+		return sourceCmd(ctx, flags)
 	}
 	if args[0] == "improve" {
 		if slices.Contains(args[1:], "--help") || slices.Contains(args[1:], "-h") || slices.Contains(args[1:], "help") {
@@ -214,7 +224,7 @@ func parse(args []string) ([]string, map[string][]string, error) {
 			flags[n] = append(flags[n], v)
 			continue
 		}
-		if name == "read" || name == "all" || name == "once" || name == "body" || name == "from" { // a switch, not a flag with a value
+		if name == "read" || name == "all" || name == "once" || name == "body" || name == "from" || name == "print" { // a switch, not a flag with a value
 			flags[name] = append(flags[name], "yes")
 			continue
 		}
@@ -634,6 +644,28 @@ func serve(ctx context.Context) error {
 		go (&message.Router{Service: messages, Logger: logger}).Run(work)
 	}
 
+	// Triggers (ADR 0063): rules from the log to tasks, and the way in for
+	// what watches saw and hooks were told. None unless the installation
+	// writes some.
+	rules, err := trigger.ParseRules(os.Getenv("DISPATCHER_RULES"))
+	if err != nil {
+		return fmt.Errorf("DISPATCHER_RULES: %w", err)
+	}
+	hooks, err := trigger.ParseHooks(os.Getenv("DISPATCHER_HOOKS"), func(name string) string {
+		return os.Getenv("DISPATCHER_HOOK_SECRET_" + strings.ToUpper(strings.ReplaceAll(name, "-", "_")))
+	})
+	if err != nil {
+		return fmt.Errorf("DISPATCHER_HOOKS: %w", err)
+	}
+	var watches []string
+	if v := os.Getenv("DISPATCHER_WATCHES"); v != "" {
+		watches = strings.Split(v, ",")
+	}
+	outside := &trigger.Outside{Store: d, Watches: watches, Hooks: hooks}
+	go (&trigger.Rules{Log: d, Rules: rules, Check: check, Logger: logger}).Run(work)
+	if len(rules)+len(watches)+len(hooks) > 0 {
+		logger.Info("triggers", "rules", len(rules), "watches", len(watches), "hooks", len(hooks))
+	}
 	list := &improve.Service{Store: d, Config: improving, Context: contextName}
 	if messages != nil {
 		list.Sender = messages
@@ -644,7 +676,7 @@ func serve(ctx context.Context) error {
 	case improving.Usage.Below > 0:
 		list.Room = usageRoom(readings, improving.Usage.Below, roomAge, time.Now)
 	}
-	srv := &api.Server{Store: d, Tokens: tokens, OwnerSHA256: ownerSHA256, Check: check, Log: logger, Messages: messages, Verify: verify, Improve: list,
+	srv := &api.Server{Store: d, Tokens: tokens, OwnerSHA256: ownerSHA256, Check: check, Log: logger, Messages: messages, Verify: verify, Improve: list, Outside: outside,
 		Dump: func(ctx context.Context, f *os.File) error {
 			args := []string{"--no-owner", "--no-privileges", "--format=plain"}
 			if dbURL != "" {

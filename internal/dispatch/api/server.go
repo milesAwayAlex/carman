@@ -38,6 +38,7 @@ import (
 	"carman/internal/dispatch"
 	"carman/internal/dispatch/improve"
 	"carman/internal/dispatch/message"
+	"carman/internal/dispatch/trigger"
 )
 
 type Role string
@@ -100,6 +101,8 @@ type Server struct {
 	Verify   func(context.Context, string) (message.Caller, error)
 	// Improve is the list of improvements to the platform (ADR 0058).
 	Improve *improve.Service
+	// Outside takes what watches saw and what hooks were told (ADR 0063).
+	Outside *trigger.Outside
 	Log     *slog.Logger
 }
 
@@ -141,6 +144,7 @@ func (s *Server) routes() []route {
 		{http.MethodGet, "/v1/attend", []Role{RoleAgent}, s.attending},
 		{http.MethodPost, "/v1/attend/gone", []Role{RoleAgent}, s.gone},
 		{http.MethodPost, "/v1/attend/hold", []Role{RoleAgent}, s.hold},
+		{http.MethodPost, "/v1/watches/{name}", []Role{RoleOwner, RoleAgent}, s.observed},
 		{http.MethodGet, "/v1/improvements", messengers, s.improvements},
 		{http.MethodPost, "/v1/improvements", messengers, s.improvementAdd},
 		{http.MethodGet, "/v1/improvements/evidence", messengers, s.evidence},
@@ -157,6 +161,8 @@ func (s *Server) Handler() http.Handler {
 	for _, rt := range s.routes() {
 		mux.HandleFunc(rt.method+" "+rt.pattern, s.serve(rt))
 	}
+	// A hook's caller has no token of ours: it is checked by its signature.
+	mux.HandleFunc("POST /v1/hooks/{name}", s.hook)
 	return mux
 }
 
@@ -293,7 +299,7 @@ func (s *Server) emit(_ http.ResponseWriter, r *http.Request, role Role) (any, e
 		return nil, fmt.Errorf("%w: the meter emits only events of type %s*", errForbidden, MeterPrefix)
 	}
 	if role != RoleOwner && role != RoleMeter {
-		for _, p := range Reserved {
+		for _, p := range append(slices.Clone(Reserved), trigger.Reserved...) {
 			if strings.HasPrefix(e.Type, p) {
 				return nil, fmt.Errorf("%w: events of type %s* are not this role's to emit", errForbidden, p)
 			}

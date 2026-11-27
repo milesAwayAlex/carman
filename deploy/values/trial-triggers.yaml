@@ -1,0 +1,32 @@
+# On top of the trial's values (TRIAL_VALUES): triggers (ADR 0063) as
+# scripts/check-triggers.sh tries them. The watch's url is set by the check,
+# which knows the trial's name.
+dispatcher:
+  watches:
+    - name: page
+      cron: "*/15 * * * * *"   # six fields: seconds first, for a trial
+      url: http://source:8080/
+      keep: 'price [0-9]+'
+      atLeast: 1
+  rules:
+    # A change of the page starts a run, once in ten minutes.
+    - name: page-changed
+      when: {type: watch.changed, subject: page}
+      start: probe
+      atMost: {count: 1, per: 10m}
+      carry: [digest, previous, kept, since]
+    # A rule that would feed itself: it starts a probe when a probe ends.
+    - name: again
+      when: {type: job.ended, where: {template: probe}}
+      start: probe
+      atMost: {count: 5, per: 1m}
+    # A call at the door about an opened issue starts a run that is told
+    # which issue, and not its title.
+    - name: door-opened
+      when: {type: hook.received, subject: door, where: {action: opened}}
+      start: probe
+      atMost: {count: 5, per: 1m}
+      carry: [issue, title]
+  hooks:
+    door:
+      pick: {action: action, issue: issue.number, title: issue.title}
