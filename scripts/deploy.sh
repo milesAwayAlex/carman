@@ -1199,7 +1199,7 @@ dreamer)
     ;;
 dispatch)
     case "${3:-}" in
-    status | log | submit | emit | deployed | peers | send | reply | inbox | read | message | watch | improve)
+    status | log | submit | emit | deployed | peers | send | reply | inbox | read | message | watch | improve | lift)
         # Messages (ADR 0045) are sent and read as the owner; and the list
         # of improvements to the platform (ADR 0058).
         dispatch_client "${@:3}"

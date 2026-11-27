@@ -243,3 +243,21 @@ func (s *Server) hold(_ http.ResponseWriter, r *http.Request, _ Role) (any, erro
 	}
 	return map[string]string{"message": req.Message}, messageErr(m.Hold(r.Context(), c, req.Message, req.Key, req.Reason))
 }
+
+// LiftRequest names the sender whose limit on runs the owner lifts.
+type LiftRequest struct {
+	Sender string `json:"sender"`
+}
+
+func (s *Server) lift(_ http.ResponseWriter, r *http.Request, _ Role) (any, error) {
+	m, c, err := s.messaging(r)
+	if err != nil {
+		return nil, err
+	}
+	var req LiftRequest
+	if err := decode(r, &req); err != nil {
+		return nil, err
+	}
+	n, err := m.Lift(r.Context(), c, req.Sender)
+	return map[string]int{"started": n}, messageErr(err)
+}

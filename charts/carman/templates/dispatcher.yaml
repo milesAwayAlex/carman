@@ -125,6 +125,10 @@ spec:
               value: {{ .Values.dispatcher.retentionUnowned | quote }}
             - name: DISPATCHER_RETENTION_MESSAGES
               value: {{ .Values.dispatcher.messages.retention | quote }}
+            - name: DISPATCHER_MESSAGE_RUNS
+              value: {{ .Values.dispatcher.messages.runsPerSender | default 24 | quote }}
+            - name: DISPATCHER_MESSAGE_RUNS_PERIOD
+              value: {{ .Values.dispatcher.messages.runsPeriod | default "3h" | quote }}
             # What it starts by itself (ADR 0043): the schedules listed, the
             # agents it schedules, and the usage reading.
             - name: DISPATCHER_SCHEDULES

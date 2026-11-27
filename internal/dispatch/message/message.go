@@ -226,6 +226,11 @@ type Service struct {
 	Timeout  time.Duration
 	// Retention is how long a session that has ended is remembered.
 	Retention time.Duration
+	// RunsPerSender is how many runs one sender's new messages may start in
+	// RunsPeriod (DefaultRunsPerSender in DefaultRunsPeriod when zero; below
+	// zero, no limit).
+	RunsPerSender int
+	RunsPeriod    time.Duration
 	// Writers are, for each agent, the other agents that may write to it
 	// and its sessions (ADR 0047). An agent not here has none.
 	Writers map[string][]string
@@ -524,12 +529,16 @@ func (s *Service) Running(ctx context.Context, x Session) (bool, error) {
 // Route does what a message needs done for it to reach its addressee, and
 // says what that is. Doing it again does nothing more.
 func (s *Service) Route(ctx context.Context, m Message) (string, error) {
+	return s.route(ctx, m, false)
+}
+
+func (s *Service) route(ctx context.Context, m Message, lifted bool) (string, error) {
 	kind, rest := Split(m.To)
 	switch kind {
 	case Owner:
 		return "for the owner: a notice, sent unless notices are off, when it is withheld; the owner reads it with dispatch inbox", nil
 	case "agent":
-		return s.start(ctx, m, rest, "")
+		return s.start(ctx, m, rest, "", lifted)
 	}
 	x, ok, err := s.Store.GetSession(ctx, rest)
 	if err != nil {
@@ -569,12 +578,12 @@ func (s *Service) Route(ctx context.Context, m Message) (string, error) {
 			return s.waitForOpen(ctx, m, x)
 		}
 	}
-	return s.start(ctx, m, x.Agent, x.ID)
+	return s.start(ctx, m, x.Agent, x.ID, lifted)
 }
 
 // start submits the task that has the message taken: the session resumed
 // as its agent, or a new conversation of the agent.
-func (s *Service) start(ctx context.Context, m Message, agent, session string) (string, error) {
+func (s *Service) start(ctx context.Context, m Message, agent, session string, lifted bool) (string, error) {
 	agents, err := s.agents(ctx)
 	if err != nil {
 		return "", err
@@ -602,6 +611,17 @@ func (s *Service) start(ctx context.Context, m Message, agent, session string) (
 		}
 	}
 	task := TaskPrefix + key
+	if limited, why, err := s.overLimit(ctx, m, task, lifted); err != nil {
+		return "", err
+	} else if limited {
+		reason := fmt.Sprintf("for %s; held: %s", what, why)
+		if _, err := s.Store.Claim(ctx, s.waiting(m.ID, "limit", Wait{Reason: reason})); err != nil {
+			return "", err
+		}
+		data, _ := json.Marshal(map[string]string{"message": m.ID})
+		_, err := s.Store.Claim(ctx, dispatch.Event{ID: TypeHeld + "/" + m.ID, Type: TypeHeld, Source: Source, Subject: m.From, Data: data})
+		return reason, err
+	}
 	env := map[string]string{"TASK_MESSAGE": m.ID}
 	if session != "" {
 		env["TASK_SESSION"] = session
@@ -616,6 +636,12 @@ func (s *Service) start(ctx context.Context, m Message, agent, session string) (
 	}
 	if err := s.Store.Submit(ctx, dispatch.TaskSpec{ID: task, Class: info.Class, Priority: s.Priority, Payload: payload, AttemptTimeout: timeout}); err != nil {
 		return "", err
+	}
+	if counted(m) {
+		if _, err := s.Store.Claim(ctx, dispatch.Event{ID: TypeRun + "/" + m.ID, Type: TypeRun, Source: Source, Subject: m.From,
+			Data: json.RawMessage(fmt.Sprintf(`{"task":%q}`, task))}); err != nil {
+			return "", err
+		}
 	}
 	if session != "" {
 		if err := s.Store.Emit(ctx, dispatch.Event{ID: "message.task/" + session + "/" + task, Type: "message.task", Source: Source, Subject: SessionAddress(session), Data: json.RawMessage(fmt.Sprintf(`{"task":%q}`, task))}); err != nil {
@@ -708,4 +734,113 @@ func (s *Service) agents(ctx context.Context) (map[string]AgentInfo, error) {
 		}
 	}
 	return out, nil
+}
+
+// The limit on runs started by messages (RunsPerSender in RunsPeriod): a
+// session in a loop, or one told to by text it read, could otherwise start
+// runs until the plan's limit. The owner is not limited, nor an answer
+// (an exchange has its own cap, MaxDepth).
+const (
+	// TypeRun records a run started by a message, about its sender.
+	TypeRun = "message.run"
+	// TypeHeld records a message held by the limit, about its sender.
+	TypeHeld = "message.held"
+	// TypeLifted records that the owner lifted a sender's limit.
+	TypeLifted = "message.limit.lifted"
+	// DefaultRunsPerSender and DefaultRunsPeriod are the limit when the
+	// installation sets none: a busy evening's session started a dozen.
+	DefaultRunsPerSender = 24
+	DefaultRunsPeriod    = 3 * time.Hour
+)
+
+func counted(m Message) bool { return m.From != Owner && m.Answers == "" }
+
+// overLimit says whether starting this message's run would pass its
+// sender's limit, and why, as the sender is told.
+func (s *Service) overLimit(ctx context.Context, m Message, task string, lifted bool) (bool, string, error) {
+	if lifted || !counted(m) || s.RunsPerSender < 0 {
+		return false, "", nil
+	}
+	if _, err := s.Store.Explain(ctx, task); err == nil {
+		return false, "", nil // started already: routing again starts nothing
+	} else if !errors.Is(err, dispatch.ErrNotFound) {
+		return false, "", err
+	}
+	max, period := s.RunsPerSender, s.RunsPeriod
+	if max == 0 {
+		max = DefaultRunsPerSender
+	}
+	if period <= 0 {
+		period = DefaultRunsPeriod
+	}
+	n, err := s.runsSince(ctx, m.From, s.now().Add(-period))
+	if err != nil || n < max {
+		return false, "", err
+	}
+	return true, fmt.Sprintf("%s has started %d runs by messages in the last %s, the most this installation allows (dispatcher.messages.runsPerSender); "+
+		"it starts when the owner lifts the limit (dispatch lift %s), and the sender's next message after the period is not held", m.From, n, period, m.From), nil
+}
+
+// runsSince counts the runs a sender's messages started since a time, and
+// since the owner last lifted its limit.
+func (s *Service) runsSince(ctx context.Context, sender string, since time.Time) (int, error) {
+	lifts, err := s.Store.OfTypeAbout(ctx, TypeLifted, sender)
+	if err != nil {
+		return 0, err
+	}
+	var after int64
+	for _, l := range lifts {
+		after = max(after, l.Seq)
+	}
+	runs, err := s.Store.OfTypeAbout(ctx, TypeRun, sender)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, r := range runs {
+		if r.Seq > after && !r.Time.Before(since) {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// Lift is the owner lifting a sender's limit: its count starts again, and
+// the messages it held start now. It says how many.
+func (s *Service) Lift(ctx context.Context, c Caller, sender string) (int, error) {
+	if !c.Owner {
+		return 0, fmt.Errorf("%w: only the owner lifts a sender's limit", ErrForbidden)
+	}
+	if strings.TrimSpace(sender) == "" {
+		return 0, fmt.Errorf("%w: say whose limit: the sender's address, as the hold names it", ErrInvalid)
+	}
+	if err := s.Store.Emit(ctx, dispatch.Event{ID: TypeLifted + "/" + newID(), Type: TypeLifted, Source: Source, Subject: sender, Data: json.RawMessage(`{}`)}); err != nil {
+		return 0, err
+	}
+	held, err := s.Store.OfTypeAbout(ctx, TypeHeld, sender)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, h := range held {
+		var d struct{ Message string }
+		if json.Unmarshal(h.Data, &d) != nil {
+			continue
+		}
+		if _, err := s.Store.Explain(ctx, TaskPrefix+d.Message); err == nil {
+			continue // started already
+		}
+		m, ok, err := s.message(ctx, d.Message)
+		if err != nil {
+			return n, err
+		}
+		if !ok {
+			continue
+		}
+		if _, err := s.route(ctx, m, true); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
 }

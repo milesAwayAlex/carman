@@ -141,6 +141,7 @@ func (s *Server) routes() []route {
 		{http.MethodPost, "/v1/inbox/read", messengers, s.read},
 		{http.MethodPost, "/v1/sessions", messengers, s.presence},
 		{http.MethodPost, "/v1/watch", messengers, s.watch},
+		{http.MethodPost, "/v1/senders/lift", owner, s.lift},
 		{http.MethodGet, "/v1/attend", []Role{RoleAgent}, s.attending},
 		{http.MethodPost, "/v1/attend/gone", []Role{RoleAgent}, s.gone},
 		{http.MethodPost, "/v1/attend/hold", []Role{RoleAgent}, s.hold},

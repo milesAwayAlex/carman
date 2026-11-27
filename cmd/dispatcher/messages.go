@@ -112,6 +112,16 @@ func messages(ctx context.Context, c *api.Client, cmd string, pos []string, flag
 			os.Exit(4)
 		}
 		return nil
+	case "lift":
+		if len(pos) != 1 {
+			return errors.New("say: lift SENDER (the address a held message's reason names)")
+		}
+		var out map[string]int
+		if err := c.Do(ctx, http.MethodPost, "/v1/senders/lift", nil, api.LiftRequest{Sender: pos[0]}, &out); err != nil {
+			return err
+		}
+		fmt.Printf("lifted the limit on %s; %d held message(s) started\n", pos[0], out["started"])
+		return nil
 	case "message":
 		if len(pos) != 1 {
 			return errors.New("say: message ID")
