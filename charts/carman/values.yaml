@@ -453,7 +453,7 @@ dreamer:
   # A limit the egress proxy holds it to, whatever the run says of itself,
   # in weighted tokens (input 1, output 5, cache write 1.25, cache read 0.1):
   # day (from 00:00 UTC, all its pods) and pod (one run). Off unless set; the
-  # owner changes it without a deploy (dispatcher limit, ADR new-usage-and-budget-at-the-proxy).
+  # owner changes it without a deploy (dispatcher limit, ADR 0064).
   #   proxyLimit: {day: 20000000, pod: 8000000}
   deadlineSeconds: 1800
   # A night's run that was missed is still started up to this long after

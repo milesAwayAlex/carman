@@ -81,7 +81,7 @@ Built so far:
   own report against it. It reads the account's standing from the
   answers' headers as `usage.observed`, so the reading job asks only a
   model nobody called, and holds an agent to its `proxyLimit` in weighted
-  tokens (`dispatcher limit`; ADR new-usage-and-budget-at-the-proxy). `pod` puts the credential back in the pods.
+  tokens (`dispatcher limit`; ADR 0064). `pod` puts the credential back in the pods.
 
 - The owner's attention (ADR 0036): an agent tells the owner with the
   installation's `notify-owner` command, and a job's conversation is kept

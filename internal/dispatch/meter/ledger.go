@@ -30,7 +30,7 @@ type Record struct {
 	Refused int64  `json:"refused,omitempty"`
 	Address string `json:"address,omitempty"`
 	// Calls the meter refused because the agent was over its budget at
-	// the proxy (ADR new-usage-and-budget-at-the-proxy).
+	// the proxy (ADR 0064).
 	OverBudget int64 `json:"over_budget,omitempty"`
 	// Answers whose usage could not be read.
 	Unread int64 `json:"unread,omitempty"`

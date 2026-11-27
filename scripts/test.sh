@@ -79,7 +79,7 @@ if command -v helm >/dev/null; then
         echo "the chart renders a writtenBy that names no agent" >&2
         exit 1
     fi
-    # Agents' limits at the proxy reach the dispatcher (ADR new-usage-and-budget-at-the-proxy).
+    # Agents' limits at the proxy reach the dispatcher (ADR 0064).
     "${render[@]}" --set-json 'agents=[{"name":"a","routines":["x"],"proxyLimit":{"day":40000000}},{"name":"b","routines":["x"]}]' \
         --set-json 'dreamer.proxyLimit={"pod":8000000}' |
         grep -F 'value: "{\"a\":{\"day\":40000000},\"dreamer\":{\"pod\":8000000}}"' >/dev/null ||

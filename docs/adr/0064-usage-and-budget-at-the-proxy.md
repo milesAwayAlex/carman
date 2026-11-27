@@ -1,4 +1,4 @@
-# new-usage-and-budget-at-the-proxy: The proxy reads the account's standing from the answers it passes, and holds an agent to a limit of its own
+# 0064: The proxy reads the account's standing from the answers it passes, and holds an agent to a limit of its own
 
 Status: Proposed (2026-11-27). Changes ADR 0043 and ADR 0052 on when the
 reading job asks a model, and ADR 0050 on what the meter writes and

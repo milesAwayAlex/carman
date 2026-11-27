@@ -101,7 +101,7 @@ type Server struct {
 	Messages *message.Service
 	Verify   func(context.Context, string) (message.Caller, error)
 	// ProxyLimits is each agent's limit at the proxy by its definition
-	// (ADR new-usage-and-budget-at-the-proxy).
+	// (ADR 0064).
 	ProxyLimits map[string]meter.Limit
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time

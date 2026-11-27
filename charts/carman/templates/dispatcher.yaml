@@ -178,7 +178,7 @@ spec:
             # The improvement loop's settings (ADR 0058).
             - name: DISPATCHER_IMPROVEMENT
               value: {{ include "dispatcher.improvement" . | quote }}
-            {{- /* Agents' limits at the proxy (ADR new-usage-and-budget-at-the-proxy). */}}
+            {{- /* Agents' limits at the proxy (ADR 0064). */}}
             {{- $limits := dict }}
             {{- range $a := .Values.agents }}
             {{- with $a.proxyLimit }}

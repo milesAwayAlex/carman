@@ -272,7 +272,7 @@ expired by then.
   and writes them as readings of the model called, each few minutes and at
   once when a status changes or a call is refused; the job then reads
   only a model nobody called in its period (ADR
-  new-usage-and-budget-at-the-proxy, proposed).
+  0064, proposed).
 - Where the policy acts: the dispatcher's admission, asked before each start
   with what is running; a task it holds says why.
   A task may be set after a class (ADR 0062, proposed): it waits for the
@@ -569,7 +569,7 @@ which are the weakest parts. Three things are meant to keep that manageable:
   An agent may be held there to a limit in weighted tokens a day or a pod
   (`proxyLimit`, the owner's `dispatcher limit`), a call over it refused
   with a 402 the harness shows as it is (ADR
-  new-usage-and-budget-at-the-proxy, proposed).
+  0064, proposed).
 - Beside the proxy and the memory, agents reach the namespaces the
   installation names for its own services, and have one namespace where
   they may run what a task needs, bounded by a quota and closed to the
