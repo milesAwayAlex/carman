@@ -135,6 +135,27 @@ refuses it otherwise.
   build, and the harness is the image's copy (nothing in the sandbox
   reaches the installer).
 
+## What was shown
+
+2026-11-27, on the local cluster, with `egress.model.trials.enabled` on
+the installation and `scripts/check-trial-agents.sh` in a trial (its
+agent image the installation's warm image with the checkout laid over):
+
+- a pod of the trial that does not say it is an agent, and an agent's pod
+  asking for a model trials may not use, each got 403 from the meter; from
+  the same pods the proxy's own port refused the connection;
+- the page the trial's watch looks at was changed; the rule started the
+  surveyor, held to `dispatcher improve`, on the cheapest model; its run
+  ended well and recorded a survey in the trial's list ($0.003 by its own
+  count);
+- the trial's owner asked the agent `asker` to ask the agent `answerer`
+  what 17 plus 25 is; `asker`'s run sent the message, which started a run
+  of `answerer`, which answered 42 (about $0.0015 each). The exchange
+  ended there: three messages, no further runs.
+
+The meter's record of it is in the installation's log, as `model.usage`
+with subjects `trial/TRIAL/surveyor`, `/asker` and `/answerer`.
+
 ## Consequences
 
 - A request for the model crosses the cluster's network in the clear
