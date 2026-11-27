@@ -196,6 +196,16 @@ func run(ctx context.Context, args []string) error {
 		}
 		return improveCmd(ctx, mc, pos, flags)
 	}
+	// What is deployed is read by whoever may write messages: an agent's pod
+	// shows the token the cluster gave it, as for a message. (Recording a
+	// deploy is the owner's, below.)
+	if args[0] == "deployed" && len(args) == 1 {
+		mc, err := client()
+		if err != nil {
+			return err
+		}
+		return deployed(ctx, mc, nil, nil, os.Stdin)
+	}
 	c := &api.Client{URL: os.Getenv("DISPATCHER_URL"), Token: os.Getenv("DISPATCHER_TOKEN")}
 	if c.URL == "" || c.Token == "" {
 		return errors.New("set DISPATCHER_URL and DISPATCHER_TOKEN")

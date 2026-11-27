@@ -162,6 +162,26 @@ func TestR2_ARuleStartsATaskOncePerEvent(t *testing.T) {
 	}
 }
 
+// R2: what happens while an installation has no rules starts nothing when
+// a rule is written later: the reader's place moves with the log, rules or
+// none.
+func TestR2_WhatHappenedWithNoRulesStartsNothingLater(t *testing.T) {
+	l := newLog()
+	none := &Rules{Log: l}
+	pass(t, none) // the dispatcher's first start: the place is the log's end
+	l.put(TypeWatchChanged, "sheet", Changed{Watch: "sheet", Digest: "while-there-were-no-rules"})
+	pass(t, none)
+	r := rules(t, l, `[{"name":"review","when":{"type":"watch.changed","subject":"sheet"},"start":"agent-review"}]`)
+	if len(l.tasks) != 0 || len(l.of(TypeHeld)) != 0 {
+		t.Fatalf("an event from before the rule: %d tasks, %d held", len(l.tasks), len(l.of(TypeHeld)))
+	}
+	l.put(TypeWatchChanged, "sheet", Changed{Watch: "sheet", Digest: "since"})
+	pass(t, r)
+	if len(l.tasks) != 1 {
+		t.Fatalf("an event since the rule: %d tasks", len(l.tasks))
+	}
+}
+
 // R2: text from outside is not handed to a run: a field that is not a
 // token (it has a space, or is not a scalar) is dropped and said so.
 func TestR2_OnlyTokensAreCarried(t *testing.T) {
@@ -287,6 +307,25 @@ func TestR2_AWatchRecordsAChange(t *testing.T) {
 	}
 	if len(changes) != 1 || changes[0].Previous != "aaaaaaaaaaaaaaaa" || !changes[0].Since.Equal(seen) || changes[0].Since.Equal(first) {
 		t.Fatalf("the change: %+v", changes)
+	}
+	// The source goes back to what it was, and changes the same way again:
+	// each is a change, though its digests were seen before.
+	l.now = l.now.Add(30 * time.Minute)
+	if !see("aaaaaaaaaaaaaaaa") {
+		t.Fatal("going back is not a change")
+	}
+	l.now = l.now.Add(30 * time.Minute)
+	if !see("bbbbbbbbbbbbbbbb") {
+		t.Fatal("the same change again is not a change")
+	}
+	again := 0
+	for _, r := range l.recs {
+		if r.Type == TypeWatchChanged {
+			again++
+		}
+	}
+	if again != 3 {
+		t.Fatalf("a source that changed three times has %d changes in the log", again)
 	}
 	if _, err := o.Observed(ctx, "nobody", Observation{Digest: "aaaaaaaaaaaaaaaa"}); !errors.Is(err, ErrUnknown) {
 		t.Errorf("a watch the installation has not: %v", err)

@@ -88,7 +88,7 @@ has "$(seen)" '"requests":2'
 step "an agent's pod asked the model's host through the trial's proxy, whole and streamed; the stand-in got the meter's credential, not the pod's placeholder"
 "${kube[@]}" label pod "${pre}caller" agent- >/dev/null
 sleep 8   # the meter reads the pod's labels again within a few seconds
-out="$(ask caller)"; has "$out" "status 403"
+out="$(ask caller)"; has "$out" "status 402"
 has "$(seen)" '"requests":2'
 "${kube[@]}" label pod "${pre}caller" agent=caller >/dev/null
 sleep 8

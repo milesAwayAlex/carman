@@ -60,7 +60,7 @@ $1"; }
 # The surveyor's entry names its tools (ADR 0061): its CronJob, as the trial
 # has it, gives its harness the list's command and nothing else, and
 # `dispatcher send` is not among what it is allowed.
-env="$("${kube[@]}" get cronjob agent-watch -o 'jsonpath={range .spec.jobTemplate.spec.template.spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}' | grep '^CMEM_ROUTINE_')" ||
+env="$("${kube[@]}" get cronjob "${pre}agent-watch" -o 'jsonpath={range .spec.jobTemplate.spec.template.spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}' | grep '^CMEM_ROUTINE_')" ||
     die "no CronJob for the surveyor in the trial"
 flags="$(env -i PATH="$PATH" HOME="$HOME" CGO_ENABLED=0 DISPATCHER_URL=http://dispatcher:8379 sh -c 'while IFS= read -r kv; do export "$kv"; done; exec "$@"' sh \
     go run ./cmd/cmem routine --flags <<<"$env")"
