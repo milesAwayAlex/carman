@@ -58,10 +58,9 @@ deploy_sh() {
     CARMAN_NAMESPACE="$namespace" CARMAN_OWNER_TOKEN_FILE="$work/dispatcher-owner.token" scripts/deploy.sh "$context" "$@"
 }
 
-# Builds an image of a binary of this checkout with its Dockerfile, and
-# prints its name. Where the builder's RUN steps cannot fetch packages, the
-# same image is made on a base that has them already (TRIAL_BASE_NAME).
-build_image() {  # NAME CMD DOCKERFILE FALLBACK-BASE
+# Builds an image of a binary of this checkout with its own Dockerfile, and
+# prints its name: a trial runs the images an installation would.
+build_image() {  # NAME CMD DOCKERFILE
     local dir="$work/build/$1" arch tag ref log
     rm -rf "$dir" && mkdir -p "$dir"
     arch="$(kubectl --context "$context" get --raw /version 2>/dev/null | sed -n 's/.*"platform": *"linux\/\([a-z0-9]*\)".*/\1/p')"
@@ -71,15 +70,9 @@ build_image() {  # NAME CMD DOCKERFILE FALLBACK-BASE
     tag="$(cat "$dir"/* | shasum -a 256 | cut -c1-12)"
     ref="$registry/$name-$1:$tag"
     log="$dir/build.log"
-    if ! buildctl build --progress plain --frontend dockerfile.v0 --local context="$dir" --local dockerfile="$dir" \
-        --opt platform="linux/$arch" --output "type=image,name=$ref,push=true" > "$log" 2>&1; then
-        echo "trial: $1's Dockerfile did not build here ($(grep -m1 -E 'ERROR|WARNING: fetching' "$log" | cut -c1-120)); building it on $4" >&2
-        sed -e "s|^FROM .*|FROM $4|" -e '/^RUN /d' "$3" > "$dir/Dockerfile"
-        ref="$registry/$name-$1:$tag-base"
-        buildctl build --progress plain --frontend dockerfile.v0 --local context="$dir" --local dockerfile="$dir" \
-            --opt platform="linux/$arch" --output "type=image,name=$ref,push=true" > "$log" 2>&1 ||
-            { tail -20 "$log" >&2; die "$1's image did not build"; }
-    fi
+    buildctl build --progress plain --frontend dockerfile.v0 --local context="$dir" --local dockerfile="$dir" \
+        --opt platform="linux/$arch" --output "type=image,name=$ref,push=true" > "$log" 2>&1 ||
+        { tail -20 "$log" >&2; die "$1's image did not build"; }
     echo "$ref"
 }
 
@@ -148,8 +141,8 @@ case "$action" in
 up)
     mkdir -p "$work"
     started=$(date +%s)
-    memory_image="$(build_image memory cmem "$src/deploy/Dockerfile" "${TRIAL_MEMORY_BASE:-alpine/git:v2.49.1}")"
-    dispatcher_image="$(build_image dispatcher dispatcher "$src/deploy/dispatcher/Dockerfile" "${TRIAL_DISPATCHER_BASE:-postgres:17-alpine}")"
+    memory_image="$(build_image memory cmem "$src/deploy/Dockerfile")"
+    dispatcher_image="$(build_image dispatcher dispatcher "$src/deploy/dispatcher/Dockerfile")"
     echo "built $memory_image and $dispatcher_image in $(( $(date +%s) - started ))s"
     render > "$work/manifest.json"
     clash="$(foreign "$work/manifest.json")"
