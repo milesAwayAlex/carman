@@ -74,8 +74,13 @@ from the latest reading that has them.
 ## Consequences
 
 - The refusal shapes are written from the harness's schema and tested on
-  made-up lines; the first real refusal should be checked against them
-  (`dispatch log --type usage.observed`).
+  made-up lines. One real refusal has been recorded (a spend limit,
+  `seven_day_overage_included`): its `rate_limit_info` was rejected and
+  had no `resetsAt`, at the top or in any window, so its reset came from
+  the words ("… resets 6pm (UTC)"). The stream was not kept, so which of
+  the first two shapes it was is not known; a reading whose windows name
+  no reset is not taken for the shared standing. The other shapes, and a
+  `resetsAt` in a refusal, are still unconfirmed.
 - A model's own limit shows only once it binds or is in `unifiedWindows`;
   a model whose limit is far off reads as allowed.
 - A model read every six hours can be refused for up to six hours before

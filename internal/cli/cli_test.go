@@ -1002,6 +1002,9 @@ func TestARoutineWaitsOutTheUsageLimit(t *testing.T) {
 		"limit resets 10:15pm (UTC)":  17*time.Hour + 47*time.Minute,
 		"limit resets at 18:00 (UTC)": 13*time.Hour + 32*time.Minute,
 		"limit resets soon":           30 * time.Minute,
+		// Seen for real, from a routine and in an interactive session.
+		"You've hit your individual spend limit · … · your Fable limit resets 6pm (UTC)": 13*time.Hour + 32*time.Minute,
+		"Usage limit reached · continuing automatically at 6pm":                          30 * time.Minute,
 	} {
 		if got := untilReset(report, at); got != want {
 			t.Errorf("untilReset(%q) = %v, want %v", report, got, want)
