@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 # Runs the format check, vet and the tests. Extra arguments go to `go test`,
 # for example: scripts/test.sh -run M2 -v
+#
+# A check that needs what is not here (Postgres, helm, restic, tmux, python3)
+# is skipped and named at the end. With --strict first, a skip is a failure:
+# for whoever merges. Postgres is DISPATCH_TEST_DATABASE_URL.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+strict=""
+[ "${1:-}" != --strict ] || { strict=1; shift; }
+skipped=()
+skip() { skipped+=("$1"); echo "skipped: $1" >&2; }
 
 unformatted="$(gofmt -l .)"
 if [ -n "$unformatted" ]; then
@@ -48,6 +56,8 @@ if python3 -c "" 2>/dev/null; then  # one that runs: a stub that only names itse
             "$home/.claude/settings.json" "${case#*:}" || { echo "agent_harness_settings: the image's allow rules are wrong for tools ${case%%:*}" >&2; rm -rf "$home"; exit 1; }
         rm -rf "$home"
     done
+else
+    skip "the harness's first start and settings (agent_harness_state, agent_harness_settings): no python3"
 fi
 # The idle listener's wake reads as a message, not a hook's error, wherever its settings are.
 for f in deploy/agent/settings.json adapters/claude-code/dispatcher.settings.example.json nix/packages/dispatcher-claude-code-settings.nix; do
@@ -153,11 +163,15 @@ if command -v helm >/dev/null; then
         CGO_ENABLED=0 go run ./cmd/cmem routine --flags) | grep -F "'--allowedTools' 'Bash(dispatcher improve)' 'Bash(dispatcher improve *)' '--append-system-prompt'" >/dev/null ||
         { echo "the trial's surveyor's harness is not allowed the list's command only" >&2; exit 1; }
 else
-    echo "helm is not here: the chart's checks are skipped" >&2
+    skip "the chart's checks: no helm"
 fi
 # The nightly backup keeps agents' sessions and kept conversations in a form
 # that comes back whole (ADR 0038, RECOVERY.md). Checked where restic is.
-scripts/check-backup-copy.sh
+if command -v restic >/dev/null && command -v python3 >/dev/null; then
+    scripts/check-backup-copy.sh
+else
+    skip "the nightly backup's copy (scripts/check-backup-copy.sh): no restic or python3"
+fi
 # Nothing here needs a C compiler, and not every place that runs this has one.
 export CGO_ENABLED="${CGO_ENABLED:-0}"
 # The installation's definition from within a pod (ADR 0056), with no
@@ -259,7 +273,7 @@ if command -v tmux >/dev/null; then
     ) || { rm -rf "$view"; exit 1; }
     rm -rf "$view"
 else
-    echo "tmux is not here: the check of agent-view is skipped" >&2
+    skip "agent-view: no tmux"
 fi
 # agent-open --reopen (ADR 0053), against a fake tmux and real processes: a
 # name not remembered is refused, a window that is gone is made, the shell a
@@ -301,8 +315,23 @@ for case in "$harness:a live harness" "$job:a shell with a job" "$idle 1:a windo
     what="${case%%:*}"
     [ "$(reopen vpn "${what% *}" vpn "$([ "${what#* }" = 1 ] && echo 1 || echo 0)")" = 4 ] && ! grep -q -e respawn -e new-window "$fake/calls" || fail "agent-open --reopen opens over ${case#*:}"
 done
+else
+    skip "agent-open --reopen over a window that runs something: no /proc"
 fi
 kill "$idle" "$job" "$harness" 2>/dev/null || true
 rm -rf "$fake"
 go vet ./...
-go test ./... "$@"
+[ -n "${DISPATCH_TEST_DATABASE_URL:-}" ] ||
+    skip "the dispatcher's Postgres suite (internal/dispatch/pgxdispatch): DISPATCH_TEST_DATABASE_URL is not set"
+status=0
+go test ./... "$@" || status=$?
+if [ ${#skipped[@]} -gt 0 ]; then
+    {
+        echo
+        echo "=== NOT EVERYTHING WAS CHECKED: ${#skipped[@]} check(s) skipped ==="
+        printf '  - %s\n' "${skipped[@]}"
+        [ -n "$strict" ] && echo "=== --strict: a skip is a failure ===" || echo "=== scripts/test.sh --strict fails on a skip ==="
+    } >&2
+    [ -z "$strict" ] || [ "$status" -ne 0 ] || status=1
+fi
+exit "$status"
