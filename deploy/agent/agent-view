@@ -119,6 +119,17 @@ for stale in $(t list-sessions -F '#{session_name} #{session_attached}' | awk '$
 done
 
 view="view-$$"
+# The hooks below do not always fire for a session of a group that tmux
+# moves off a closed window; a look each second ends such a view anyway.
+client=$$
+(
+    while sleep 1; do
+        kill -0 "$client" 2>/dev/null || exit 0
+        t list-windows -t main -F '#{window_id}' 2>/dev/null | grep -qx "$window" && continue
+        t kill-session -t "=$view" 2>/dev/null || true
+        exit 0
+    done
+) </dev/null >/dev/null 2>&1 &
 # One command, so that the options are the view's from its first moment,
 # and so that this process is the client (the mark above is the client's).
 # - destroy-unattached: the view goes when its client does;
