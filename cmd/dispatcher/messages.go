@@ -400,7 +400,10 @@ func hook(ctx context.Context, flags map[string][]string) error {
 				return t, err
 			}()
 			switch {
-			case err != nil && gone():
+			case err != nil && (gone() || ctx.Err() != nil):
+				// Its harness is gone, or it was told to end (a signal): it
+				// ends. Going on would be a process that looks like a
+				// listener and asks nothing, every call failing at once.
 				return nil
 			case err != nil:
 				time.Sleep(5 * time.Second) // the dispatcher restarting: wait for it

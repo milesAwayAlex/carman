@@ -162,6 +162,51 @@ func TestR2HookWithoutPod(t *testing.T) {
 	}
 }
 
+// TestR2SignalledListenerEnds: an idle listener that is told to end (a
+// signal cancels its context) ends. One that went on asked nothing, each
+// call failing at once, while its harness took it for a listener: its
+// session heard no message until its next turn.
+func TestR2SignalledListenerEnds(t *testing.T) {
+	asked := make(chan struct{}, 8)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/inbox/take" {
+			io.Copy(io.Discard, r.Body) // the server sees a caller leave only once the body is read
+			asked <- struct{}{}
+			<-r.Context().Done() // a long poll: held until the listener leaves
+			return
+		}
+		w.Write([]byte("{}"))
+	}))
+	defer srv.Close()
+	t.Setenv("DISPATCHER_URL", srv.URL)
+	t.Setenv("DISPATCHER_TOKEN", "host-token")
+	t.Setenv("DISPATCHER_PLACE", "host")
+	t.Setenv("DISPATCHER_IDENTITY", filepath.Join(t.TempDir(), "none"))
+	t.Setenv("DISPATCHER_HOOK", "on")
+	t.Setenv("DISPATCHER_SESSION_KIND", "interactive")
+	r, w, _ := os.Pipe()
+	w.WriteString(`{"session_id":"s1","hook_event_name":"Stop","cwd":"/work/src/proj"}`)
+	w.Close()
+	oldIn := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = oldIn }()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- hook(ctx, map[string][]string{"wait": {"335h"}}) }()
+	select {
+	case <-asked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the listener did not ask the dispatcher")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("a listener told to end went on")
+	}
+}
+
 // TestR2ClientKnowsItsSession: a command in a session's shell sends as that
 // session: by the id the hook put in the shell, or, where the shell did not
 // take it, by the harness's own variable; a session named on the command
