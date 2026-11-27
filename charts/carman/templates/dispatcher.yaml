@@ -152,6 +152,20 @@ spec:
             # The improvement loop's settings (ADR 0058).
             - name: DISPATCHER_IMPROVEMENT
               value: {{ include "dispatcher.improvement" . | quote }}
+            {{- /* Agents' limits at the proxy (ADR new-usage-and-budget-at-the-proxy). */}}
+            {{- $limits := dict }}
+            {{- range $a := .Values.agents }}
+            {{- with $a.proxyLimit }}
+            {{- $_ := set $limits $a.name . }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.dreamer.proxyLimit }}
+            {{- $_ := set $limits "dreamer" . }}
+            {{- end }}
+            {{- if $limits }}
+            - name: DISPATCHER_PROXY_LIMITS
+              value: {{ toJson $limits | quote }}
+            {{- end }}
             {{- with .Values.dispatcher.admission }}
             {{- if .enabled }}
             - name: DISPATCHER_ADMISSION

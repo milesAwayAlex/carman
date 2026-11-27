@@ -304,7 +304,11 @@ func modelLines(latest map[string]dispatch.Record, now time.Time) []string {
 		}
 		every := time.Duration(max(rd.EveryHours, 1)) * time.Hour
 		age := now.Sub(r.Time)
-		if age > every+time.Hour {
+		if strings.HasPrefix(r.Source, "meter/") {
+			// Read from an answer at the proxy: the job reads it again
+			// once it is older than the job's period.
+			l.text += fmt.Sprintf(" (seen at the proxy %s ago)", age.Round(time.Minute))
+		} else if age > every+time.Hour {
 			l.text += fmt.Sprintf(" (read %s ago, OLD: it is read every %s)", age.Round(time.Minute), every)
 		} else {
 			l.text += fmt.Sprintf(" (read %s ago)", age.Round(time.Minute))
@@ -437,6 +441,15 @@ func standing(ctx context.Context, c *api.Client) error {
 	}
 	for _, l := range modelStanding(now, runs, seen) {
 		fmt.Println(l)
+	}
+	var limits meter.Standing
+	if err := c.Do(ctx, http.MethodGet, "/v1/meter/standing", nil, nil, &limits); err != nil {
+		return err
+	}
+	if len(limits.Agents) > 0 {
+		for _, l := range limitLines(limits) {
+			fmt.Println(l)
+		}
 	}
 	return nil
 }

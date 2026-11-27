@@ -52,6 +52,11 @@ type Proxy struct {
 	// usage), never their values: how the harness and the API were looked
 	// at when this was built.
 	Shapes bool
+	// Observer reads the account's standing from the answers' headers;
+	// nil reads none.
+	Observer *Observer
+	// Budget holds agents to their limits at the proxy; nil holds none.
+	Budget *Budget
 
 	once sync.Once
 	rp   *httputil.ReverseProxy
@@ -64,6 +69,7 @@ type request struct {
 	credential string
 	metered    bool
 	session    string
+	sniff      *sniffer
 }
 
 func (p *Proxy) log() *slog.Logger {
@@ -93,6 +99,17 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"the egress proxy does not know the pod at "+orUnknown(ip)+" as an agent's, so it does not put the model's credential on this request")
 		return
 	}
+	if metered(r) {
+		if why, over := p.Budget.Over(who); over {
+			p.Ledger.add(who, "", func(t *Record) { t.Requests++; t.OverBudget++ })
+			p.log().Warn("refused: over its budget", "agent", who.Agent, "pod", who.Pod)
+			// 402: the harness shows it once, as what it says, and does
+			// not try again (a 429 it reads as the plan's limit, a 403 as
+			// a failed login, a 400 it tries again).
+			refuse(w, http.StatusPaymentRequired, "billing_error", why)
+			return
+		}
+	}
 	cred, err := p.Credential()
 	if err != nil || cred == "" {
 		p.log().Error("the model's credential cannot be read", "error", err)
@@ -106,6 +123,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// The harness names its session on each request: the agent's own word,
 	// kept beside the proxy's, to find a conversation by.
 	rq := &request{who: who, credential: cred, metered: metered(r), session: r.Header.Get("X-Claude-Code-Session-Id")}
+	if rq.metered && r.Body != nil && r.Body != http.NoBody {
+		rq.sniff = &sniffer{body: r.Body}
+		r.Body = rq.sniff
+	}
 	p.rp.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, rq)))
 }
 
@@ -154,6 +175,10 @@ func (p *Proxy) build() {
 				p.log().Info("shape: response", "agent", rq.who.Agent, "path", resp.Request.URL.Path, "status", resp.StatusCode,
 					"content_type", resp.Header.Get("Content-Type"), "headers", names(resp.Header))
 			}
+			asked := rq.sniff.model()
+			if rq.metered && (asked != "" || resp.StatusCode/100 != 2) {
+				p.Observer.Observe(asked, rq.who.Agent, resp.StatusCode, resp.Header)
+			}
 			if !rq.metered || resp.StatusCode/100 != 2 {
 				p.Ledger.add(rq.who, "", func(t *Record) {
 					t.Requests++
@@ -166,7 +191,12 @@ func (p *Proxy) build() {
 				return nil
 			}
 			sse := strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream")
+			header := resp.Header.Clone()
 			resp.Body = &reading{body: resp.Body, sse: sse, shapes: p.Shapes, log: p.log(), done: func(u answer) {
+				if asked == "" && u.model != "unknown" {
+					p.Observer.Observe(u.model, rq.who.Agent, resp.StatusCode, header)
+				}
+				p.Budget.Count(rq.who, u.tokens)
 				p.Ledger.add(rq.who, u.model, func(t *Record) {
 					t.Requests++
 					if u.failed {

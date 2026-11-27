@@ -38,6 +38,7 @@ import (
 	"carman/internal/dispatch"
 	"carman/internal/dispatch/improve"
 	"carman/internal/dispatch/message"
+	"carman/internal/dispatch/meter"
 )
 
 type Role string
@@ -98,6 +99,11 @@ type Server struct {
 	// are no messages.
 	Messages *message.Service
 	Verify   func(context.Context, string) (message.Caller, error)
+	// ProxyLimits is each agent's limit at the proxy by its definition
+	// (ADR new-usage-and-budget-at-the-proxy).
+	ProxyLimits map[string]meter.Limit
+	// Now is the clock; nil is time.Now.
+	Now func() time.Time
 	// Improve is the list of improvements to the platform (ADR 0058).
 	Improve *improve.Service
 	Log     *slog.Logger
@@ -128,6 +134,8 @@ func (s *Server) routes() []route {
 		{http.MethodGet, "/v1/tasks", owner, s.tasks},
 		{http.MethodGet, "/v1/tasks/{id}", owner, s.task},
 		{http.MethodGet, "/v1/dump", dumpers, s.dump},
+		{http.MethodGet, "/v1/meter/standing", []Role{RoleOwner, RoleMeter}, s.standing},
+		{http.MethodGet, "/v1/usage/latest", []Role{RoleOwner, RoleAgent}, s.usageLatest},
 		{http.MethodGet, "/v1/whoami", messengers, s.whoami},
 		{http.MethodGet, "/v1/peers", messengers, s.peers},
 		{http.MethodPost, "/v1/messages", messengers, s.send},
@@ -289,8 +297,10 @@ func (s *Server) emit(_ http.ResponseWriter, r *http.Request, role Role) (any, e
 	if e.ID == "" {
 		e.ID = randomID()
 	}
-	if role == RoleMeter && !strings.HasPrefix(e.Type, MeterPrefix) {
-		return nil, fmt.Errorf("%w: the meter emits only events of type %s*", errForbidden, MeterPrefix)
+	// The meter writes what it saw, and readings of the account's standing
+	// from the answers' headers; an agent's limit is the owner's word.
+	if role == RoleMeter && (!strings.HasPrefix(e.Type, MeterPrefix) || e.Type == meter.TypeModelLimit) && e.Type != meter.TypeUsageObserved {
+		return nil, fmt.Errorf("%w: the meter emits only events of type %s* and %s, and not %s", errForbidden, MeterPrefix, meter.TypeUsageObserved, meter.TypeModelLimit)
 	}
 	if role != RoleOwner && role != RoleMeter {
 		for _, p := range Reserved {

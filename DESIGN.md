@@ -237,9 +237,12 @@ expired by then.
   routine run's cost and last reading (`run.usage`), as events in the
   dispatcher's log kept for the period of events that belong to no task.
   The proxy's own record of every agent's model use (`model.usage`, ADR
-  0050) is the count that does not depend on what an agent says; the
-  answers it passes also carry the windows in their headers, which could
-  replace the hourly reading.
+  0050) is the count that does not depend on what an agent says. The
+  meter also reads the windows from the headers of the answers it passes
+  and writes them as readings of the model called, each few minutes and at
+  once when a status changes or a call is refused; the job then reads
+  only a model nobody called in its period (ADR
+  new-usage-and-budget-at-the-proxy, proposed).
 - Where the policy acts: the dispatcher's admission, asked before each start
   with what is running; a task it holds says why.
   A task may be set after a class (ADR 0062, proposed): it waits for the
@@ -533,6 +536,10 @@ which are the weakest parts. Three things are meant to keep that manageable:
   records reach the dispatcher's log as `model.usage`, from the proxy's pod
   as the meter role, never through an agent; `dispatch status` shows them
   by agent beside what runs say of themselves, and where the two disagree.
+  An agent may be held there to a limit in weighted tokens a day or a pod
+  (`proxyLimit`, the owner's `dispatcher limit`), a call over it refused
+  with a 402 the harness shows as it is (ADR
+  new-usage-and-budget-at-the-proxy, proposed).
 - Beside the proxy and the memory, agents reach the namespaces the
   installation names for its own services, and have one namespace where
   they may run what a task needs, bounded by a quota and closed to the

@@ -29,6 +29,9 @@ type Record struct {
 	// then empty and Address is where they came from.
 	Refused int64  `json:"refused,omitempty"`
 	Address string `json:"address,omitempty"`
+	// Calls the meter refused because the agent was over its budget at
+	// the proxy (ADR new-usage-and-budget-at-the-proxy).
+	OverBudget int64 `json:"over_budget,omitempty"`
 	// Answers whose usage could not be read.
 	Unread int64 `json:"unread,omitempty"`
 	// Tokens by kind, as the API names them (input_tokens, output_tokens,
@@ -77,8 +80,8 @@ func (t Record) String() string {
 	if who == "" {
 		who = "(refused " + t.Address + ")"
 	}
-	return fmt.Sprintf("%s pod=%s model=%s requests=%d errors=%d refused=%d unread=%d %s from=%s to=%s",
-		who, t.Pod, t.Model, t.Requests, t.Errors, t.Refused, t.Unread, strings.Join(parts, " "),
+	return fmt.Sprintf("%s pod=%s model=%s requests=%d errors=%d refused=%d over_budget=%d unread=%d %s from=%s to=%s",
+		who, t.Pod, t.Model, t.Requests, t.Errors, t.Refused, t.OverBudget, t.Unread, strings.Join(parts, " "),
 		t.From.UTC().Format(time.RFC3339), t.To.UTC().Format(time.RFC3339))
 }
 

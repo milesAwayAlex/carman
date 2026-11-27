@@ -85,7 +85,11 @@ dispatcher log [--after N] [--type T] [--limit N] [--last N]
 dispatcher dump > FILE
 git log --oneline PREVIOUS..COMMIT | dispatcher deployed COMMIT [--previous PREVIOUS]   what a deploy deployed (the owner's)
 HARNESS --output-format stream-json --verbose | dispatcher reading [--model M] [--every HOURS]
-dispatcher reading --due                  the models of USAGE_MODELS (MODEL=HOURS,...) to read this hour
+dispatcher reading --due                  the models of USAGE_MODELS (MODEL=HOURS,...) to read this hour, but
+                                          for one whose standing was read lately (by the proxy, from answers)
+dispatcher limit [AGENT [--day N] [--pod N] | AGENT off | AGENT definition]
+                                          the owner's: agents' limits at the proxy, in weighted tokens, and
+                                          their standing; set, lift, or go back to the definition's
 dispatcher meter                          the egress proxy's meter of model use (ADR 0050)
 
 Messages (ADR 0045), as this session (DISPATCHER_SESSION) or as the owner;
@@ -119,6 +123,9 @@ func run(ctx context.Context, args []string) error {
 	}
 	if args[0] == "reading" && slices.Contains(args[1:], "--due") {
 		due, err := dueModels(os.Getenv("USAGE_MODELS"), time.Now().UTC().Hour())
+		if err == nil && os.Getenv("USAGE_ALL") == "" {
+			due = notFresh(ctx, due, time.Now(), os.Stderr)
+		}
 		for _, m := range due {
 			fmt.Println(m)
 		}
@@ -184,6 +191,8 @@ func run(ctx context.Context, args []string) error {
 		return logCmd(ctx, c, flags)
 	case "reading":
 		return observe(ctx, c, flags)
+	case "limit":
+		return limitCmd(ctx, c, pos, flags)
 	case "deployed":
 		return deployed(ctx, c, pos, flags, os.Stdin)
 	case "dump":
@@ -644,7 +653,11 @@ func serve(ctx context.Context) error {
 	case improving.Usage.Below > 0:
 		list.Room = usageRoom(readings, improving.Usage.Below, roomAge, time.Now)
 	}
-	srv := &api.Server{Store: d, Tokens: tokens, OwnerSHA256: ownerSHA256, Check: check, Log: logger, Messages: messages, Verify: verify, Improve: list,
+	proxyLimits, err := parseProxyLimits(os.Getenv("DISPATCHER_PROXY_LIMITS"))
+	if err != nil {
+		return err
+	}
+	srv := &api.Server{Store: d, Tokens: tokens, OwnerSHA256: ownerSHA256, Check: check, Log: logger, Messages: messages, Verify: verify, Improve: list, ProxyLimits: proxyLimits,
 		Dump: func(ctx context.Context, f *os.File) error {
 			args := []string{"--no-owner", "--no-privileges", "--format=plain"}
 			if dbURL != "" {
