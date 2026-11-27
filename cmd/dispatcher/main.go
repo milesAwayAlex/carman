@@ -489,6 +489,7 @@ func serve(ctx context.Context) error {
 		logger.Warn("starting no jobs and watching none", "reason", err)
 		starter = noCluster{fmt.Errorf("this dispatcher is not in a cluster: %w", err)}
 	} else {
+		client.Selector = os.Getenv("DISPATCHER_SELECTOR")
 		s := &kube.Starter{Client: client, Scheduled: scheduled}
 		starter, check, checkSuspended = s, s.Check, s.CheckSuspended
 		watcher = &kube.Watcher{Client: client, Log: logger}

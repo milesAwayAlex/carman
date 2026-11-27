@@ -127,11 +127,11 @@ func (x *Expect) now() time.Time {
 // look, and judges those whose grace has passed.
 func (x *Expect) Pass(ctx context.Context) error {
 	var cjs struct{ Items []cronJobObject }
-	if err := x.Client.do(ctx, http.MethodGet, x.Client.path("cronjobs"), nil, &cjs); err != nil {
+	if err := x.Client.do(ctx, http.MethodGet, x.Client.list("cronjobs"), nil, &cjs); err != nil {
 		return err
 	}
 	var jobs list
-	if err := x.Client.do(ctx, http.MethodGet, x.Client.path("jobs"), nil, &jobs); err != nil {
+	if err := x.Client.do(ctx, http.MethodGet, x.Client.list("jobs"), nil, &jobs); err != nil {
 		return err
 	}
 	running := map[string]bool{}

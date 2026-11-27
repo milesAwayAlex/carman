@@ -207,6 +207,9 @@ func (s *Starter) template(ctx context.Context, class string) (map[string]any, b
 	if err != nil {
 		return nil, false, err
 	}
+	if !s.Client.Selects(stringMap(dig(cj, "metadata", "labels"))) {
+		return nil, false, fmt.Errorf("%w: no template: the CronJob %q is not this dispatcher's (%s)", dispatch.ErrInvalid, class, s.Client.Selector)
+	}
 	tmpl, _ := dig(cj, "spec", "jobTemplate").(map[string]any)
 	if tmpl == nil {
 		return nil, false, fmt.Errorf("the CronJob %s has no job template", class)
@@ -312,6 +315,15 @@ func merge(base any, add map[string]any) map[string]any {
 	}
 	for k, v := range add {
 		out[k] = v
+	}
+	return out
+}
+
+func stringMap(v any) map[string]string {
+	m, _ := v.(map[string]any)
+	out := make(map[string]string, len(m))
+	for k, x := range m {
+		out[k], _ = x.(string)
 	}
 	return out
 }
