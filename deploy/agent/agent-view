@@ -117,7 +117,8 @@ view="view-$$"
 # - the mouse: the wheel scrolls back through the session's own history,
 #   which with no prefix has no other way in;
 # - the hook: the view is of this window; when it closes, the view ends,
-#   and does not go on to show a neighbour's.
+#   and does not go on to show a neighbour's. Looked at once more at the
+#   end, for a window that closed while these were being set.
 exec "$bin" -S "$sock" -u new-session -s "$view" -t main \; \
     set-option destroy-unattached on \; \
     set-option status off \; \
@@ -125,4 +126,5 @@ exec "$bin" -S "$sock" -u new-session -s "$view" -t main \; \
     set-option prefix2 None \; \
     set-option mouse on \; \
     select-window -t "$window" \; \
-    set-hook session-window-changed "if-shell -F '#{!=:#{window_id},$window}' 'kill-session'"
+    set-hook session-window-changed "if-shell -F '#{!=:#{window_id},$window}' 'kill-session'" \; \
+    if-shell -F "#{!=:#{window_id},$window}" kill-session

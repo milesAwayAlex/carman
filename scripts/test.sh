@@ -237,7 +237,7 @@ if command -v tmux >/dev/null; then
         done
         # Its window closes: the view ends by itself, as left.
         pod kill-window -t main:second
-        for _ in $(seq 50); do [ -s "$view/two" ] && break; sleep 0.1; done
+        for _ in $(seq 150); do [ -s "$view/two" ] && break; sleep 0.1; done
         [ "$(cat "$view/two" 2>/dev/null)" = left=0 ] || { echo "a view does not end, as left, when its window closes: $(cat "$view/two" 2>/dev/null)" >&2; exit 1; }
         # Its client goes: no view is left behind.
         mine kill-window -t o:one

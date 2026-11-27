@@ -308,6 +308,10 @@ func run(argv []string, dir string, left <-chan os.Signal) (code int, gone bool)
 	if b := beat(argv); b != nil {
 		hb := exec.Command(b[0], b[1:]...)
 		if in, err := hb.StdinPipe(); err == nil && hb.Start() == nil {
+			// Waited for at once: one that ends early (a pod from before
+			// the beat) is not left as a dead child for the attach's length.
+			ended := make(chan struct{})
+			go func() { hb.Wait(); close(ended) }()
 			stop := make(chan struct{})
 			go func() {
 				for {
@@ -325,7 +329,7 @@ func run(argv []string, dir string, left <-chan os.Signal) (code int, gone bool)
 				close(stop)
 				in.Close()
 				hb.Process.Kill()
-				hb.Wait()
+				<-ended
 			}()
 		}
 	}
