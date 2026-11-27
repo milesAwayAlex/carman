@@ -110,8 +110,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok || who.Agent == "" {
 		p.Ledger.refuse(ip, who.Pod)
 		p.log().Warn("refused: not an agent's pod", "from", ip, "pod", who.Pod, "path", r.URL.Path)
-		refuse(w, http.StatusForbidden, "permission_error",
-			"the egress proxy does not know the pod at "+orUnknown(ip)+" as an agent's, so it does not put the model's credential on this request")
+		refuse(w, http.StatusPaymentRequired, "permission_error", NotAgents(ip))
 		return
 	}
 	if p.Admit != nil {
@@ -122,7 +121,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			p.Ledger.add(who, "", func(t *Record) { t.Requests++; t.Errors++ })
 			p.log().Warn("refused: not admitted", "agent", who.Agent, "pod", who.Pod, "reason", err)
-			refuse(w, http.StatusForbidden, "permission_error", "the egress proxy does not pass this request to the model: "+err.Error())
+			refuse(w, http.StatusPaymentRequired, "permission_error", NotAdmitted(err))
 			return
 		}
 	}
@@ -130,9 +129,6 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if why, over := p.Budget.Over(who); over {
 			p.Ledger.add(who, "", func(t *Record) { t.Requests++; t.OverBudget++ })
 			p.log().Warn("refused: over its budget", "agent", who.Agent, "pod", who.Pod)
-			// 402: the harness shows it once, as what it says, and does
-			// not try again (a 429 it reads as the plan's limit, a 403 as
-			// a failed login, a 400 it tries again).
 			refuse(w, http.StatusPaymentRequired, "billing_error", why)
 			return
 		}
@@ -156,6 +152,19 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	p.rp.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, rq)))
 }
+
+// Every refusal of the meter's is a 402: the harness shows it once, as what
+// it says (a 403 it shows as a failed login, a 429 as the plan's limit, and
+// a 400 it tries again; ADR 0064). Its words start with refusalPrefix.
+const refusalPrefix = "the egress proxy refuses this call to the model: "
+
+// NotAgents is the refusal of a caller that is no agent's pod.
+func NotAgents(ip string) string {
+	return refusalPrefix + "the pod at " + orUnknown(ip) + " is not an agent's pod (the model's credential is not the fault: the proxy holds it)"
+}
+
+// NotAdmitted is the refusal of a request the installation does not allow.
+func NotAdmitted(err error) string { return refusalPrefix + err.Error() }
 
 func orUnknown(s string) string {
 	if s == "" {

@@ -82,8 +82,8 @@ that reason.
 
 **What trials may spend.** Two limits at the listener, the installation's
 to set, and both refuse before anything reaches the model's API, with the
-reason in the answer (403, in the API's error form, which the harness
-shows):
+reason in the answer (402, in the API's error form, which the harness
+shows once as what it says; ADR 0064):
 
 - **Which models**: `egress.model.trials.models`; unless listed, only the
   usage reading's own model, the cheapest (`usage.model`). A trial's

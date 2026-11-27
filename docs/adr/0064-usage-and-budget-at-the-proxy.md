@@ -98,6 +98,10 @@ have `proxyLimit: {day: N, pod: N}`, off unless set:
   status the harness shows once as itself (see above); the words avoid
   those `cmem routine` reads as the plan's limit. The refusal is in the
   meter's log and in `model.usage` as `over_budget`.
+  The meter's other refusals (a pod that is no agent's, a trial's request
+  the installation does not allow) are 402 too, for the same reason: a
+  403 sent agents looking at their credential. Every refusal's words start
+  "the egress proxy refuses this call to the model:".
 - The owner sets, raises or lifts it without a deploy: `dispatcher limit
   AGENT --day 5M --pod 800k`, `limit AGENT off`, `limit AGENT definition`
   (an event `model.limit`, the owner's only: the meter may not write it).

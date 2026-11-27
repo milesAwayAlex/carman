@@ -84,9 +84,9 @@ ask() {  # POD MODEL
 }
 
 # The meter's own limits, before anything is spent.
-out="$(ask stray claude-haiku-5-5)"; has "$out" " 403"
+out="$(ask stray claude-haiku-5-5)"; has "$out" " 402"
 step "a pod of the sandbox that does not say it is a trial's agent is refused by the meter"
-out="$(ask caller claude-opus-5-5)"; has "$out" " 403"
+out="$(ask caller claude-opus-5-5)"; has "$out" " 402"
 step "a trial's agent that asks for a model trials may not use is refused"
 
 # A restricted agent, started by a rule from a watch, runs a routine on the model.

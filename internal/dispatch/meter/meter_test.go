@@ -218,7 +218,8 @@ func TestR10MeterRefuses(t *testing.T) {
 		resp := post(t, front, "/v1/messages", from, "Bearer sk-ant-oat01-placeholder")
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(body), "permission_error") {
+		if resp.StatusCode != http.StatusPaymentRequired || !strings.Contains(string(body), "permission_error") ||
+			!strings.Contains(string(body), NotAgents(from)) {
 			t.Errorf("from %q: %d %s", from, resp.StatusCode, body)
 		}
 	}
@@ -346,14 +347,14 @@ func TestR10MeterTrials(t *testing.T) {
 	if s := <-got; s.auth != "Bearer the-real-one" || s.caller != "" {
 		t.Errorf("the API saw %+v", s)
 	}
-	if code, body := ask("claude-opus-5-5", ""); code != 403 || !strings.Contains(body, "a trial may use claude-haiku-5-5, not claude-opus-5-5") {
+	if code, body := ask("claude-opus-5-5", ""); code != 402 || !strings.Contains(body, "the egress proxy refuses this call to the model: a trial may use claude-haiku-5-5, not claude-opus-5-5") {
 		t.Errorf("a model trials may not use: %d %s", code, body)
 	}
 	if code, _ := ask("claude-haiku-5-5-20261001", ""); code != 200 {
 		t.Errorf("the model by its dated name got %d", code)
 	}
 	<-got
-	if code, body := ask("claude-haiku-5-5", ""); code != 403 || !strings.Contains(body, "their 2 requests") {
+	if code, body := ask("claude-haiku-5-5", ""); code != 402 || !strings.Contains(body, "their 2 requests") {
 		t.Errorf("beyond the day's count: %d %s", code, body)
 	}
 	select {
@@ -363,7 +364,7 @@ func TestR10MeterTrials(t *testing.T) {
 	}
 	// Another address is nobody's here, whatever it says.
 	known = "192.0.2.9"
-	if code, _ := ask("claude-haiku-5-5", "127.0.0.1"); code != 403 {
+	if code, _ := ask("claude-haiku-5-5", "127.0.0.1"); code != 402 {
 		t.Errorf("a caller that is no trial's agent got %d", code)
 	}
 	var mine *Record
@@ -374,5 +375,24 @@ func TestR10MeterTrials(t *testing.T) {
 	}
 	if mine == nil || mine.Requests != 2 || mine.Tokens["output_tokens"] != 84 || mine.Pod != "t1-agent-1" {
 		t.Errorf("the trial's record: %+v", mine)
+	}
+}
+
+// TestR10MeterRefusalWords pins the words of each refusal: the harness
+// shows a 402's message as it is, so each says that the proxy refused and why.
+func TestR10MeterRefusalWords(t *testing.T) {
+	for got, want := range map[string]string{
+		NotAgents("10.9.9.9"): "the egress proxy refuses this call to the model: the pod at 10.9.9.9 is not an agent's pod (the model's credential is not the fault: the proxy holds it)",
+		NotAgents(""):         "the egress proxy refuses this call to the model: the pod at an unknown address is not an agent's pod (the model's credential is not the fault: the proxy holds it)",
+		NotAdmitted(errors.New("a trial may use claude-haiku-5-5, not claude-opus-5-5")): "the egress proxy refuses this call to the model: a trial may use claude-haiku-5-5, not claude-opus-5-5",
+	} {
+		if got != want {
+			t.Errorf("got  %q\nwant %q", got, want)
+		}
+	}
+	rec := httptest.NewRecorder()
+	refuse(rec, http.StatusPaymentRequired, "permission_error", NotAgents(""))
+	if rec.Code != 402 || !strings.Contains(rec.Body.String(), `"message":"the egress proxy refuses this call to the model: the pod at an unknown address`) {
+		t.Errorf("%d %s", rec.Code, rec.Body)
 	}
 }
