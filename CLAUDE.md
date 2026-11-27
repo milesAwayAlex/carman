@@ -62,7 +62,9 @@ Built so far:
   leave the cluster only through the egress proxy, which holds their
   credentials (ADR 0031) and renews the ones that do not last (ADR 0035),
   and can be given plugins, MCP servers, a cloud
-  identity and commands of the installation's own.
+  identity and commands of the installation's own. An entry's `tools:`
+  is `all`, `memory`, or a map naming all it may do, as the dreamer is
+  held (ADR 0061, proposed).
 
 - Several accounts for the model (ADR 0055, proposed): the installation's
   definition lists them by name with the command that prints each one's
