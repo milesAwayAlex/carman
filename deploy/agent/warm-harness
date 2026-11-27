@@ -52,6 +52,11 @@ fail() {
 # The proxy's trust, where an agent's pod has it, and the PATH.
 # shellcheck disable=SC1091
 . /usr/local/lib/agent-env
+# A pod just made is refused by the proxy for a moment, until the cluster
+# has put it among those the proxy admits (ADR 0066): wait for the proxy
+# once, here, before the first fetch. Seen 2026-11-27: this job failed at
+# its first request on the deploy that closed the proxy to all but agents.
+if command -v dispatcher >/dev/null 2>&1; then dispatcher ready >/dev/null 2>&1 || true; else sleep 3; fi
 
 # The warm image is for the architecture of the node this runs on: the
 # installer fetches the harness for it, and a base that names several takes
