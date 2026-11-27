@@ -50,6 +50,44 @@ if json.dumps(state, sort_keys=True) != before:
 PY
 }
 
+# The harness's settings in the home: the image's hooks and allow rules
+# beside what the user has set. ARG: the harness was linked from the image.
+agent_harness_settings() {  # [FROM-IMAGE]
+    AGENT_HARNESS_FROM_IMAGE="${1:-}" python3 - <<'PY' || echo "agent: the harness's settings could not be written; it starts without the memory hook" >&2
+import json, os
+# A harness linked from the image: what its installer records about how it
+# was installed, which the installer would have written here.
+if os.environ.get("AGENT_HARNESS_FROM_IMAGE"):
+    state_path = os.path.expanduser("~/.claude.json")
+    try:
+        state = json.load(open(state_path))
+    except Exception:
+        state = {}
+    for key, value in (("installMethod", "native"), ("autoUpdates", False), ("autoUpdatesProtectedForNative", True)):
+        state.setdefault(key, value)
+    json.dump(state, open(state_path, "w"), indent=2)
+path = os.path.expanduser("~/.claude/settings.json")
+try:
+    settings = json.load(open(path))
+except Exception:
+    settings = {}
+ours = json.load(open(os.environ.get("AGENT_SETTINGS", "/usr/local/lib/agent-settings.json")))
+settings["autoUpdatesChannel"] = os.environ.get("HARNESS_CHANNEL") or "stable"
+settings.setdefault("env", {}).update(ours.get("env", {}))
+allow = settings.setdefault("permissions", {}).setdefault("allow", [])
+# A restricted job has what cmem routine allows it and nothing more: rules
+# here would add to its own (ADR 0061).
+restricted = not os.environ.get("AGENT_INTERACTIVE") and os.environ.get("CMEM_ROUTINE_TOOLS") != "all"
+if not restricted:
+    allow += [rule for rule in ours.get("permissions", {}).get("allow", []) if rule not in allow]
+settings["hooks"] = {**settings.get("hooks", {}), **ours.get("hooks", {})}
+mode = os.environ.get("AGENT_PERMISSION_MODE")
+if mode:
+    settings["permissions"]["defaultMode"] = mode
+json.dump(settings, open(path, "w"), indent=2)
+PY
+}
+
 agent_setup() {
     # A cloud provider's command-line tools take their identity from a file
     # the chart mounts when the agent has one (ADR 0031): no key, a token
@@ -123,35 +161,7 @@ agent_setup() {
     if [ -d /var/lib/agent/conversations ] && [ ! -e "$HOME/.claude/projects" ]; then
         ln -s /var/lib/agent/conversations "$HOME/.claude/projects"
     fi
-    AGENT_HARNESS_FROM_IMAGE="$harness_from_image" python3 - <<'PY' || echo "agent: the harness's settings could not be written; it starts without the memory hook" >&2
-import json, os
-# A harness linked from the image: what its installer records about how it
-# was installed, which the installer would have written here.
-if os.environ.get("AGENT_HARNESS_FROM_IMAGE"):
-    state_path = os.path.expanduser("~/.claude.json")
-    try:
-        state = json.load(open(state_path))
-    except Exception:
-        state = {}
-    for key, value in (("installMethod", "native"), ("autoUpdates", False), ("autoUpdatesProtectedForNative", True)):
-        state.setdefault(key, value)
-    json.dump(state, open(state_path, "w"), indent=2)
-path = os.path.expanduser("~/.claude/settings.json")
-try:
-    settings = json.load(open(path))
-except Exception:
-    settings = {}
-ours = json.load(open("/usr/local/lib/agent-settings.json"))
-settings["autoUpdatesChannel"] = os.environ.get("HARNESS_CHANNEL") or "stable"
-settings.setdefault("env", {}).update(ours.get("env", {}))
-allow = settings.setdefault("permissions", {}).setdefault("allow", [])
-allow += [rule for rule in ours.get("permissions", {}).get("allow", []) if rule not in allow]
-settings["hooks"] = {**settings.get("hooks", {}), **ours.get("hooks", {})}
-mode = os.environ.get("AGENT_PERMISSION_MODE")
-if mode:
-    settings["permissions"]["defaultMode"] = mode
-json.dump(settings, open(path, "w"), indent=2)
-PY
+    agent_harness_settings "$harness_from_image"
     agent_harness_state
     # Plugins the agent was given: skills, subagents and MCP servers that come
     # as one package. Fetched now, so the agent has each as it is today; where

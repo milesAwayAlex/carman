@@ -35,6 +35,19 @@ if python3 -c "" 2>/dev/null; then  # one that runs: a stub that only names itse
     python3 -c 'import json,sys; s=json.load(open(sys.argv[1]+"/.claude.json")); sys.exit(not (s["numStartups"] == 3 and s["hasCompletedOnboarding"] and s["projects"][sys.argv[1]]["hasTrustDialogAccepted"]))' "$(cd "$home" && pwd -P)" ||
         { echo "agent_harness_state does not seed the harness's first start" >&2; rm -rf "$home"; exit 1; }
     rm -rf "$home"
+    # A restricted job's harness has only the allow rules cmem routine gives
+    # it, not the image's beside them (ADR 0061); one with every tool, and a
+    # standing pod, have the image's.
+    for case in "memory:0" "named:0" "all:1" "interactive:1"; do
+        home="$(mktemp -d)" && mkdir "$home/.claude"
+        tools="${case%%:*}" interactive=""
+        [ "$tools" != interactive ] || { tools="" interactive=1; }
+        HOME="$home" CMEM_ROUTINE_TOOLS="$tools" AGENT_INTERACTIVE="$interactive" AGENT_SETTINGS=deploy/agent/settings.json \
+            sh -c '. deploy/agent/agent-env && agent_harness_settings'
+        python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); sys.exit((len(s["permissions"]["allow"]) > 0) != (sys.argv[2] == "1") or not s["hooks"])' \
+            "$home/.claude/settings.json" "${case#*:}" || { echo "agent_harness_settings: the image's allow rules are wrong for tools ${case%%:*}" >&2; rm -rf "$home"; exit 1; }
+        rm -rf "$home"
+    done
 fi
 # The idle listener's wake reads as a message, not a hook's error, wherever its settings are.
 for f in deploy/agent/settings.json adapters/claude-code/dispatcher.settings.example.json nix/packages/dispatcher-claude-code-settings.nix; do
@@ -117,6 +130,28 @@ if command -v helm >/dev/null; then
     fi
     helm template t charts/carman -f deploy/values/trial.yaml --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 >/dev/null ||
         { echo "the trial's values do not render" >&2; exit 1; }
+    # ADR 0061: an agent's entry may name its tools, and the chart refuses
+    # what cmem routine would leave out. The trial's surveyor renders to the
+    # list's own command and nothing else, and its harness is allowed that.
+    named() { "${agents[@]}" --set-json "agents=[{\"name\":\"a\",\"routines\":[\"x\"],\"mcp\":{\"tr\":\"https://x\"},\"tools\":$1}]"; }
+    for bad in '{"commands":["gh pr edit"]}' '{"run":["gh"]}' '{"run":["gh pr --web"]}' '{"mcp":{"other":["t"]}}' '{"read":["etc"]}' '{"bash":true}'; do
+        if named "$bad" >/dev/null 2>&1; then
+            echo "the chart renders an agent whose tools are $bad" >&2
+            exit 1
+        fi
+    done
+    if "${agents[@]}" --set-json 'agents=[{"name":"a","interactive":true,"tools":{"run":["gh pr view"]}}]' >/dev/null 2>&1; then
+        echo "the chart renders an interactive agent with named tools" >&2
+        exit 1
+    fi
+    surveyor="$(helm template t charts/carman -f deploy/values/trial.yaml -f deploy/values/trial-improve.yaml --set memory.image=m:0 --set agent.image=a:0 \
+        --set dispatcher.image=d:0 --show-only templates/agents.yaml | awk '$1 == "name:" && $2 == "agent-watch" {w = 1} w && /name: CMEM_ROUTINE_(TOOLS|MEMORY|RUN|COMMANDS|MCP_TOOLS|READ)$/ {n = $3; getline; v = $0; sub(/^ *value: /, "", v); gsub(/"/, "", v); print n "=" v} w && /^---/ {exit}')"
+    [ "$(printf %s "$surveyor" | tr '\n' ' ')" = "CMEM_ROUTINE_TOOLS=named CMEM_ROUTINE_MEMORY=off CMEM_ROUTINE_RUN=dispatcher improve" ] ||
+        { echo "the trial's surveyor does not render to the list's command only: $surveyor" >&2; exit 1; }
+    (unset CMEM_ROUTINE_COMMANDS CMEM_ROUTINE_MCP_TOOLS CMEM_ROUTINE_MCP_CONFIG CMEM_ROUTINE_READ
+        while IFS= read -r kv; do export "$kv"; done <<<"$surveyor"
+        CGO_ENABLED=0 go run ./cmd/cmem routine --flags) | grep -F "'--allowedTools' 'Bash(dispatcher improve)' 'Bash(dispatcher improve *)' '--append-system-prompt'" >/dev/null ||
+        { echo "the trial's surveyor's harness is not allowed the list's command only" >&2; exit 1; }
 else
     echo "helm is not here: the chart's checks are skipped" >&2
 fi

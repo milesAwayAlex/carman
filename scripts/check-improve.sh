@@ -22,6 +22,7 @@ image="$("${kube[@]}" get deployment dispatcher -o 'jsonpath={.spec.template.spe
 [ "$("${kube[@]}" get deployment dispatcher -o 'jsonpath={.metadata.labels.trial}')" = "$name" ] || die "the dispatcher in $namespace is not the trial $name"
 
 owner() { scripts/trial.sh "$context" deploy dispatch "$@"; }
+
 # A pod the cluster vouches for as an agent: its label, and a token of its
 # own for the dispatcher.
 for agent in watch platform other; do
@@ -54,6 +55,19 @@ has() { grep -qF -- "$2" <<<"$1" || die "expected \"$2\" in:
 $1"; }
 lacks() { ! grep -qF -- "$2" <<<"$1" || die "did not expect \"$2\" in:
 $1"; }
+
+# The surveyor's entry names its tools (ADR 0061): its CronJob, as the trial
+# has it, gives its harness the list's command and nothing else, and
+# `dispatcher send` is not among what it is allowed.
+env="$("${kube[@]}" get cronjob agent-watch -o 'jsonpath={range .spec.jobTemplate.spec.template.spec.containers[0].env[*]}{.name}={.value}{"\n"}{end}' | grep '^CMEM_ROUTINE_')" ||
+    die "no CronJob for the surveyor in the trial"
+flags="$(env -i PATH="$PATH" HOME="$HOME" CGO_ENABLED=0 DISPATCHER_URL=http://dispatcher:8379 sh -c 'while IFS= read -r kv; do export "$kv"; done; exec "$@"' sh \
+    go run ./cmd/cmem routine --flags <<<"$env")"
+has "$flags" "'--permission-mode' 'dontAsk'"
+has "$flags" "'--allowedTools' 'Bash(dispatcher improve)' 'Bash(dispatcher improve *)' '--append-system-prompt'"
+lacks "$flags" "Bash(dispatcher *)"
+lacks "$flags" "Bash(cmem"
+step "the surveyor's harness may run dispatcher improve and nothing else"
 
 # The list starts with what is known: the seed, written down by the owner.
 out="$(owner improve import docs/improvements/seed.json)"; has "$out" "wrote down"

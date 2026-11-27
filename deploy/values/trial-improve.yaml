@@ -6,6 +6,9 @@
 agents:
   - name: watch
     routines: [improve]
+    # It reads what others wrote: only the list's own command (ADR 0061).
+    tools:
+      run: [dispatcher improve]
   - name: platform
     routines: [improve]
 dispatcher:

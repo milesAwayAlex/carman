@@ -642,7 +642,14 @@ egress:
 #       waitForLimitMinutes: 600      # wait this long for the plan's usage limit to reset; needs deadlineSeconds to match
 #       models: [claude-sonnet-5-5]   # the ladder
 #       budgetUSD: 2
-#       tools: all                    # "memory" (the default): the memory command only
+#       tools: all                    # "memory" (the default): the memory command only; or only what
+#                                     # is named, refused otherwise, and told so (ADR 0061):
+#                                     #   tools:
+#                                     #     memory: true                # the memory command
+#                                     #     run: [dispatcher improve]   # with any subcommands and arguments
+#                                     #     commands: [gh pr view]      # prefixes that only read (ADR 0046)
+#                                     #     mcp: {tracker: [get_issue]} # tools of its own mcp servers
+#                                     #     read: [/etc/agent/routines] # directories in its pod
 #       scope: repo:example.com/org/name   # which repository's memory it works with
 #       mcp:
 #         tracker: https://mcp.example.com/mcp     # a remote server; the proxy adds its credential
@@ -667,6 +674,12 @@ egress:
 #                                     # read-only, to read and to propose changes to
 #                                     # (agent-definition, ADR 0056): every agent's entry, the
 #                                     # hosts and accounts the installation names, and its history
+#     - name: surveyor                # the improvement loop's (ADR 0058): it reads what others
+#       routines: [improve]           # wrote, so it runs only the list's command (ADR 0061)
+#       dispatched: true
+#       schedule: "0 6 * * *"
+#       tools:
+#         run: [dispatcher improve]
 agents: []
 
 cloud:
