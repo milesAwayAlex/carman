@@ -173,6 +173,21 @@ handed a session whose harness the watcher then finds gone, with no word
 from the session in between, is recorded as not delivered and delivered
 once more, marked as a second time: at least once, never silently lost.
 
+### A trial's agents and the model (ADR new-a-trial-agent-reaches-the-model, proposed)
+
+A trial installation's agents (ADR 0054) reach the model at a second
+listener of the meter's (`egress.model.trials`, off by default), which
+serves the model's API and nothing else: the proxy's own port, with its
+other credentials, stays closed to the sandbox, and no credential goes
+there. The caller is the address its connection comes from, looked up
+among the sandbox's pods (a Role over pods there, to read): a pod that
+says which trial and which agent it is, recorded as `trial/TRIAL/AGENT` in
+the same `model.usage`. Only the models the installation lists for trials
+pass (the cheapest unless said), and so many requests a day, all trials
+together, until the proxy keeps budgets. Two network policies let pods
+labelled for it out of the sandbox to that port and into the
+installation's namespace at it.
+
 ### Triggers (ADR 0063, proposed)
 
 Beside the clock, a command and a message, work starts when something

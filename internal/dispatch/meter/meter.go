@@ -16,14 +16,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"carman/internal/dispatch/message"
 )
@@ -46,8 +50,16 @@ type Proxy struct {
 	// says where the request came from. Whatever the agent sent in it is
 	// replaced there, before the request reaches the meter.
 	CallerHeader string
-	Ledger       *Ledger
-	Log          *slog.Logger
+	// Direct takes the caller's address from the connection itself: for a
+	// listener that callers reach with no proxy in front (trials, ADR
+	// new-a-trial-agent-reaches-the-model). CallerHeader is then not read.
+	Direct bool
+	// Admit, when set, says whether this caller's request may go on, after
+	// it is known whose it is and which model it asks for (empty when the
+	// request names none); an error is the reason it may not.
+	Admit  func(who message.Caller, model string, metered bool) error
+	Ledger *Ledger
+	Log    *slog.Logger
 	// Shapes logs the names of what passes (headers, events, fields of
 	// usage), never their values: how the harness and the API were looked
 	// at when this was built.
@@ -82,6 +94,9 @@ func metered(r *http.Request) bool {
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.once.Do(p.build)
 	ip := strings.TrimSpace(r.Header.Get(p.CallerHeader))
+	if p.Direct {
+		ip, _, _ = net.SplitHostPort(r.RemoteAddr)
+	}
 	who, ok := message.Caller{}, false
 	if ip != "" {
 		who, ok = p.Identify(r.Context(), ip)
@@ -92,6 +107,18 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		refuse(w, http.StatusForbidden, "permission_error",
 			"the egress proxy does not know the pod at "+orUnknown(ip)+" as an agent's, so it does not put the model's credential on this request")
 		return
+	}
+	if p.Admit != nil {
+		model, err := askedModel(r)
+		if err == nil {
+			err = p.Admit(who, model, metered(r))
+		}
+		if err != nil {
+			p.Ledger.add(who, "", func(t *Record) { t.Requests++; t.Errors++ })
+			p.log().Warn("refused: not admitted", "agent", who.Agent, "pod", who.Pod, "reason", err)
+			refuse(w, http.StatusForbidden, "permission_error", "the egress proxy does not pass this request to the model: "+err.Error())
+			return
+		}
 	}
 	cred, err := p.Credential()
 	if err != nil || cred == "" {
@@ -412,4 +439,83 @@ func keys(m map[string]bool) string {
 	}
 	sort.Strings(out)
 	return strings.Join(out, ",")
+}
+
+// askedModel reads which model a message asks for, and puts the body back.
+// Other requests name none.
+func askedModel(r *http.Request) (string, error) {
+	if !metered(r) || r.Body == nil {
+		return "", nil
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<20))
+	if err != nil {
+		return "", err
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	var m struct {
+		Model string `json:"model"`
+	}
+	if json.Unmarshal(body, &m) != nil || m.Model == "" {
+		return "", errors.New("the request does not say which model it is for")
+	}
+	return m.Model, nil
+}
+
+// TrialLimits is what trials may use of the model: which models, and how
+// many messages in a period, all trials together. A simple cap, kept in
+// this process (a restart forgets the count), until the proxy keeps
+// budgets.
+type TrialLimits struct {
+	// Models may be asked for; none listed, none may.
+	Models []string
+	// Requests is how many messages pass in Per (24h when zero).
+	Requests int
+	Per      time.Duration
+	Now      func() time.Time
+
+	mu     sync.Mutex
+	passed []time.Time
+}
+
+// Admit is a Proxy's Admit.
+func (l *TrialLimits) Admit(who message.Caller, model string, metered bool) error {
+	if !metered {
+		return nil
+	}
+	allowed := false
+	for _, m := range l.Models {
+		// A model's name may carry a date or a context size after it.
+		allowed = allowed || model == m || strings.HasPrefix(model, m+"-") || strings.HasPrefix(model, m+"[")
+	}
+	if !allowed {
+		return fmt.Errorf("a trial may use %s, not %s; the installation lists the models trials may use (egress.model.trials.models)", orNone(strings.Join(l.Models, ", ")), model)
+	}
+	now, per := time.Now(), l.Per
+	if l.Now != nil {
+		now = l.Now()
+	}
+	if per <= 0 {
+		per = 24 * time.Hour
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	keep := l.passed[:0]
+	for _, t := range l.passed {
+		if now.Sub(t) < per {
+			keep = append(keep, t)
+		}
+	}
+	l.passed = keep
+	if len(l.passed) >= l.Requests {
+		return fmt.Errorf("trials have had their %d requests to the model in %s (egress.model.trials.requests); the oldest was at %s", l.Requests, per, l.passed[0].UTC().Format("15:04 UTC"))
+	}
+	l.passed = append(l.passed, now)
+	return nil
+}
+
+func orNone(s string) string {
+	if s == "" {
+		return "no model"
+	}
+	return s
 }

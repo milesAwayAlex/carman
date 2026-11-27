@@ -166,6 +166,15 @@ Built so far:
   and `scripts/deploy.sh CONTEXT dispatch ...` runs the client on the
   owner's machine with it (`dispatch owner-token new|back`).
 
+- A trial's agents reach the model (ADR new-a-trial-agent-reaches-the-model,
+  proposed): with `egress.model.trials.enabled` the meter listens on a port
+  of its own for trials, which serves the model and nothing else, knows a
+  caller by its pod in the sandbox (labels `trial` and `agent`), records
+  its use as `trial/TRIAL/AGENT`, and passes only the models and the count
+  of requests a day the installation allows. `scripts/trial.sh` with
+  `TRIAL_MODEL` and `TRIAL_AGENT_BASE` gives a trial's agents that address,
+  a placeholder, and an image with the harness and the checkout's code.
+
 - Triggers (ADR 0063, proposed): `dispatcher.rules` start a task of a
   class when an event of a kind is in the log (`internal/dispatch/trigger`):
   once per event, at most so often (`rule.held` otherwise), never for a

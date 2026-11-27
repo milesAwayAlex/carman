@@ -604,6 +604,25 @@ egress:
     resources:
       requests: {cpu: 10m, memory: 32Mi}
       limits: {memory: 256Mi}
+    # Agents of trial installations in the sandbox (ADR 0054) reach the
+    # model (ADR new-a-trial-agent-reaches-the-model): the meter listens on
+    # a port of its own for them, which serves the model and nothing else
+    # (not the proxy's other credentials), and no credential goes into the
+    # sandbox. A caller is a trial's agent when its pod there says which
+    # trial it is of and which agent (labels trial and agent), and its use
+    # is recorded as trial/TRIAL/AGENT. Off unless switched on; needs the
+    # credential at the proxy (agent.modelCredential: proxy or both) and a
+    # sandbox.
+    trials:
+      enabled: false
+      port: 3131
+      # The models a trial may ask for: the usage reading's own, the
+      # cheapest, unless others are listed.
+      models: []
+      # How many requests to the model all trials together may make in 24
+      # hours; the meter counts, and forgets when it restarts. A routine's
+      # run is ten to thirty.
+      requests: 300
   # Credentials that do not last: for a host listed above, a command that is
   # run beside the proxy every so often and prints the header value to use
   # (for example a tool that keeps a sign-in and prints the hour's token).

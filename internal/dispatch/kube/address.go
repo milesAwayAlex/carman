@@ -22,6 +22,11 @@ type Addresses struct {
 	Log    *slog.Logger
 	// Settle is how long an unknown address is looked for (5s when zero).
 	Settle time.Duration
+	// Trials reads the namespace as one where trial installations stand
+	// (ADR 0054): a pod is an agent's only if it also says which trial it
+	// is of (its label trial), and its agent is then TrialAgent(trial,
+	// agent), which no agent of the installation's own can be called.
+	Trials bool
 
 	mu     sync.RWMutex
 	byIP   map[string]podObject
@@ -98,8 +103,21 @@ func (a *Addresses) find(ip string) (message.Caller, bool) {
 	if !ok {
 		return message.Caller{}, false
 	}
-	return message.Caller{Agent: p.agent(), Pod: p.Metadata.Name, PodUID: p.Metadata.UID}, true
+	agent := p.agent()
+	if a.Trials {
+		if trial := p.Metadata.Labels["trial"]; trial != "" && agent != "" {
+			agent = TrialAgent(trial, agent)
+		} else {
+			agent = ""
+		}
+	}
+	return message.Caller{Agent: agent, Pod: p.Metadata.Name, PodUID: p.Metadata.UID}, true
 }
+
+// TrialAgent is what an agent of a trial is called in the meter's record:
+// trial/TRIAL/AGENT. A trial's name says whose it is (the session that
+// stood it up, unless it chose another).
+func TrialAgent(trial, agent string) string { return "trial/" + trial + "/" + agent }
 
 type podList struct {
 	Metadata struct {

@@ -1,0 +1,45 @@
+# On top of the trial's values (TRIAL_VALUES), for a trial whose agents
+# reach the model (TRIAL_AGENT_BASE and TRIAL_MODEL, scripts/trial.sh;
+# scripts/check-trial-agents.sh tries it). Everything runs on the cheapest
+# model, which is what an installation lets trials use unless it says more.
+agents:
+  # Held to one command (ADR 0061), with a routine of the image's own, and
+  # started by a rule when a page changes (ADR 0063).
+  - name: surveyor
+    routines: [improve]
+    tools:
+      run: [dispatcher improve]
+    models: [claude-haiku-5-5]
+    budgetUSD: 0.5
+    deadlineSeconds: 900
+  # Two agents with no routine: a message to one starts a run of it, and one
+  # may write to the other.
+  - name: asker
+    takesMessages: true
+    tools: all
+    models: [claude-haiku-5-5]
+    budgetUSD: 0.3
+    deadlineSeconds: 600
+  - name: answerer
+    takesMessages: true
+    tools: all
+    writtenBy: [asker]
+    models: [claude-haiku-5-5]
+    budgetUSD: 0.3
+    deadlineSeconds: 600
+dispatcher:
+  maxRunning: 2
+  improvement:
+    surveyor: surveyor
+  watches:
+    - name: page
+      cron: "*/20 * * * * *"
+      url: http://source:8080/
+      keep: 'price [0-9]+'
+      atLeast: 1
+  rules:
+    - name: page-changed
+      when: {type: watch.changed, subject: page}
+      start: agent-surveyor
+      atMost: {count: 1, per: 10m}
+      carry: [digest, since]

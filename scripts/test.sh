@@ -160,6 +160,27 @@ if command -v helm >/dev/null; then
         echo "the chart renders an agent named as a watch's job is" >&2
         exit 1
     fi
+    # R10, trials reach the model (ADR new-a-trial-agent-reaches-the-model):
+    # only where switched on, with the credential at the proxy and a sandbox;
+    # then a listener of the meter's own, the cheapest model unless others
+    # are listed, a Role over the sandbox's pods only, and a way out of the
+    # sandbox to that port alone.
+    metered=(helm template t charts/carman --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 --set agent.modelCredential=proxy
+        --set agent.sandbox.namespace=sb --set-json 'agent.sandbox.api.addresses=["192.0.2.1/32"]' --set-json 'agents=[{"name":"a","routines":["x"]}]' --show-only templates/egress.yaml)
+    ! "${metered[@]}" | grep -qi trial || { echo "the proxy is opened to trials nobody asked for" >&2; exit 1; }
+    opened="$("${metered[@]}" --set egress.model.trials.enabled=true)"
+    grep -A1 'name: METER_TRIAL_MODELS' <<<"$opened" | grep -qF "value: \"$(sed -n 's/^  model: \(claude-[a-z0-9-]*\)$/\1/p' charts/carman/values.yaml | head -1)\"" ||
+        { echo "trials are not kept to the cheapest model by default" >&2; exit 1; }
+    [ "$(grep -c 'name: egress-meter-reads-trials' <<<"$opened")" = 3 ] && grep -q 'name: trial-agents-reach-the-model' <<<"$opened" && grep -q 'name: trial-agents-reach-the-meter' <<<"$opened" ||
+        { echo "the meter's right over the sandbox's pods, or the trials' way to it, is not rendered" >&2; exit 1; }
+    awk '/name: trial-agents-reach-the-model/,/^---/' <<<"$opened" | grep -q 'port: 3131' && ! awk '/name: trial-agents-reach-the-model/,/^---/' <<<"$opened" | grep -q 3128 ||
+        { echo "trials are let out to more than the meter's port for them" >&2; exit 1; }
+    if helm template t charts/carman --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 --set egress.model.trials.enabled=true >/dev/null 2>&1; then
+        echo "the chart opens the model to trials with no credential at the proxy" >&2
+        exit 1
+    fi
+    helm template t charts/carman -f deploy/values/trial.yaml -f deploy/values/trial-agents.yaml --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 >/dev/null ||
+        { echo "the trial's values for agents that reach the model do not render" >&2; exit 1; }
     helm template t charts/carman -f deploy/values/trial.yaml -f deploy/values/trial-triggers.yaml --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 |
         grep -F '\"when\":{' >/dev/null || { echo "the triggers' trial values do not render their rules" >&2; exit 1; }
     helm template t charts/carman -f deploy/values/trial.yaml --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 >/dev/null ||

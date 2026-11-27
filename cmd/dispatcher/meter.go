@@ -32,6 +32,9 @@ import (
 // tally stays open; METER_SHAPES (on: log the names of what passes, never
 // values); DISPATCHER_URL and DISPATCHER_TOKEN_FILE, where the records go,
 // as this pod. Without a dispatcher the records are only in the log.
+// For trials: METER_TRIAL_LISTEN (none), METER_TRIAL_NAMESPACE (the
+// sandbox), METER_TRIAL_MODELS (the models a trial may ask for, with
+// commas) and METER_TRIAL_REQUESTS (how many requests in a day, all trials).
 func meterCmd(ctx context.Context) error {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	listen := envOr("METER_LISTEN", "127.0.0.1:3130")
@@ -111,6 +114,47 @@ func meterCmd(ctx context.Context) error {
 		Ledger:       ledger,
 		Log:          log,
 		Shapes:       os.Getenv("METER_SHAPES") == "on",
+	}
+	// Trials (ADR new-a-trial-agent-reaches-the-model): a second listener,
+	// reached with no proxy in front by agents of trial installations in
+	// the sandbox. It serves the model and nothing else, knows a caller by
+	// the address its connection comes from, looked up among the sandbox's
+	// pods, and passes what the installation allows trials.
+	if tl := os.Getenv("METER_TRIAL_LISTEN"); tl != "" {
+		ns := os.Getenv("METER_TRIAL_NAMESPACE")
+		if ns == "" {
+			return errors.New("METER_TRIAL_LISTEN needs METER_TRIAL_NAMESPACE, where trials stand")
+		}
+		tkc, err := kube.InCluster(ns)
+		if err != nil {
+			return err
+		}
+		taddrs := &kube.Addresses{Client: tkc, Log: log, Trials: true}
+		go taddrs.Run(ctx)
+		limits := &meter.TrialLimits{Per: 24 * time.Hour}
+		for _, m := range strings.Split(os.Getenv("METER_TRIAL_MODELS"), ",") {
+			if m = strings.TrimSpace(m); m != "" {
+				limits.Models = append(limits.Models, m)
+			}
+		}
+		if _, err := fmt.Sscan(envOr("METER_TRIAL_REQUESTS", "0"), &limits.Requests); err != nil || limits.Requests < 0 {
+			return errors.New("METER_TRIAL_REQUESTS is how many requests trials may make in a day, a whole number")
+		}
+		trials := &meter.Proxy{Upstream: up, Transport: proxy.Transport, Credential: cred.Get, Identify: taddrs.Lookup,
+			CallerHeader: proxy.CallerHeader, Direct: true, Admit: limits.Admit, Ledger: ledger, Log: log, Shapes: proxy.Shapes}
+		tsrv := &http.Server{Addr: tl, Handler: trials, ReadHeaderTimeout: 30 * time.Second}
+		go func() {
+			<-ctx.Done()
+			shut, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+			defer cancel()
+			_ = tsrv.Shutdown(shut)
+		}()
+		go func() {
+			if err := tsrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("the trials' listener stopped", "error", err)
+			}
+		}()
+		log.Info("meter listening for trials", "listen", tl, "namespace", ns, "models", limits.Models, "requests_a_day", limits.Requests)
 	}
 	// It answers at once: a request before the pods are listed lists them.
 	srv := &http.Server{Addr: listen, Handler: proxy, ReadHeaderTimeout: 30 * time.Second}

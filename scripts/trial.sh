@@ -30,6 +30,15 @@
 # minute 0 (its job sleeps TRIAL_AFTER_SLEEP seconds, 150 unless said, then
 # exits TRIAL_AFTER_EXIT, 0 unless said) and second from minute 1, set after
 # first (ADR 0062).
+# TRIAL_AGENT_BASE=IMAGE and TRIAL_MODEL=URL: agents of the trial that reach
+# the model (ADR new-a-trial-agent-reaches-the-model). IMAGE is one with
+# the harness in it (the installation's warm image); this checkout's
+# binaries, scripts and routines are laid over it. URL is the installation's
+# meter for trials (http://egress.NAMESPACE.svc:3131, where the
+# installation has egress.model.trials on): agents' pods get it as the
+# model's address, a placeholder for a credential, and the label that lets
+# them out to it. Without them a trial's agents have no model, as before.
+#
 # TRIAL_VALUES=FILE: values on top of the trial's own (deploy/values/trial.yaml),
 # for a trial of something they leave off.
 #
@@ -120,6 +129,36 @@ build_image() {  # NAME CMD DOCKERFILE
     echo "$ref"
 }
 
+# An agent image for the trial: an image that has the harness (TRIAL_AGENT_BASE,
+# the installation's own warm image) with this checkout's binaries, scripts
+# and routines laid over it, so that a trial's agents run what the checkout
+# has. Nothing is installed in the build: files are copied.
+build_agent_image() {
+    local dir="$work/build/agent" arch tag ref log f
+    rm -rf "$dir" && mkdir -p "$dir/bin" "$dir/lib"
+    arch="$(kubectl --context "$context" get --raw /version 2>/dev/null | sed -n 's/.*"platform": *"linux\/\([a-z0-9]*\)".*/\1/p')"
+    [ -n "$arch" ] || arch="$(uname -m | sed 's/aarch64/arm64/; s/x86_64/amd64/')"
+    for f in cmem dispatcher; do
+        (cd "$src" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -buildvcs=false -trimpath -o "$OLDPWD/$dir/bin/$f" "./cmd/$f")
+    done
+    # The scripts the agent image's own Dockerfile puts on the path.
+    for f in $(sed -n 's/^COPY \(.*\) \/usr\/local\/bin\/$/\1/p' "$src/deploy/agent/Dockerfile"); do
+        case "$f" in *'$'*) ;; *) cp "$src/deploy/agent/$f" "$dir/bin/" && chmod 0755 "$dir/bin/$f" ;; esac
+    done
+    cp "$src/deploy/agent/agent-env" "$dir/lib/agent-env"
+    cp "$src/deploy/agent/attention.md" "$dir/lib/agent-attention.md"
+    cp "$src/deploy/agent/settings.json" "$dir/lib/agent-settings.json"
+    cp -R "$src/routines" "$dir/routines"
+    printf 'FROM %s\nCOPY bin/ /usr/local/bin/\nCOPY lib/ /usr/local/lib/\nCOPY routines/ /routines/\n' "$TRIAL_AGENT_BASE" > "$dir/Dockerfile"
+    tag="$( (cd "$dir" && find . -type f | sort | xargs shasum -a 256) | shasum -a 256 | cut -c1-12)"
+    ref="$registry/$name-agent:$tag"
+    log="$dir/build.log"
+    buildctl build --progress plain --frontend dockerfile.v0 --local context="$dir" --local dockerfile="$dir" \
+        --opt platform="linux/$arch" --output "type=image,name=$ref,push=true" > "$log" 2>&1 ||
+        { tail -20 "$log" >&2; die "the agent's image did not build on $TRIAL_AGENT_BASE"; }
+    echo "$ref"
+}
+
 # The chart, rendered for the trial and made fit for the namespace: without
 # what only the installation may make, every pod as the trial's account,
 # every name and reference to one prefixed, every object and pod labelled,
@@ -131,9 +170,9 @@ render() {
     [ -z "${TRIAL_AFTER:-}" ] ||
         tick=(--set-json 'dispatcher.schedules=[{"name":"first","class":"first","cron":"0-59/4 * * * *","startWithin":"5m","timeout":"10m","priority":100},{"name":"second","class":"second","cron":"1-59/4 * * * *","startWithin":"10m","timeout":"5m","priority":100,"after":"first"}]')
     helm template "$name" "$src/charts/carman" --namespace "$namespace" -f deploy/values/trial.yaml ${TRIAL_VALUES:+-f "$TRIAL_VALUES"} \
-        --set "memory.image=$memory_image" --set "dispatcher.image=$dispatcher_image" --set "agent.image=$dispatcher_image" "${tick[@]}" |
+        --set "memory.image=$memory_image" --set "dispatcher.image=$dispatcher_image" --set "agent.image=${agent_image:-$dispatcher_image}" "${tick[@]}" |
         kubectl --context "$context" create --dry-run=client -o json -f - |
-        TRIAL_REFUSED="$refused" TRIAL_LABEL="$name" TRIAL_PREFIX="$pre" TRIAL_OWNER="$holder" TRIAL_ACCOUNT="$account" TRIAL_IMAGE="$dispatcher_image" python3 -c '
+        TRIAL_MODEL="${TRIAL_MODEL:-}" TRIAL_REFUSED="$refused" TRIAL_LABEL="$name" TRIAL_PREFIX="$pre" TRIAL_OWNER="$holder" TRIAL_ACCOUNT="$account" TRIAL_IMAGE="$dispatcher_image" python3 -c '
 import json, os, re, sys
 refused = os.environ["TRIAL_REFUSED"].split()
 name, account, pre = os.environ["TRIAL_LABEL"], os.environ["TRIAL_ACCOUNT"], os.environ["TRIAL_PREFIX"]
@@ -223,6 +262,22 @@ for o in out:
         if o["kind"] == "Deployment" and o["metadata"]["name"] == pre + "dispatcher" and account != "default":
             pod["spec"]["serviceAccountName"] = account
             pod["metadata"]["labels"]["reaches-the-api"] = "true"
+    if pod is not None and os.environ.get("TRIAL_MODEL"):
+        # An agent of the trial reaches the model at the installation meter
+        # (TRIAL_MODEL), with a placeholder where the credential would be:
+        # no credential comes into the sandbox. Its pod says so, for the
+        # network policy, and says which agent it is.
+        for c in pod["spec"]["containers"]:
+            env = c.get("env", [])
+            if any(e["name"] == "CLAUDE_CODE_OAUTH_TOKEN" for e in env):
+                env[:] = [e for e in env if e["name"] not in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL")]
+                env += [{"name": "CLAUDE_CODE_OAUTH_TOKEN", "value": "held-by-the-installation-meter"},
+                        {"name": "AGENT_MODEL_PLACEHOLDER", "value": "held-by-the-installation-meter"},
+                        {"name": "ANTHROPIC_BASE_URL", "value": os.environ["TRIAL_MODEL"]}]
+                pod["metadata"]["labels"]["reaches-the-model"] = "true"
+                agent = next((e.get("value") for e in env if e["name"] == "AGENT_NAME"), "")
+                if agent:
+                    pod["metadata"]["labels"].setdefault("agent", agent)
     if pod is not None:
         refs(pod["spec"])
         if o["kind"] == "Deployment" and o["metadata"]["name"] == pre + "dispatcher":
@@ -331,6 +386,8 @@ up)
     started=$(date +%s)
     memory_image="$(build_image memory cmem "$src/deploy/Dockerfile")"
     dispatcher_image="$(build_image dispatcher dispatcher "$src/deploy/dispatcher/Dockerfile")"
+    agent_image=""
+    [ -z "${TRIAL_AGENT_BASE:-}" ] || agent_image="$(build_agent_image)"
     echo "built $memory_image and $dispatcher_image in $(( $(date +%s) - started ))s"
     render > "$work/manifest.json"
     clash="$(foreign "$work/manifest.json")"
