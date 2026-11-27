@@ -15,6 +15,7 @@
         cmem = pkgs.callPackage ./nix/packages/cmem.nix { };
         cmem-claude-code-settings = pkgs.callPackage ./nix/packages/cmem-claude-code-settings.nix { inherit cmem; };
         dispatcher = pkgs.callPackage ./nix/packages/dispatcher.nix { inherit cmem; };
+        dispatcher-claude-code-settings = pkgs.callPackage ./nix/packages/dispatcher-claude-code-settings.nix { inherit dispatcher; };
         dev-tools = pkgs.callPackage ./nix/packages/dev-tools.nix { };
       };
     in
