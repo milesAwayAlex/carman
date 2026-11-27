@@ -32,7 +32,17 @@ if [ "${1:-}" = --beat ]; then
     mkdir -p "$marks"
     echo "$$" > "$mark.beat"
     date +%s > "$mark.alive"
-    while IFS= read -r _; do date +%s > "$mark.alive"; done
+    # A line says the far end is there; the word bye, that it has left:
+    # its view's client is ended at once, since closing the far end's
+    # terminal does not hang it up here.
+    while IFS= read -r word; do
+        if [ "$word" = bye ]; then
+            client="$(cat "$mark" 2>/dev/null || true)"
+            [ -z "$client" ] || ! grep -q tmux "/proc/$client/cmdline" 2>/dev/null || kill -HUP "$client" 2>/dev/null || true
+            exit 0
+        fi
+        date +%s > "$mark.alive"
+    done
     exit 0
 fi
 id="${1:-}" name="${2:-}"

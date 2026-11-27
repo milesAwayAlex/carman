@@ -215,7 +215,8 @@ func TestR2GoKeep(t *testing.T) {
 	}
 	// This end goes while attached (its window is closed): what it runs is
 	// ended with it, and that is a leave, whatever kubectl would have done.
-	os.WriteFile(script, []byte("#!/bin/sh\ncase \"$*\" in *--beat) cat >/dev/null; exit 0 ;; esac\necho \"$*\" >> "+calls+"\ntrap '' HUP\nexec sleep 30\n"), 0o755)
+	said := filepath.Join(dir, "said")
+	os.WriteFile(script, []byte("#!/bin/sh\ncase \"$*\" in *--beat) while read w; do [ \"$w\" = bye ] && { echo bye > "+said+"; exit 0; }; done; exit 0 ;; esac\necho \"$*\" >> "+calls+"\ntrap '' HUP\nexec sleep 30\n"), 0o755)
 	os.Remove(calls)
 	began := time.Now()
 	go func() {
@@ -224,6 +225,10 @@ func TestR2GoKeep(t *testing.T) {
 	}()
 	if got := stay(context.Background(), c, s, true); got != exitLeft || count() != 1 || time.Since(began) > 10*time.Second {
 		t.Errorf("hung up while attached: status %d after %d attaches and %s", got, count(), time.Since(began))
+	}
+	// And the pod was told that this end left, so its view goes at once.
+	if b, _ := os.ReadFile(said); strings.TrimSpace(string(b)) != "bye" {
+		t.Errorf("the pod was not told that this end left: %q", b)
 	}
 	os.WriteFile(script, []byte("#!/bin/sh\ncase \"$*\" in *--beat) cat >/dev/null; exit 0 ;; esac\necho \"$*\" >> "+calls+"\ncode=$(head -1 "+dir+"/codes)\nsed -i.bak 1d "+dir+"/codes\nexit ${code:-0}\n"), 0o755)
 	codes("1\n3\n0\n")

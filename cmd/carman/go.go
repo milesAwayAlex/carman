@@ -305,6 +305,9 @@ var beatEvery = 20 * time.Second
 // itself when its terminal is hung up (seen 2026-11-27: it stayed behind
 // a closed window, and its view stayed in the pod).
 func run(argv []string, dir string, left <-chan os.Signal) (code int, gone bool) {
+	// bye tells the pod this end has left, so that the view goes at once
+	// and not when its beat has been silent long enough.
+	bye := func() {}
 	if b := beat(argv); b != nil {
 		hb := exec.Command(b[0], b[1:]...)
 		if in, err := hb.StdinPipe(); err == nil && hb.Start() == nil {
@@ -325,6 +328,15 @@ func run(argv []string, dir string, left <-chan os.Signal) (code int, gone bool)
 					}
 				}
 			}()
+			bye = func() {
+				if _, err := io.WriteString(in, "bye\n"); err != nil {
+					return
+				}
+				select {
+				case <-ended:
+				case <-time.After(3 * time.Second):
+				}
+			}
 			defer func() {
 				close(stop)
 				in.Close()
@@ -357,10 +369,12 @@ func run(argv []string, dir string, left <-chan os.Signal) (code int, gone bool)
 			}
 			return 255, false
 		case <-left:
+			bye()
 			end(cmd, done)
 			return 0, true
 		case <-look.C:
 			if hadTerminal && !terminalThere() {
+				bye()
 				end(cmd, done)
 				return 0, true
 			}
