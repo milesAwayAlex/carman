@@ -110,7 +110,10 @@ terminal opened later), the far end says it is there: beside each attach
 the program keeps a second `kubectl exec` with no terminal (`agent-view
 --beat`) and writes it a line every twenty seconds; a view that asked for
 this (`AGENT_VIEW_BEAT`) and has heard nothing for ninety seconds is ended
-in the pod, with the reader the drop left waiting. Its client ends as a
+in the pod, with the reader the drop left waiting. When the program itself
+leaves (its window was closed), it says so on the same channel, and the
+view is ended at once (without that word a closed window's view lasted
+the ninety seconds: seen from the owner's machine, 2026-11-27). Its client ends as a
 drop does, so a program that is still there and keeps (`--keep`) attaches
 again. A view attached by hand, with no beat, lives until its client goes.
 

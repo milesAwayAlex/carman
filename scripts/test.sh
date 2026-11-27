@@ -318,6 +318,12 @@ if command -v tmux >/dev/null; then
         for _ in $(seq 100); do [ -s "$view/three" ] && break; sleep 0.1; done
         [ -s "$view/three" ] && [ "$(cat "$view/three")" != left=0 ] && [ "$(pod list-sessions -F '#{session_name}' | grep -c '^view-')" = 0 ] ||
             { echo "a view whose far end went silent is not ended, or ends as if it was left: $(cat "$view/three" 2>/dev/null)" >&2; exit 1; }
+        # The far end says it has left: its view is ended at once.
+        mine new-window -d -t o: -n four "$beat $run '' third; echo left=\$? > $view/four"
+        for _ in $(seq 50); do [ "$(pod list-sessions -F '#{session_name}' | grep -c '^view-')" = 1 ] && break; sleep 0.1; done
+        (echo; sleep 1; echo bye; sleep 5) | env AGENT_ATTACH_ID=here/third AGENT_ATTACH_DIR="$view/marks" sh deploy/agent/agent-view --beat
+        for _ in $(seq 20); do [ "$(pod list-sessions -F '#{session_name}' | grep -c '^view-')" = 0 ] && break; sleep 0.1; done
+        [ "$(pod list-sessions -F '#{session_name}' | grep -c '^view-')" = 0 ] || { echo "a view whose far end said it left is still there" >&2; exit 1; }
         code=0; eval "$run '' nosuch" >/dev/null 2>&1 || code=$?
         [ "$code" = 3 ] || { echo "agent-view of a name with no window ends with $code, not 3" >&2; exit 1; }
     ) || { rm -rf "$view"; exit 1; }
