@@ -186,10 +186,10 @@ func (b *Budget) Over(who message.Caller) (string, bool) {
 	}
 	switch {
 	case st.Limit.Day > 0 && day >= st.Limit.Day:
-		return fmt.Sprintf("the egress proxy refuses this call to the model: agent %s has used %s of its budget of %s weighted tokens for today (set by %s; the day starts again at 00:00 UTC; the owner can raise or lift it with dispatcher limit %s)",
+		return fmt.Sprintf(refusalPrefix+"agent %s has used %s of its budget of %s weighted tokens for today (set by %s; the day starts again at 00:00 UTC; the owner can raise or lift it with dispatcher limit %s)",
 			who.Agent, Count(day), Count(st.Limit.Day), how, who.Agent), true
 	case st.Limit.Pod > 0 && pod >= st.Limit.Pod:
-		return fmt.Sprintf("the egress proxy refuses this call to the model: this pod of agent %s has used %s of its budget of %s weighted tokens for one pod (set by %s; the owner can raise or lift it with dispatcher limit %s)",
+		return fmt.Sprintf(refusalPrefix+"this pod of agent %s has used %s of its budget of %s weighted tokens for one pod (set by %s; the owner can raise or lift it with dispatcher limit %s)",
 			who.Agent, Count(pod), Count(st.Limit.Pod), how, who.Agent), true
 	}
 	return "", false
