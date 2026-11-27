@@ -120,7 +120,8 @@ defn="$(mktemp -d)"
         git -C "$defn/d" bundle create -q "$defn/b" HEAD --branches
         rm -rf "$defn/c"
         AGENT_DEFINITION_BUNDLE="$defn/b" AGENT_NAME=desk sh deploy/agent/agent-definition clone "$defn/c" >/dev/null
-        (cd "$defn/c" && eval "$2" && git add -A && git commit -q -m "$1")
+        # Written as somebody else, as a pod's environment makes git do.
+        (cd "$defn/c" && eval "$2" && git add -A && GIT_AUTHOR_NAME=Somebody GIT_AUTHOR_EMAIL=s@example.invalid git commit -q -m "$1")
         AGENT_DEFINITION_BUNDLE="$defn/b" AGENT_NAME=desk sh deploy/agent/agent-definition propose --print "$defn/c" > "$defn/message"
     }
     apply() { CARMAN_INSTALLATION="$defn/d" scripts/deploy.sh none definition apply --file "$defn/message"; }

@@ -59,7 +59,9 @@ message: a first line that says what the change is ("A proposed change to
 the installation's definition: SUBJECT"), which files it touches, how to
 apply it, and between two marker lines the output of `git format-patch`
 (full object ids, binary changes included), with the commit it was made
-against. A message holds 64 kB; a proposal over 60 kB is refused at the
+against. The commits are authored as the agent ("agent NAME", at an
+address that is nobody's), whatever identity the pod's git has for commits
+elsewhere: `propose` makes them so. A message holds 64 kB; a proposal over 60 kB is refused at the
 agent, which makes it in smaller commits, each applied and deployed before
 the next. A clone that is behind what is deployed is brought up to date
 first: a proposal is against the definition as it is.
@@ -68,8 +70,8 @@ first: a proposal is against the definition as it is.
 `scripts/deploy.sh CONTEXT definition apply MESSAGE-ID` reads the message
 through the owner's client (or `--file FILE`, its text saved), and applies
 the commits to the definition with their authors and messages, each with a
-trailer `Proposed-in: message ID, from SENDER`. Who wrote a commit is the
-commit's own word; who sent it is the dispatcher's record. The commits are
+trailer `Proposed-in: message ID, from SENDER`. The author says which agent
+by its own word; who sent it is the dispatcher's record. The commits are
 tried first in a checkout beside the definition, and what they touch is
 read from git's trees, not from the patch's text. The whole proposal is
 refused, and nothing changes, when

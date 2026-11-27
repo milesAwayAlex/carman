@@ -27,6 +27,10 @@ have() { [ -s "$bundle" ] || die "this pod has no copy of the installation's def
 deployed_branch() { git bundle list-heads "$bundle" | sed -n 's|^[0-9a-f]* refs/heads/||p' | head -1; }
 deployed_head() { git bundle list-heads "$bundle" HEAD | cut -d' ' -f1; }
 quiet() { "$@" >/dev/null 2>&1; }
+# Who a proposal is by: the agent, by name. Not whoever the pod's git is
+# set up to commit as elsewhere (the owner, for a public repository).
+agent_name="agent ${AGENT_NAME:-of this installation}"
+agent_email="${AGENT_NAME:-agent}@agents.invalid"
 
 action="${1:-}"
 [ $# -eq 0 ] || shift
@@ -36,9 +40,8 @@ clone)
     dir="${1:-$HOME/work/installation}"
     [ ! -e "$dir" ] || die "$dir is there already; agent-definition update brings it up to date"
     git -c init.defaultBranch=main clone -q "$bundle" "$dir"
-    # Who a proposal is from, where the agent has not said.
-    git -C "$dir" config user.name >/dev/null || git -C "$dir" config user.name "agent ${AGENT_NAME:-of this installation}"
-    git -C "$dir" config user.email >/dev/null || git -C "$dir" config user.email "${AGENT_NAME:-agent}@agents.invalid"
+    git -C "$dir" config user.name "$agent_name"
+    git -C "$dir" config user.email "$agent_email"
     echo "agent-definition: $dir is the definition as deployed, at $(git -C "$dir" log -1 --format='%h %s' | cut -c1-70)"
     ;;
 update)
@@ -71,6 +74,13 @@ propose)
     [ "$base" = "$(git -C "$dir" rev-parse "origin/$branch")" ] || die "the clone is behind what is deployed: agent-definition update first, so the proposal is against the definition as it is"
     count="$(git -C "$dir" rev-list --count "$base..HEAD")"
     [ "$count" -gt 0 ] || die "nothing to propose: $dir has no commit beyond what is deployed"
+    # The commits are made the agent's own, whatever they were written as:
+    # the environment's identity would otherwise win over the clone's.
+    if [ -n "$(git -C "$dir" log --format='%an <%ae>' "$base..HEAD" | grep -v -x -F "$agent_name <$agent_email>")" ]; then
+        GIT_AUTHOR_NAME="$agent_name" GIT_AUTHOR_EMAIL="$agent_email" GIT_COMMITTER_NAME="$agent_name" GIT_COMMITTER_EMAIL="$agent_email" \
+            git -C "$dir" rebase -q --exec 'git commit -q --amend --no-edit --reset-author' "$base" >/dev/null 2>&1 ||
+            { quiet git -C "$dir" rebase --abort || true; die "the commits could not be made the agent's own"; }
+    fi
     message="$(mktemp)"
     {
         if [ "$count" = 1 ]; then
