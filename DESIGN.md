@@ -161,8 +161,9 @@ program asks the dispatcher for the sessions, lists those that wait on him
 first (idle with a message for him unread, then working with one, then
 idle, then busy, then those not running that can be gone to), and for one
 in a standing agent's pod runs `kubectl exec` there into `agent-view`, a
-tmux session of its own in the pod's group that shows that session's
-window, with no status line and no prefix. How the attach ended tells a
+tmux session of its own that holds that session's window and no other
+(ADR new-a-view-holds-only-its-window), with no status line and no
+prefix, and ends with the window. How the attach ended tells a
 leave (status 0) from a dropped connection, after which `--keep` attaches
 again. A job's kept conversation is still gone to by the checkout's
 `agent resume`.
