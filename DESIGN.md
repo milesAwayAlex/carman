@@ -157,7 +157,10 @@ shell the dead harness left replaced), once, then again after a backoff at
 most four times, and says on the message why it still waits
 (`/v1/attend/hold`). A name not remembered is not opened. The session
 opened again, or one of that name opened by hand, takes the messages of
-the earlier sessions of its name that are not running.
+the earlier sessions of its name that are not running. A message a wake
+handed a session whose harness the watcher then finds gone, with no word
+from the session in between, is recorded as not delivered and delivered
+once more, marked as a second time: at least once, never silently lost.
 
 ### Worker details (proposed)
 

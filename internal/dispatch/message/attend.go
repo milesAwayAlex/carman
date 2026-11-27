@@ -2,9 +2,12 @@ package message
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
+
+	"carman/internal/dispatch"
 )
 
 // A standing agent's pod attends to its own sessions (ADR 0053): it says
@@ -117,7 +120,23 @@ func (s *Service) HarnessGone(ctx context.Context, c Caller, session, why string
 	if x.State == Ended {
 		return nil
 	}
-	x.State = Ended
+	// What a wake handed it, with no word from it since, was handed to a
+	// harness that had gone or was going: it is delivered once more. Only
+	// here, where the pod's watcher saw the process gone; a session that
+	// said it ended had the message. One it read or answered is left.
+	for _, id := range x.Woke {
+		if read, err := s.Store.OfTypeAbout(ctx, TypeRead, id); err != nil {
+			return err
+		} else if len(read) > 0 {
+			continue
+		}
+		data, _ := json.Marshal(map[string]string{"session": SessionAddress(x.ID), "pod": x.Pod,
+			"why": "it was handed by a wake to a harness that has gone from its pod, with no word from the session after; it is delivered once more"})
+		if _, err := s.Store.Claim(ctx, dispatch.Event{ID: TypeUndelivered + "/" + id, Type: TypeUndelivered, Source: Source, Subject: id, Data: data}); err != nil {
+			return err
+		}
+	}
+	x.State, x.Woke = Ended, nil
 	if _, _, err := s.Store.PutSession(ctx, x); err != nil {
 		return err
 	}

@@ -35,8 +35,12 @@ const (
 	TypeSent      = "message.sent"      // subject the message's id; data a Message
 	TypeDelivered = "message.delivered" // ID message.delivered/MSG; data a Delivery
 	TypeRead      = "message.read"      // ID message.read/MSG; data a Delivery (who read it)
-	TypeWaiting   = "message.waiting"   // ID message.waiting/MSG/KEY; data a Wait
-	TypeRefused   = "message.refused"   // a message that could not be addressed; data a Message and why
+	// TypeUndelivered: a delivery by wake went to a harness that had gone
+	// (ADR 0053). ID message.undelivered/MSG, so once for a message; the
+	// message is then delivered once more, as message.delivered/MSG/again.
+	TypeUndelivered = "message.undelivered"
+	TypeWaiting     = "message.waiting" // ID message.waiting/MSG/KEY; data a Wait
+	TypeRefused     = "message.refused" // a message that could not be addressed; data a Message and why
 
 	TypeSessionStarted = "session.started" // subject the session's id; data a Session
 	TypeSessionEnded   = "session.ended"   // subject the session's id; data a Session and why
@@ -54,7 +58,7 @@ const (
 )
 
 // Types are the event types of messaging, for their retention.
-var Types = []string{TypeSent, TypeDelivered, TypeRead, TypeWaiting, TypeRefused,
+var Types = []string{TypeSent, TypeDelivered, TypeUndelivered, TypeRead, TypeWaiting, TypeRefused,
 	TypeSessionStarted, TypeSessionEnded, TypeWatch, TypeWatched}
 
 // Message is what a message.sent event carries.
@@ -72,6 +76,9 @@ type Message struct {
 	Reason  string    `json:"reason,omitempty"` // for a refused one: why
 	Depth   int       `json:"depth,omitempty"`  // how many answers deep it is
 	Host    bool      `json:"host,omitempty"`   // sent by a session on the owner's machine (ADR 0049)
+	// Again is set on a message as it is handed over a second time, after
+	// a wake that reached a harness that had gone; never in the log.
+	Again bool `json:"again,omitempty"`
 }
 
 // Delivery is how a message reached a session, or who read it.
@@ -100,6 +107,10 @@ type Session struct {
 	Cwd     string    `json:"cwd,omitempty"`
 	Started time.Time `json:"started,omitzero"`
 	Seen    time.Time `json:"seen,omitzero"`
+	// Woke are the messages a wake handed this session with no word from
+	// it since: if its harness is then found gone, they were handed to
+	// nobody (ADR 0053).
+	Woke []string `json:"woke,omitempty"`
 }
 
 const (

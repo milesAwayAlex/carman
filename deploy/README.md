@@ -746,7 +746,10 @@ conversation, so that a person who attaches sees it. A session that was
 forgotten is not opened: the message waits, and `dispatch message ID` says
 why. The watcher knows a harness by the record its `SessionStart` hook
 writes in `/tmp/agent-harness/`; a harness started before that hook gets
-no verdict until it starts again.
+no verdict until it starts again. A message that a wake handed a harness
+as it died is delivered a second time, to the session opened again, which
+is told so; `dispatch message ID` shows `message.undelivered` between the
+two deliveries.
 
 To try it in a standing pod (after a deploy of the dispatcher and the
 agent image with it, and the pod restarted):

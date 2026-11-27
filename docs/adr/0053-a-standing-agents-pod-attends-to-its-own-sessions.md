@@ -130,6 +130,43 @@ are refused.
 - The watcher is one more process per standing pod, with one request to
   the dispatcher every ten seconds, which reads the agent's sessions.
 
+## A wake that reached a harness that had gone
+
+The listener stops when its harness goes, but looks only every two
+seconds: a message sent in that time is taken by a listener with nobody
+behind it, and recorded as delivered (seen in the second trial,
+2026-11-27, with one second between the kill and the send). The owner's
+session, asked: err on the side of a message seen twice, "a lost message
+is silent, a repeated one is visible".
+
+So: when the pod's watcher reports a session's harness gone, a message
+that a wake handed that session, with no word from the session since, is
+recorded as not delivered (`message.undelivered`, once for a message) and
+is routed again as a message for a session that is not open; the pod opens
+the session, and its listener takes it. Kept narrow:
+
+- only a delivery by a wake (the idle listener's), which is the one
+  delivery whose taker may have nobody behind it; what a hook of a turn
+  took was put in a running harness's conversation;
+- only when the end is the watcher's word that the process has gone, not
+  when the session said itself that it ended (its `SessionEnd` hook ran,
+  so the harness was there to have the message);
+- only with no word from the session after the wake: any other hook of it
+  (a tool call's, the turn's end) or any state it reports means its
+  harness had the message. A message the session read or answered is
+  left as it is;
+- once: a message is delivered at most twice.
+
+**What a session makes of a message it sees twice.** A harness that died
+after the message reached its conversation, and before its next hook, has
+the message in its transcript; opened again on that conversation, it is
+handed the same message, with the same id, and is told that this is a
+second time and why. It looks at its own conversation: if it shows that
+it acted on the message, it does not act twice, and finishes what was
+left or answers that it was done; if it shows nothing, it acts. The
+sender sees both deliveries and the reason between them in
+`dispatcher message ID`.
+
 ## Found in the first trial in a pod (2026-11-27), and changed
 
 - The idle listener (`dispatcher hook claude-code --wait`) outlived a
@@ -137,7 +174,8 @@ are refused.
   as a wake to a harness that was gone: the message was marked delivered
   and the session busy again. The listener now listens only while the
   harness above it is there (by its process and start time, as the
-  watcher judges it), and stops when it goes.
+  watcher judges it), and stops when it goes. What it takes in the two
+  seconds before it notices is delivered again (the section above).
 - The watcher removed a session's record when it said the session had
   ended, so a session the dispatcher came to believe runs again was never
   judged again. The record is kept.

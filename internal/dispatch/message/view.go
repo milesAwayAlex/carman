@@ -123,6 +123,10 @@ func (s *Service) Status(ctx context.Context, c Caller, id string) (Status, erro
 			if st.State == "waiting" {
 				st.State = "delivered"
 			}
+		case TypeUndelivered:
+			if st.State == "delivered" {
+				st.State = "waiting"
+			}
 		case TypeRead:
 			st.State = "read"
 		case TypeWaiting:
