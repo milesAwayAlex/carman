@@ -19,6 +19,10 @@
 # pod `definition-reader` that has it as an agent given it does (ADR 0056);
 # `deploy definition apply ID` applies a proposal to DIR.
 #
+# TRIAL_TICK=1: a class tick that does nothing (true, in the dispatcher's
+# image), its CronJob a suspended template on a schedule of every minute,
+# which the dispatcher starts every minute as it starts a nightly job (ADR 0059).
+#
 # The namespace is the context's own unless TRIAL_NAMESPACE names one.
 # Everything made carries the label trial=TRIAL_NAME (trial unless set), and
 # `down` deletes only what carries it. The chart's names are kept, so that a
@@ -85,8 +89,11 @@ build_image() {  # NAME CMD DOCKERFILE
 # what only the installation may make, every pod as the trial's account,
 # every object and pod labelled, and each selector narrowed to the label.
 render() {
+    local tick=()
+    [ -z "${TRIAL_TICK:-}" ] ||
+        tick=(--set-json 'dispatcher.schedules=[{"name":"tick","class":"tick","cron":"* * * * *","startWithin":"5m","timeout":"5m","priority":100}]')
     helm template "$name" "$src/charts/carman" --namespace "$namespace" -f deploy/values/trial.yaml \
-        --set "memory.image=$memory_image" --set "dispatcher.image=$dispatcher_image" --set "agent.image=$dispatcher_image" |
+        --set "memory.image=$memory_image" --set "dispatcher.image=$dispatcher_image" --set "agent.image=$dispatcher_image" "${tick[@]}" |
         kubectl --context "$context" create --dry-run=client -o json -f - |
         TRIAL_REFUSED="$refused" TRIAL_LABEL="$name" TRIAL_ACCOUNT="$account" TRIAL_IMAGE="$dispatcher_image" python3 -c '
 import json, os, sys
@@ -106,6 +113,10 @@ while True:
 out.append({"apiVersion": "batch/v1", "kind": "CronJob", "metadata": {"name": "probe"},
     "spec": {"schedule": "0 0 1 1 *", "suspend": True, "jobTemplate": {"spec": {"backoffLimit": 0, "template": {"spec": {
         "restartPolicy": "Never", "containers": [{"name": "probe", "image": os.environ["TRIAL_IMAGE"], "command": ["/bin/true"]}]}}}}}})
+if os.environ.get("TRIAL_TICK"):
+    out.append({"apiVersion": "batch/v1", "kind": "CronJob", "metadata": {"name": "tick"},
+        "spec": {"schedule": "* * * * *", "suspend": True, "jobTemplate": {"spec": {"backoffLimit": 0, "ttlSecondsAfterFinished": 600,
+            "template": {"spec": {"restartPolicy": "Never", "containers": [{"name": "tick", "image": os.environ["TRIAL_IMAGE"], "command": ["/bin/true"]}]}}}}}})
 kept = []
 for o in out:
     if o["kind"] in refused:
