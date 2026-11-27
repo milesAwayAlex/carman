@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -212,6 +213,19 @@ func TestR2GoKeep(t *testing.T) {
 	if got := stay(context.Background(), c, s, true); got != exitLeft || count() != 4 {
 		t.Errorf("three drops, then left, with --keep: status %d after %d attaches", got, count())
 	}
+	// This end goes while attached (its window is closed): what it runs is
+	// ended with it, and that is a leave, whatever kubectl would have done.
+	os.WriteFile(script, []byte("#!/bin/sh\ncase \"$*\" in *--beat) cat >/dev/null; exit 0 ;; esac\necho \"$*\" >> "+calls+"\ntrap '' HUP\nexec sleep 30\n"), 0o755)
+	os.Remove(calls)
+	began := time.Now()
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		syscall.Kill(os.Getpid(), syscall.SIGHUP)
+	}()
+	if got := stay(context.Background(), c, s, true); got != exitLeft || count() != 1 || time.Since(began) > 10*time.Second {
+		t.Errorf("hung up while attached: status %d after %d attaches and %s", got, count(), time.Since(began))
+	}
+	os.WriteFile(script, []byte("#!/bin/sh\ncase \"$*\" in *--beat) cat >/dev/null; exit 0 ;; esac\necho \"$*\" >> "+calls+"\ncode=$(head -1 "+dir+"/codes)\nsed -i.bak 1d "+dir+"/codes\nexit ${code:-0}\n"), 0o755)
 	codes("1\n3\n0\n")
 	if got := stay(context.Background(), c, s, true); got != viewRefused || count() != 2 {
 		t.Errorf("a drop, then nothing to show: status %d after %d attaches", got, count())

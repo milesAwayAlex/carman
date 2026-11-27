@@ -224,11 +224,9 @@ func stay(ctx context.Context, c config, s session, keep bool) int {
 			return exitError
 		}
 		began := time.Now()
-		code := run(argv, dir)
-		select {
-		case <-left:
+		code, gone := run(argv, dir, left)
+		if gone {
 			return exitLeft
-		default:
 		}
 		switch {
 		case code == 0:
@@ -300,7 +298,13 @@ var beatEvery = 20 * time.Second
 // run runs a command on this terminal and gives its exit status; one
 // that was killed, or could not start, is 255. Beside a view, it keeps
 // the pod told that this end is there.
-func run(argv []string, dir string) int {
+//
+// When this end goes (a signal on left: the terminal was closed, or the
+// program told to end; or the terminal itself is no longer there), what
+// it runs is ended with it, and gone says so: kubectl does not end by
+// itself when its terminal is hung up (seen 2026-11-27: it stayed behind
+// a closed window, and its view stayed in the pod).
+func run(argv []string, dir string, left <-chan os.Signal) (code int, gone bool) {
 	if b := beat(argv); b != nil {
 		hb := exec.Command(b[0], b[1:]...)
 		if in, err := hb.StdinPipe(); err == nil && hb.Start() == nil {
@@ -328,16 +332,59 @@ func run(argv []string, dir string) int {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = dir
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	err := cmd.Run()
-	var ee *exec.ExitError
-	switch {
-	case err == nil:
-		return 0
-	case errors.As(err, &ee) && ee.ExitCode() >= 0:
-		return ee.ExitCode()
-	}
-	if !errors.As(err, &ee) {
+	if err := cmd.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "carman go:", err)
+		return 255, false
 	}
-	return 255
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	hadTerminal := terminalThere()
+	look := time.NewTicker(terminalLook)
+	defer look.Stop()
+	for {
+		select {
+		case err := <-done:
+			var ee *exec.ExitError
+			switch {
+			case err == nil:
+				return 0, false
+			case errors.As(err, &ee) && ee.ExitCode() >= 0:
+				return ee.ExitCode(), false
+			}
+			return 255, false
+		case <-left:
+			end(cmd, done)
+			return 0, true
+		case <-look.C:
+			if hadTerminal && !terminalThere() {
+				end(cmd, done)
+				return 0, true
+			}
+		}
+	}
+}
+
+// terminalLook is how often it is checked that the terminal is still there.
+var terminalLook = 3 * time.Second
+
+// terminalThere says whether this process still has its terminal: one
+// that was hung up can no longer be opened.
+func terminalThere() bool {
+	f, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		return false
+	}
+	f.Close()
+	return true
+}
+
+// end stops a command: asked first, then made to.
+func end(cmd *exec.Cmd, done <-chan error) {
+	_ = cmd.Process.Signal(syscall.SIGTERM)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		_ = cmd.Process.Kill()
+		<-done
+	}
 }
