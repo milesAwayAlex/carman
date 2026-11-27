@@ -47,7 +47,8 @@
 # API (`dispatcher stand-in`, made beside it: the API's shapes, no model, the
 # word "ok"), with a made-up credential; or, with TRIAL_MODEL as well, the
 # installation's meter for trials, so that a harness in the trial gets real
-# answers, counted there as trial/NAME/proxy.
+# answers, counted there as trial/NAME/proxy (the installation's meter knows
+# a trial's proxy by its pod's labels trial and dispatcher-role: meter).
 #
 # TRIAL_VALUES=FILE: values on top of the trial's own (deploy/values/trial.yaml),
 # for a trial of something they leave off.
@@ -288,6 +289,8 @@ def refs(v):
             v["value"] = json.dumps(s)
         elif n == "DISPATCHER_NOTICE_CLASS" and val in classes:
             v["value"] = pre + val
+        elif n == "METER_UPSTREAM" and val == os.environ.get("TRIAL_MODEL"):
+            pass  # the installation meter, not a service of the trial
         elif services and ("//" in val or n.endswith("HOST")):
             v["value"] = host.sub(lambda m: m.group(1) + pre + m.group(2), val)
     for k, x in v.items():
@@ -333,7 +336,6 @@ for o in out:
             pod["metadata"]["labels"]["reaches-the-api"] = "true"
         if os.environ.get("TRIAL_MODEL"):
             pod["metadata"]["labels"]["reaches-the-model"] = "true"
-            pod["metadata"]["labels"]["agent"] = "proxy"
     if pod is not None:
         refs(pod["spec"])
         if o["kind"] == "Deployment" and o["metadata"]["name"] == pre + "dispatcher":

@@ -165,43 +165,33 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Counts that follow from the request, so that a check can know them:
-	// a token for every four bytes asked, five answered.
-	usage := map[string]any{"input_tokens": len(body) / 4, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
-		"cache_creation": map[string]int{"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 0}, "output_tokens": 5, "service_tier": "standard"}
+	// a token for every four bytes asked, five answered. The fields are in
+	// the API's own order, "type" first: what reads a stream as it passes
+	// (the meter) tells an event by its first bytes.
+	in := len(body) / 4
 	id := "msg_standin_" + strconv.FormatInt(s.now().UnixNano(), 36)
+	const usage = `{"input_tokens":%d,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":%d,"service_tier":"standard"}`
 	if !req.Stream {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "type": "message", "role": "assistant", "model": req.Model,
-			"content": []map[string]string{{"type": "text", "text": "ok"}}, "stop_reason": "end_turn", "stop_sequence": nil, "usage": usage})
+		fmt.Fprintf(w, `{"id":%q,"type":"message","role":"assistant","model":%q,"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","stop_sequence":null,"usage":`+usage+"}\n", id, req.Model, in, 5)
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
-	flush := func() {
+	event := func(name, data string) {
+		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, data)
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
 	}
-	event := func(name string, data any) {
-		b, _ := json.Marshal(data)
-		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, b)
-		flush()
-	}
-	start := map[string]any{}
-	for k, v := range usage {
-		start[k] = v
-	}
-	start["output_tokens"] = 1
-	event("message_start", map[string]any{"type": "message_start", "message": map[string]any{"id": id, "type": "message", "role": "assistant",
-		"model": req.Model, "content": []any{}, "stop_reason": nil, "stop_sequence": nil, "usage": start}})
-	event("content_block_start", map[string]any{"type": "content_block_start", "index": 0, "content_block": map[string]string{"type": "text", "text": ""}})
-	event("ping", map[string]string{"type": "ping"})
+	event("message_start", fmt.Sprintf(`{"type":"message_start","message":{"id":%q,"type":"message","role":"assistant","model":%q,"content":[],"stop_reason":null,"stop_sequence":null,"usage":`+usage+`}}`, id, req.Model, in, 1))
+	event("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`)
+	event("ping", `{"type":"ping"}`)
 	time.Sleep(50 * time.Millisecond) // a stream comes in pieces
-	event("content_block_delta", map[string]any{"type": "content_block_delta", "index": 0, "delta": map[string]string{"type": "text_delta", "text": "ok"}})
-	event("content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
-	event("message_delta", map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": "end_turn", "stop_sequence": nil},
-		"usage": map[string]any{"input_tokens": usage["input_tokens"], "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 5}})
-	event("message_stop", map[string]string{"type": "message_stop"})
+	event("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`)
+	event("content_block_stop", `{"type":"content_block_stop","index":0}`)
+	event("message_delta", fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":%d,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5}}`, in))
+	event("message_stop", `{"type":"message_stop"}`)
 }
 
 func standInCmd(ctx context.Context, args []string) error {

@@ -46,7 +46,8 @@ host unless said), one of two:
 - **The installation's meter for trials**, with `TRIAL_MODEL` as well
   (ADR 0065): the trial's meter sends on to that listener, in the clear,
   inside the cluster. The trial's proxy pod is then the caller there, and
-  says so (labels `trial`, `agent: proxy`, `reaches-the-model`): the
+  says so (labels `trial` and `reaches-the-model`, and the label that makes
+  it the meter to its own dispatcher, `dispatcher-role: meter`): the
   installation records `trial/NAME/proxy` for the whole trial, and the
   trial's own meter records each of its agents in the trial's log. The
   installation's models and cap for trials apply.
@@ -81,8 +82,44 @@ to ask without a harness, from the dispatcher's image.
 
 ## What was tried
 
-`scripts/check-trial-proxy.sh CONTEXT`, with no model: see the slice's
-report for what it showed.
+`scripts/check-trial-proxy.sh CONTEXT`, 2026-11-27, with no model. A pod
+labelled as an agent's, with the proxy's address and authority as an
+agent's pod has them, asked through the trial's proxy:
+
+- a message, whole and streamed, to the model's host: answered "ok"; the
+  stand-in had been given the meter's credential (it takes no other), not
+  the pod's placeholder;
+- the same pod with its `agent` label taken off: refused by the trial's
+  meter, and nothing reached the stand-in;
+- the trial's log had the pod's use (`model.usage`: 2 requests, 10 tokens
+  out, the input the stand-in says it counts) and the account's standing
+  read from the answers' headers (`usage.observed`, ADR 0064);
+- the stand-in set to refuse for the plan's limit: the caller got 429, and
+  the refusal was a reading in the log;
+- a limit of the agent's own at the proxy, set with `dispatcher limit`
+  (ADR 0064): the meter held the agent ("has used 627 of its budget of 1
+  weighted tokens for today"), and let it pass again when the limit was
+  lifted;
+- the credential changed in the secret (ADR 0055): the meter took the new
+  one up with no restart of the proxy's pod, and requests passed with it.
+
+The first run found the stand-in wrong, usefully: it wrote a stream's
+events with their fields in alphabetical order, and the meter, which
+tells an event by its first bytes, read nothing of them (`unread`). The
+API writes `type` first; the stand-in now does, and a test holds the
+meter and the stand-in to each other.
+
+And with a real harness: a trial agent on the installation's warm image
+(`TRIAL_AGENT_BASE`), sent a message, ran through the trial's proxy to
+the stand-in and answered "ok"; the trial's meter recorded its request.
+
+Not shown: the chain to the installation's meter. The first try failed
+twice over (the trial's renaming of services rewrote the installation's
+address; and the label that named the trial's proxy to the installation's
+meter made it an agent, not the meter, to its own dispatcher). Both are
+changed here; the second needs the installation's meter from this branch
+(it knows a trial's proxy by `dispatcher-role: meter`), so it is tried
+after a deploy.
 
 ## Consequences
 

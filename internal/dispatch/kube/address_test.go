@@ -106,8 +106,9 @@ func TestAddressesOfTrials(t *testing.T) {
 		"10.1.0.1": pod("t1-agent", "10.1.0.1", map[string]string{"trial": "t1", "agent": "surveyor"}),
 		"10.1.0.2": pod("database", "10.1.0.2", map[string]string{"trial": "t1"}),
 		"10.1.0.3": pod("stray", "10.1.0.3", map[string]string{"agent": "surveyor"}),
+		"10.1.0.4": pod("t1-egress", "10.1.0.4", map[string]string{"trial": "t1", RoleLabel: "meter"}),
 	}}
-	for ip, want := range map[string]string{"10.1.0.1": "trial/t1/surveyor", "10.1.0.2": "", "10.1.0.3": ""} {
+	for ip, want := range map[string]string{"10.1.0.1": "trial/t1/surveyor", "10.1.0.2": "", "10.1.0.3": "", "10.1.0.4": "trial/t1/proxy"} {
 		if c, ok := a.find(ip); !ok || c.Agent != want {
 			t.Errorf("%s is %q (found %v), want %q", ip, c.Agent, ok, want)
 		}
