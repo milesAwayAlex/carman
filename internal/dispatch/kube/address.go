@@ -106,9 +106,16 @@ func (a *Addresses) find(ip string) (message.Caller, bool) {
 	}
 	agent := p.agent()
 	if a.Trials {
-		if trial := p.Metadata.Labels["trial"]; trial != "" && agent != "" {
+		trial := p.Metadata.Labels["trial"]
+		switch {
+		case trial != "" && agent != "":
 			agent = TrialAgent(trial, agent)
-		} else {
+		case trial != "" && p.Metadata.Labels[RoleLabel] == "meter":
+			// A trial's own proxy, whose meter sends on to this one: the
+			// whole trial's use, under one name here; the trial's meter
+			// has each agent's.
+			agent = TrialAgent(trial, "proxy")
+		default:
 			agent = ""
 		}
 	}

@@ -131,8 +131,7 @@ step "with the limit lifted it passes again"
 # the stand-in each take the new one up when the cluster swaps the mounted
 # file, with no restart, and requests pass again.
 restarts="$("${kube[@]}" get pod -l "app=egress,trial=$name" -o 'jsonpath={.items[0].status.containerStatuses[*].restartCount}')"
-"${kube[@]}" create secret generic "${pre}model-credential" "--from-literal=token=stand-in-changed-$(date +%s)" --dry-run=client -o yaml | "${kube[@]}" apply -f - >/dev/null
-"${kube[@]}" label --overwrite "secret/${pre}model-credential" "trial=$name" >/dev/null
+"${kube[@]}" patch secret "${pre}model-credential" --type merge -p "{\"stringData\":{\"token\":\"stand-in-changed-$(date +%s)\"}}" >/dev/null
 changed=""
 for _ in $(seq 100); do
     if "${kube[@]}" logs -l "app=egress,trial=$name" -c meter --tail=200 2>/dev/null | grep -q "the model's credential changed"; then changed=1; break; fi
