@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -78,5 +79,49 @@ func TestR10_TheMeterReadsTheStandIn(t *testing.T) {
 	if resp, body := ask(front.URL, whole, "x"); resp.StatusCode != 429 || resp.Header.Get("anthropic-ratelimit-unified-status") != "rejected" ||
 		resp.Header.Get("x-should-retry") != "false" || !strings.Contains(body, "rate_limit_error") {
 		t.Errorf("a refusal for the plan's limit: %d %v %s", resp.StatusCode, resp.Header, body)
+	}
+}
+
+// TestR10_TheStandInFollowsAScript: a conversation whose first message
+// scripts the stand-in is asked for those tools, one for each answer, whole
+// and streamed, and told "ok" when they are used up; so a check can make a
+// real harness start a subagent or leave a command running, with no model.
+func TestR10_TheStandInFollowsAScript(t *testing.T) {
+	model := httptest.NewServer(newStandIn(""))
+	t.Cleanup(model.Close)
+	ask := func(stream bool, messages string) string {
+		body := fmt.Sprintf(`{"model":"m","stream":%v,"messages":[%s]}`, stream, messages)
+		resp, err := http.Post(model.URL+"/v1/messages", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		out, _ := io.ReadAll(resp.Body)
+		return string(out)
+	}
+	first := `{"role":"user","content":[{"type":"text","text":"Do it.\nstand-in: use Bash {\"command\":\"echo one\"}\nstand-in: use Agent {\"prompt\":\"say ok\"}"}]}`
+	used := `{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"one"}]}`
+	if got := ask(false, first); !strings.Contains(got, `"type":"tool_use"`) || !strings.Contains(got, `"name":"Bash","input":{"command":"echo one"}`) || !strings.Contains(got, `"stop_reason":"tool_use"`) {
+		t.Errorf("the first answer is not the script's first tool: %s", got)
+	}
+	got := ask(true, first+","+used)
+	if !strings.Contains(got, `"content_block":{"type":"tool_use"`) || !strings.Contains(got, `"name":"Agent"`) ||
+		!strings.Contains(got, `"delta":{"type":"input_json_delta","partial_json":"{\"prompt\":\"say ok\"}"}`) || !strings.Contains(got, `"stop_reason":"tool_use"`) {
+		t.Errorf("the second answer, streamed, is not the script's second tool: %s", got)
+	}
+	both := used + `,{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Agent","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","content":"ok"}]}`
+	if got := ask(false, first+","+both); !strings.Contains(got, `"text":"ok"`) || !strings.Contains(got, `"stop_reason":"end_turn"`) {
+		t.Errorf("the script used up, the answer is not ok: %s", got)
+	}
+	// No script, as a string or as blocks: ok, as before.
+	if got := ask(false, `{"role":"user","content":"say ok"}`); !strings.Contains(got, `"text":"ok"`) {
+		t.Errorf("a conversation with no script: %s", got)
+	}
+	// What it answered is kept by model, for a check to set beside a count.
+	resp, _ := http.Get(model.URL + "/stand-in/seen")
+	seen, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(seen), `"tokens":{"m":{"input_tokens":`) || !strings.Contains(string(seen), `"output_tokens":20`) {
+		t.Errorf("what the stand-in answered is not kept: %s", seen)
 	}
 }

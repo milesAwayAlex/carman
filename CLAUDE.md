@@ -83,7 +83,10 @@ Built so far:
   knows the caller by its pod's address, refuses a pod that is no agent's,
   and records what each agent's pod used, by model and kind of token, as
   `model.usage` in the dispatcher's log; `dispatch status` sets each run's
-  own report against it. It reads the account's standing from the
+  own report against it and says what kind a difference is (a run counts
+  every call its process made, and says how it counted;
+  `scripts/check-run-report.sh CONTEXT` tries it in a trial with a real
+  harness and no model). It reads the account's standing from the
   answers' headers as `usage.observed`, so the reading job asks only a
   model nobody called, and holds an agent to its `proxyLimit` in weighted
   tokens (`dispatcher limit`; ADR 0064). `pod` puts the credential back in the pods.
@@ -201,7 +204,7 @@ Built so far:
   proposed): `TRIAL_PROXY=1 scripts/trial.sh CONTEXT up` gives a trial the
   chart's egress proxy and meter from the checkout, in front of
   `dispatcher stand-in` (the model API's shapes and ADR 0064's headers, no
-  model) or, with `TRIAL_MODEL`, chained to the installation's meter for
+  model; a conversation may script the tools it asks for) or, with `TRIAL_MODEL`, chained to the installation's meter for
   trials. `scripts/check-trial-proxy.sh CONTEXT` tries metering, the
   standing read from headers, a limit at the proxy and a credential's
   reload there.

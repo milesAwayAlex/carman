@@ -285,8 +285,8 @@ func TestR10ModelStanding(t *testing.T) {
 		"model use at the proxy, last five hours: builder (in 10, out 90, cache write 0, cache read 0; 2 requests); dreamer (in 15, out 300, cache write 0, cache read 5000; 4 requests)\n",
 		"last seven days: builder", "usage (in 2,",
 		"refused at the proxy, last seven days: 2 requests, from 10.0.0.9",
-		"runs against the proxy's record, last seven days: 1 agree",
-		"b-1 (builder: message) DISAGREES:\n      the run says  in 10, out 20,",
+		"runs against the proxy's record, last seven days: 1 agree, 1 differ in a way that is known\n",
+		"b-1 (builder: message) differs: counted the old way, from the last result alone: the harness went on after an earlier result, and this is the last part only\n      the run says  in 10, out 20,",
 		"the proxy saw in 10, out 90,",
 	} {
 		if !strings.Contains(got, want) {
@@ -295,6 +295,62 @@ func TestR10ModelStanding(t *testing.T) {
 	}
 	if strings.Contains(got, "d-1 (") {
 		t.Errorf("d-1 agrees, summed over its runs and models:\n%s", got)
+	}
+}
+
+// TestR10ADifferenceSaysItsKind: where a run's count and the proxy's record
+// differ, status says which kind of difference it is, from how the run
+// says it counted, and keeps DISAGREES for one that no way of counting
+// explains. The first five are differences an installation showed.
+func TestR10ADifferenceSaysItsKind(t *testing.T) {
+	tok := func(in, out, cw, cr int64) tokens {
+		return tokens{"input_tokens": in, "output_tokens": out, "cache_creation_input_tokens": cw, "cache_read_input_tokens": cr}
+	}
+	for _, c := range []struct {
+		run, seen tokens
+		basis     string
+		finished  bool
+		want      string
+		known     bool
+	}{
+		{tok(110, 40_000, 125_000, 5_200_000), tok(166, 44_000, 143_000, 5_500_000), "", true, "leaves out a subagent's calls and the harness's small ones: the proxy saw 6% more", true},
+		{tok(174, 52_000, 138_000, 8_700_000), tok(176, 52_000, 142_000, 8_700_000), "", true, "leaves out a subagent's calls and the harness's small ones: the proxy saw under 1% more", true},
+		{tok(0, 0, 0, 0), tok(22, 2295, 41_000, 407_000), "", false, "cut short and counted nothing", true},
+		{tok(188, 76_000, 180_000, 11_000_000), tok(324, 76_000, 180_000, 11_000_000), "", true, "the proxy saw under 1% more", true},
+		{tok(2, 220, 1410, 202_000), tok(204, 64_000, 192_000, 13_000_000), "", true, "this is the last part only", true},
+		// Counted the new ways.
+		{tok(10, 3, 0, 0), tok(30, 9, 0, 0), "stream", false, "cut short: it counted what its stream had shown, and the proxy saw 200% more", true},
+		{tok(100, 50, 0, 0), tok(120, 50, 0, 0), "whole", true, "the harness counted every call it made, and the proxy saw 13% more", false},
+		{tok(100, 50, 0, 0), tok(90, 50, 0, 0), "whole", true, "the proxy's record of this pod is not whole", false},
+		{tok(100, 50, 0, 0), tok(90, 50, 0, 0), "", true, "the proxy's record of this pod is not whole", false},
+	} {
+		kind, known := differs(c.run, c.seen, c.basis, c.finished)
+		if !strings.Contains(kind, c.want) || known != c.known {
+			t.Errorf("%v against %v (%q): %q, known %v; want %q, %v", c.run, c.seen, c.basis, kind, known, c.want, c.known)
+		}
+	}
+	// In status: a pod whose run says it counted the whole and still differs.
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	rec := func(typ, data string) api.Record {
+		return api.Record{Event: dispatch.Event{Type: typ, Time: now.Add(-time.Hour), Data: json.RawMessage(data)}}
+	}
+	got := strings.Join(modelStanding(now,
+		[]api.Record{
+			rec("run.usage", `{"agent":"a","pod":"p-1","routine":"message","basis":"whole","outcome":"done","tokens":{"input_tokens":100}}`),
+			rec("run.usage", `{"agent":"a","pod":"p-2","routine":"message","basis":"stream","outcome":"not finished","tokens":{"input_tokens":100}}`),
+		},
+		[]api.Record{
+			rec("model.usage", `{"agent":"a","pod":"p-1","model":"m","requests":2,"tokens":{"input_tokens":150}}`),
+			rec("model.usage", `{"agent":"a","pod":"p-2","model":"m","requests":2,"tokens":{"input_tokens":150}}`),
+		}), "\n")
+	for _, want := range []string{
+		"last seven days: 0 agree, 1 differ in a way that is known, 1 DISAGREE\n",
+		"p-1 (a: message) DISAGREES: the harness counted every call it made, and the proxy saw 50% more",
+		"p-2 (a: message) differs: the run was cut short: it counted what its stream had shown",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
 	}
 }
 

@@ -39,6 +39,59 @@ func TestR7HarnessResultFromAStream(t *testing.T) {
 	}
 }
 
+// TestR7ARunsCountIsTheWholeRuns: what a run says it used is every call
+// its process made (ADR 0050: it is set against the proxy's record of the
+// pod). A harness that went on after its result, when a subagent or a
+// command it left running ended, printed a result for each part: the count
+// is the last one's count by model, not the last part's own. With no count
+// by model the parts are added up; with no result, or a part cut short
+// after one, the stream's answers are, once each, and the count says so.
+func TestR7ARunsCountIsTheWholeRuns(t *testing.T) {
+	count := func(out string) (map[string]int64, string, bool) {
+		r, _, ok := harnessResult([]byte(out))
+		got := map[string]int64{}
+		_ = json.Unmarshal(r.Usage, &got)
+		return got, r.Basis, ok
+	}
+	// As the harness printed it for a run that started a subagent (its
+	// answer has a parent) and went on after its result.
+	stream := `{"type":"system","subtype":"init","model":"m"}
+{"type":"assistant","message":{"id":"a","usage":{"input_tokens":100,"output_tokens":1,"cache_read_input_tokens":7}}}
+{"type":"assistant","message":{"id":"a","usage":{"input_tokens":100,"output_tokens":1,"cache_read_input_tokens":7}}}
+{"type":"assistant","parent_tool_use_id":"t","message":{"id":"b","usage":{"input_tokens":60,"output_tokens":1}}}
+{"type":"assistant","message":{"id":"c","usage":{"input_tokens":120,"output_tokens":1}}}
+{"type":"result","result":"first","total_cost_usd":0.1,"usage":{"input_tokens":220,"output_tokens":10,"cache_read_input_tokens":7},"modelUsage":{"m":{"inputTokens":220,"outputTokens":10,"cacheReadInputTokens":7},"small":{"inputTokens":60,"outputTokens":5,"cacheCreationInputTokens":3}}}
+{"type":"assistant","message":{"id":"d","usage":{"input_tokens":130,"output_tokens":1}}}
+{"type":"result","result":"last","total_cost_usd":0.2,"usage":{"input_tokens":130,"output_tokens":5},"modelUsage":{"m":{"inputTokens":350,"outputTokens":15,"cacheReadInputTokens":7},"small":{"inputTokens":60,"outputTokens":5,"cacheCreationInputTokens":3}}}
+`
+	got, basis, ok := count(stream)
+	if !ok || basis != "whole" || got["input_tokens"] != 410 || got["output_tokens"] != 20 || got["cache_read_input_tokens"] != 7 || got["cache_creation_input_tokens"] != 3 {
+		t.Errorf("the whole run: %v, %q, %v", got, basis, ok)
+	}
+	// A harness with no count by model: its parts, added up.
+	parts := strings.ReplaceAll(stream, `"modelUsage"`, `"other"`)
+	if got, basis, _ := count(parts); basis != "results" || got["input_tokens"] != 350 || got["output_tokens"] != 15 {
+		t.Errorf("the parts added up: %v, %q", got, basis)
+	}
+	// Cut short before any result: the answers the stream showed, once each.
+	lines := strings.SplitAfter(stream, "\n")
+	if got, basis, ok := count(strings.Join(lines[:5], "")); ok || basis != "stream" || got["input_tokens"] != 280 || got["output_tokens"] != 3 {
+		t.Errorf("cut short before a result: %v, %q, %v", got, basis, ok)
+	}
+	// Cut short in a later part: the result before it, and the answers since.
+	if got, basis, ok := count(strings.Join(lines[:7], "")); !ok || basis != "stream" || got["input_tokens"] != 410 || got["output_tokens"] != 16 {
+		t.Errorf("cut short after a result: %v, %q, %v", got, basis, ok)
+	}
+	// One result object, as a harness asked for no stream prints it.
+	if got, basis, _ := count(`{"result":"done","usage":{"input_tokens":5,"output_tokens":2}}`); basis != "results" || got["input_tokens"] != 5 {
+		t.Errorf("one object: %v, %q", got, basis)
+	}
+	// Nothing was counted: nothing is said, and not zeros.
+	if r, _, _ := harnessResult([]byte(`{"type":"system","subtype":"init"}` + "\n")); r.Usage != nil || r.Basis != "" {
+		t.Errorf("nothing counted: %s, %q", r.Usage, r.Basis)
+	}
+}
+
 // TestR7RunUsageEmitted: a run's usage goes to the dispatcher as the agent
 // role; a dispatcher that is absent or refuses is one line, not a failure.
 func TestR7RunUsageEmitted(t *testing.T) {

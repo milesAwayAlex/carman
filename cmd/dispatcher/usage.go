@@ -734,11 +734,58 @@ func agrees(run, seen tokens) bool {
 	return true
 }
 
+func (t tokens) total() int64 {
+	var n int64
+	for _, k := range tokenKinds {
+		n += t[k[0]]
+	}
+	return n
+}
+
+// differs says what kind of difference there is between a run's own count
+// and the proxy's record of its pod, and whether that kind is known: one
+// that follows from how the run's count was made (its basis, as the run
+// says it: whole, results, stream, or nothing for a run recorded before
+// runs said), and not from a fault. The proxy's record is the one to trust.
+func differs(run, seen tokens, basis string, finished bool) (kind string, known bool) {
+	more := ""
+	if r, s := run.total(), seen.total(); s > r && r > 0 {
+		if pct := float64(s-r) / float64(r) * 100; pct < 1 {
+			more = "under 1% more"
+		} else {
+			more = fmt.Sprintf("%.0f%% more", pct)
+		}
+	}
+	over := false
+	for _, k := range tokenKinds {
+		if a, b := run[k[0]], seen[k[0]]; a > b && a-b > max(a, b)/1000 {
+			over = true
+		}
+	}
+	switch {
+	case over:
+		return "the run counted more than the proxy saw: the proxy's record of this pod is not whole", false
+	case run.total() == 0 && !finished:
+		return "the run was cut short and counted nothing; the proxy's record is what it used", true
+	case run.total() == 0:
+		return "the run counted nothing; the proxy's record is what it used", true
+	case basis == "stream":
+		return "the run was cut short: it counted what its stream had shown, and the proxy saw " + more, true
+	case basis == "whole":
+		return "the harness counted every call it made, and the proxy saw " + more + ": a request the harness gave up on, or another process in the pod", false
+	case run.total()*2 < seen.total():
+		return "counted the old way, from the last result alone: the harness went on after an earlier result, and this is the last part only", true
+	}
+	return "counted the old way, from the result's own usage, which leaves out a subagent's calls and the harness's small ones: the proxy saw " + more, true
+}
+
 // modelStanding is what the egress proxy saw of the model (ADR 0050), by
 // agent, beside what the runs said of themselves: model.usage records are
 // the proxy's, run.usage the runs'. A run is set against the proxy's
-// record of the pod it ran in; where they disagree, both are shown. The
-// proxy's record of a pod comes a few minutes after its last request.
+// record of the pod it ran in; where they differ, both are shown with the
+// kind of difference it is (differs), and DISAGREES is kept for a kind
+// that is not known. The proxy's record of a pod comes a few minutes after
+// its last request.
 func modelStanding(now time.Time, runs, seen []api.Record) []string {
 	type use struct {
 		tokens   tokens
@@ -817,7 +864,10 @@ func modelStanding(now time.Time, runs, seen []api.Record) []string {
 		routines []string
 		tokens   tokens
 		ended    time.Time
+		basis    string // the least whole of its runs'
+		finished bool
 	}
+	whole := map[string]int{"": 0, "whole": 1, "results": 2, "stream": 3}
 	pods := map[string]*run{}
 	for _, r := range runs {
 		var u struct {
@@ -826,22 +876,32 @@ func modelStanding(now time.Time, runs, seen []api.Record) []string {
 			Routine string           `json:"routine"`
 			Tokens  map[string]int64 `json:"tokens"`
 			Ended   time.Time        `json:"ended"`
+			Basis   string           `json:"basis"`
+			Outcome string           `json:"outcome"`
 		}
 		_ = json.Unmarshal(r.Data, &u)
 		if u.Pod == "" || now.Sub(r.Time) > 7*24*time.Hour {
 			continue
 		}
 		if pods[u.Pod] == nil {
-			pods[u.Pod] = &run{agent: u.Agent, tokens: tokens{}}
+			pods[u.Pod] = &run{agent: u.Agent, tokens: tokens{}, basis: u.Basis, finished: true}
 		}
 		p := pods[u.Pod]
+		// A run recorded before runs said how they counted (no basis) is
+		// the old way, whatever a later run in the pod says.
+		if u.Basis == "" || (p.basis != "" && whole[u.Basis] > whole[p.basis]) {
+			p.basis = u.Basis
+		}
+		if u.Outcome == "not finished" {
+			p.finished = false
+		}
 		p.routines = append(p.routines, u.Routine)
 		p.tokens.add(u.Tokens)
 		if u.Ended.After(p.ended) {
 			p.ended = u.Ended
 		}
 	}
-	agree, unseen := 0, 0
+	agree, unseen, knownKind, unknown := 0, 0, 0, 0
 	var differ []string
 	for _, name := range slices.Sorted(maps.Keys(pods)) {
 		p := pods[name]
@@ -859,12 +919,26 @@ func modelStanding(now time.Time, runs, seen []api.Record) []string {
 			if now.Sub(lastSeen[name]) < 5*time.Minute {
 				note = " (the proxy's record may not be complete yet)"
 			}
-			differ = append(differ, fmt.Sprintf("    %s (%s: %s) DISAGREES%s:\n      the run says  %s\n      the proxy saw %s",
-				name, p.agent, strings.Join(p.routines, ", "), note, p.tokens, s))
+			kind, known := differs(p.tokens, s, p.basis, p.finished)
+			word := "DISAGREES"
+			if known {
+				word = "differs"
+				knownKind++
+			} else {
+				unknown++
+			}
+			differ = append(differ, fmt.Sprintf("    %s (%s: %s) %s%s: %s\n      the run says  %s\n      the proxy saw %s",
+				name, p.agent, strings.Join(p.routines, ", "), word, note, kind, p.tokens, s))
 		}
 	}
 	if len(pods) > 0 {
 		line := fmt.Sprintf("  runs against the proxy's record, last seven days: %d agree", agree)
+		if knownKind > 0 {
+			line += fmt.Sprintf(", %d differ in a way that is known", knownKind)
+		}
+		if unknown > 0 {
+			line += fmt.Sprintf(", %d DISAGREE", unknown)
+		}
 		if unseen > 0 {
 			line += fmt.Sprintf(", %d ran where the proxy recorded nothing (before ADR 0050, or with the credential in the pod)", unseen)
 		}
