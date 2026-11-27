@@ -139,9 +139,17 @@ func TestR10AMessageToTheOwnerSaysWhatItIsAbout(t *testing.T) {
 	if strings.Contains(no.Text, "4112-88") || strings.Contains(no.Title, "4112-88") {
 		t.Errorf("the notice carries more than the first line: %q / %q", no.Title, no.Text)
 	}
-	for _, want := range []string{"The weekly review is done and one pool needs a decision.", "dispatch message m1", "dispatch reply m1", "builder"} {
+	for _, want := range []string{"The weekly review is done and one pool needs a decision.", "dispatch message m1", "dispatch reply m1", "builder", "agent resume s1"} {
 		if !strings.Contains(no.Title+" "+no.Text, want) {
 			t.Errorf("the notice lacks %q: %q / %q", want, no.Title, no.Text)
 		}
+	}
+	// A session on the owner's own machine is in a terminal of theirs:
+	// there is nowhere to be taken.
+	n.Place = "host"
+	data, _ = json.Marshal(map[string]string{"id": "m2", "from": "session/0123456789abcdef", "agent": "host", "name": "proj", "to": "owner", "body": "Done."})
+	no, _ = n.Compose(context.Background(), dispatch.Record{Event: dispatch.Event{Type: TypeMessage, Subject: "m2", Data: data}})
+	if strings.Contains(no.Text, "agent resume") {
+		t.Errorf("a notice from the owner's machine offers to go to its session: %q", no.Text)
 	}
 }

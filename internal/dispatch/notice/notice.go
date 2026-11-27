@@ -64,7 +64,10 @@ type Notifier struct {
 	Class string
 	// Context and Namespace are named in the commands a notice suggests.
 	Context, Namespace string
-	Logger             *slog.Logger
+	// Place is what the owner's own machine is called (ADR 0049): a session
+	// there is in a terminal of the owner's, not somewhere to be taken to.
+	Place  string
+	Logger *slog.Logger
 	// Every is how often it reads; five seconds when zero.
 	Every time.Duration
 }
@@ -262,8 +265,17 @@ func (n *Notifier) Compose(ctx context.Context, r dispatch.Record) (Notice, bool
 			about = string(r[:240]) + "…"
 		}
 		no.Title = "A message from " + who
-		no.Text = fmt.Sprintf("%s\n\nAll of it: %s. To answer: %s. (%s, message %s.)",
-			about, n.deploy("dispatch message "+m.ID), n.deploy("dispatch reply "+m.ID+" 'YOUR ANSWER'"), m.From, m.ID)
+		no.Text = fmt.Sprintf("%s\n\nAll of it: %s. To answer: %s.", about,
+			n.deploy("dispatch message "+m.ID), n.deploy("dispatch reply "+m.ID+" 'YOUR ANSWER'"))
+		// The session it came from, by the one command that goes to any
+		// session: a job's conversation, or a window of a standing agent.
+		if id, ok := strings.CutPrefix(m.From, "session/"); ok && (n.Place == "" || m.Agent != n.Place) {
+			if len(id) > 8 {
+				id = id[:8]
+			}
+			no.Text += fmt.Sprintf(" To go to its session: %s.", n.deploy("agent resume "+id))
+		}
+		no.Text += fmt.Sprintf(" (%s, message %s.)", m.From, m.ID)
 	default:
 		return no, false
 	}

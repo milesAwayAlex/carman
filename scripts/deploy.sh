@@ -34,8 +34,10 @@
 #   scripts/deploy.sh CONTEXT agent restart NAME restart an interactive agent, onto the image last deployed;
 #                                       whatever runs in it ends, and conversations resume from disk
 #   scripts/deploy.sh CONTEXT agent resume      the conversations agents' jobs have kept, and where each is open
-#   scripts/deploy.sh CONTEXT agent resume ID   go on with one as the agent that had it, in a pod of its own,
-#                                       and attach; the same again attaches to that pod
+#   scripts/deploy.sh CONTEXT agent resume ID   go to the session with that conversation, wherever it is: a
+#                                       job's goes on as the agent that had it, in a pod of its own
+#                                       (the same again attaches to that pod); a standing agent's
+#                                       is attached to at its window
 #   scripts/deploy.sh CONTEXT dispatch status [ID]   what the dispatcher runs, what waits and why, the last runs
 #   scripts/deploy.sh CONTEXT dispatch log [--type T] [--after N] [--last N]   its log
 #   scripts/deploy.sh CONTEXT dispatch submit CLASS [ID] [--priority N] ...   start a run of the CronJob CLASS
@@ -301,6 +303,34 @@ resume() {
     case "$want" in *[!0-9a-f-]*) die "an id is hex digits and dashes, for example 58a6d1a8" ;; esac
     pod="$(printf '%s\n' "$open" | awk -F '\t' -v w="$want" 'NF == 2 && index($2, w) == 1 {print $1}')"
     [ "$(printf '%s' "$pod" | grep -c .)" -le 1 ] || die "more than one pod has a conversation whose id starts with $want: $(echo $pod)"
+    if [ -z "$pod" ]; then
+        # A session of a standing agent: its conversation is in that pod's
+        # home, and its window in the pod's tmux carries the session's name,
+        # which the harness writes into the conversation. Go to that window.
+        local p window
+        for p in $("${kube[@]}" get pods -l 'app.kubernetes.io/component=agent,statefulset.kubernetes.io/pod-name' \
+            --field-selector=status.phase=Running -o 'jsonpath={.items[*].metadata.name}'); do
+            window="$("${kube[@]}" exec -i "$p" -- sh -s -- "$want" 2>/dev/null <<'IN_POD' || true
+f="$(ls -t "$HOME"/.claude/projects/*/"$1"*.jsonl 2>/dev/null | head -1)"
+[ -n "$f" ] || exit 0
+name="$(grep -o '"customTitle":"[^"]*"' "$f" | tail -1 | cut -d'"' -f4)"
+t() { "$(cat /tmp/agent-tmux 2>/dev/null || echo tmux)" -S "/tmp/tmux-$(id -u)/default" "$@"; }
+if [ -n "$name" ] && t list-windows -t main -F '#{window_name}' 2>/dev/null | grep -qxF "$name"; then
+    t select-window -t "main:=$name" && echo "open $name"
+else
+    echo "closed ${name:-?}"
+fi
+IN_POD
+)"
+            case "$window" in
+            "open "*)
+                echo "the conversation is session ${window#open } of $p; attaching to it there"
+                attach "$p" ;;
+            "closed "*)
+                die "the conversation is session ${window#closed } of $p, which is not open there. Attach (scripts/deploy.sh $context agent attach $(printf %s "$p" | sed 's/^agent-//; s/-0$//')) and open it: agent-open ${window#closed }" ;;
+            esac
+        done
+    fi
     if [ -n "$pod" ]; then
         echo "$pod has the conversation open; attaching to it"
     else

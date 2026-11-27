@@ -503,7 +503,7 @@ func serve(ctx context.Context) error {
 		contextName = "CONTEXT"
 	}
 	notices := &notice.Notifier{Log: d, Enabled: os.Getenv("DISPATCHER_NOTICES") == "on", Class: os.Getenv("DISPATCHER_NOTICE_CLASS"),
-		Context: contextName, Namespace: namespace, Logger: logger}
+		Context: contextName, Namespace: namespace, Place: os.Getenv("DISPATCHER_PLACE"), Logger: logger}
 	if notices.Class == "" {
 		notices.Class = "notify"
 	}
