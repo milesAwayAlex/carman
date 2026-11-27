@@ -92,12 +92,6 @@ credential of the real installation's.
   addition above (the issuer's keys and pods are read through the API), and
   agent definitions in the trial's values: an agent's pod in the trial
   needs no model to send and read messages.
-- **The images built from the checkout's Dockerfiles.** Where the build
-  service's RUN steps cannot fetch packages (seen: the resolver they are
-  given fails AAAA lookups, and Alpine's resolver then gives up on the
-  name), the trial builds the same binaries on a base that already has
-  what the Dockerfile installs (`alpine/git` for the memory service,
-  `postgres:17-alpine` for the dispatcher), and says so.
 
 ## Consequences
 
