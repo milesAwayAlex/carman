@@ -24,9 +24,10 @@ Built so far:
   library. Results are in `bench/transfer/RESULTS.md`.
 - `bench/stream` and `scripts/stream.sh`: the task-stream benchmark (M7;
   ADR 0069, proposed): a world service with no model
-  that keeps the score, and a runner that works one arm (none, notes,
+  that keeps the score, and a runner that works one arm (none, builtin, notes,
   tidied) through a stream of tasks in a trial of its own. Its harness is
-  piloted; the stream's forty tasks and the run that answers are not done.
+  piloted and the stream's forty tasks are fixed; the run that answers is
+  not done.
 - `bench/clbench`: arms for Continual Learning Bench. Its first pilot was
   inconclusive; `bench/transfer` is the benchmark to trust for now.
 - `adapters/claude-code`: how to install the hook.

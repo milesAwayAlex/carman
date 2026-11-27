@@ -252,6 +252,22 @@ func TestAnAgentCanBeHeldToNamedToolsAndCommands(t *testing.T) {
 		t.Errorf("the surveyor is told of what it was not given:\n%s", told)
 	}
 
+	// A directory it may write under (the harness's own memory, for an agent
+	// given it): the file tools, held to that directory.
+	flags, _ = flagsFor(map[string]string{"CMEM_ROUTINE_TOOLS": "named", "CMEM_ROUTINE_RUN": "ops deploy",
+		"CMEM_ROUTINE_WRITE": "/var/lib/agent/conversations/memory"})
+	if got := flags[slices.Index(flags, "--tools")+1]; got != "Bash,Read,Glob,Grep,Write,Edit" {
+		t.Errorf("tools with a directory to write under: %s", got)
+	}
+	for _, rule := range []string{"Edit(//var/lib/agent/conversations/memory/**)", "Read(//var/lib/agent/conversations/memory/**)"} {
+		if !slices.Contains(flags, rule) {
+			t.Errorf("%s is not allowed: %q", rule, flags)
+		}
+	}
+	if flags, _ = flagsFor(map[string]string{"CMEM_ROUTINE_TOOLS": "named", "CMEM_ROUTINE_RUN": "ops deploy"}); slices.Contains(strings.Split(flags[slices.Index(flags, "--tools")+1], ","), "Write") {
+		t.Errorf("an agent with no directory to write under has the Write tool: %q", flags)
+	}
+
 	// Everything an entry may name, and what is not a command, said and left out.
 	flags, said = flagsFor(map[string]string{"CMEM_ROUTINE_TOOLS": "named", "CMEM_ROUTINE_MEMORY": "on",
 		"CMEM_ROUTINE_RUN":       "dispatcher improve, gh, sh -c x, dispatcher improve --all, dispatcher improve",

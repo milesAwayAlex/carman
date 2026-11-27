@@ -30,8 +30,14 @@ def row(label, cell):
     print("%-34s %s" % (label, "  ".join("%-24s" % cell(a) for a in order)))
 
 
-def every(arm):
-    return [r for _, res in arms[arm] for r in res]
+def ran(r):
+    """Whether the task's session ran at all: one the dispatcher could not
+    run (the model refused, a limit) says nothing about the arm."""
+    return r.get("ended", "done") == "done" and (r.get("calls", 0) > 0 or r.get("cost_usd", 0) > 0)
+
+
+def every(arm, all_tasks=False):
+    return [r for _, res in arms[arm] for r in res if all_tasks or ran(r)]
 
 
 def pairs(arm, keep=lambda task, rule, l: True):
@@ -42,11 +48,12 @@ def pairs(arm, keep=lambda task, rule, l: True):
 first = arms[order[0]][0]
 print("world %s, model %s; runs: %s" % (first[0]["world"], first[0]["model"], ", ".join("%s %d" % (a, len(arms[a])) for a in order)))
 row("", lambda a: a)
+row("tasks that ran", lambda a: rate(len(every(a)), len(every(a, True))))
 row("tasks passed", lambda a: rate(sum(r["pass"] for r in every(a)), len(every(a))))
 for role in ("meet", "use", "told", "wrong", "neutral"):
-    if any(r["role"] == role for r in every(order[0])):
+    if any(r["role"] == role for r in every(order[0], True)):
         row("  " + role, lambda a: rate(sum(r["pass"] for r in every(a) if r["role"] == role), sum(1 for r in every(a) if r["role"] == role)))
-days = sorted({r["day"] for r in every(order[0])})
+days = sorted({r["day"] for r in every(order[0], True)})
 for d in days:
     row("  day %d" % d, lambda a: rate(sum(r["pass"] for r in every(a) if r["day"] == d), sum(1 for r in every(a) if r["day"] == d)))
 row("wrong calls a task", lambda a: "%.2f" % (sum(r["wrong_calls"] for r in every(a)) / max(1, len(every(a)))))
@@ -85,8 +92,8 @@ if rules:
         row("  " + rule, lambda a: "%s (%.2f)" % (rate(sum(l["used"] for _, _, l in pairs(a, this)), len(pairs(a, this))), sum(l["refused"] for _, _, l in pairs(a, this)) / max(1, len(pairs(a, this)))))
 if len(sys.argv[1:]) <= 4:
     print("\nby task: pass or fail, wrong calls")
-    for i, r in enumerate(every(order[0])[: len(arms[order[0]][0][1])]):
+    for i, r in enumerate(arms[order[0]][0][1]):
         cells = []
         for a in order:
-            cells.append(" ".join("%s%d" % ("p" if res[i]["pass"] else "F", res[i]["wrong_calls"]) for _, res in arms[a]))
+            cells.append(" ".join(("%s%d" % ("p" if res[i]["pass"] else "F", res[i]["wrong_calls"])) if ran(res[i]) else "-" for _, res in arms[a]))
         print("  %-5s day %d %-8s %s" % (r["task"], r["day"], r["role"], "  ".join("%-24s" % c for c in cells)))

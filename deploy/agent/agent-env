@@ -10,7 +10,10 @@
 # agent_setup puts in the harness's settings is how it reaches the agent.
 # The harness keeps itself up to date, as its vendor's installer sets it up
 # to; what it would otherwise send about its use is off.
-export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 DISABLE_BUG_COMMAND=1
+# AGENT_BUILTIN_MEMORY=DIR is for comparing the two (the task-stream
+# benchmark's arm): the harness's own memory on, kept in DIR.
+[ -n "${AGENT_BUILTIN_MEMORY:-}" ] || export CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
+export DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 DISABLE_BUG_COMMAND=1
 # Where the egress proxy answers in a host's name, its certificate comes from
 # an authority of this installation. Trust it beside the public ones, for
 # every kind of program an agent runs.
@@ -90,6 +93,12 @@ settings["hooks"] = {**settings.get("hooks", {}), **ours.get("hooks", {})}
 mode = os.environ.get("AGENT_PERMISSION_MODE")
 if mode:
     settings["permissions"]["defaultMode"] = mode
+# The harness's own memory, where an agent is given it: one directory, whatever
+# directory a session runs in.
+builtin = os.environ.get("AGENT_BUILTIN_MEMORY")
+if builtin:
+    os.makedirs(builtin, exist_ok=True)
+    settings["autoMemoryDirectory"] = builtin
 json.dump(settings, open(path, "w"), indent=2)
 PY
 }

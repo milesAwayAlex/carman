@@ -18,8 +18,11 @@ Sonnet. 480 sessions and twelve nights.
 - **Two values to set for it** (ADR 0065): `egress.model.trials.models`
   to allow Sonnet, and `egress.model.trials.requests` raised from 300 a
   day to about 8,000 for the days of the run.
-- **Before it**: the stream's forty tasks and the built-in arm are still to
-  be written, and are committed before any arm with memory runs on them.
+- **Before it**: one whole pass of the stream on the cheapest model, to see
+  that all four arms get through its forty tasks. That pass is about 1,300
+  requests and under a dollar, and the trials' limit of 300 a day stopped
+  the first try of it a third of the way in (below). The stream's tasks
+  were committed before any arm with memory ran on them.
 
 **What would count as memory not helping**, written before any run:
 
@@ -236,8 +239,8 @@ distilling runs show).
   cost a fifth of what was assumed for the cheapest model, which puts the
   run nearer $25; the stream's tickets are longer than the pilot's, so $75
   stays as the most it should be. About $230 at most on Opus; a few
-  dollars on the cheapest model, which would not answer it. Up to 7,700
-  requests: the limit for trials has to be raised for it
+  dollars on the cheapest model, which would not answer it. About 4,500
+  requests by the first try's seven a task, and up to 7,700: the limit for trials has to be raised for it
   (`egress.model.trials.requests`, and `models` to allow Sonnet), which is
   the owner's value to set.
 - **Against the plan's windows**, from the one evening of readings there
@@ -286,8 +289,57 @@ What it showed about the harness:
   (`trial/stream-ARM/worker`) is in the installation's log, which its
   owner reads; the two are to be set side by side before the run.
 
-Not built yet: the stream's forty tasks and their world, the built-in arm,
-and the report across runs.
+## The stream, the built-in arm, and the first try (2026-11-27, later)
+
+Built since the pilot:
+
+- **The stream's world and its forty tasks** (`bench/stream/stream.go`,
+  `stream.json`, and the two wrong notes memory starts with,
+  `stream.seeds.json`), committed before any arm with memory ran on them.
+  A call that a rule refuses is recorded under the rule's name, so a
+  lesson's use is counted rule by rule and not only task by task, and a
+  task is scored on the world as it left it. A test works all forty as an
+  agent that knows every rule would, and is refused nothing; another runs
+  into every rule under its own name.
+- **The built-in arm.** The harness's own memory is switched on for the
+  arm's agent (`AGENT_BUILTIN_MEMORY`), kept in one directory on the volume
+  that outlives a task's pod, and the agent, still held to the world's
+  commands, may write files there and nowhere else (`CMEM_ROUTINE_WRITE`:
+  an Edit rule for the directory, which is what the harness's file checks
+  read). Tried first by itself: told a rule, the harness wrote it to that
+  directory under those limits.
+- **The report across runs** (`bench/stream/report.py`): by arm, the tasks
+  passed by role and by day, how often a lesson needed again was followed
+  and how many refusals it cost, harm (old rules followed, wrong notes
+  followed, neutral tasks failed), cost, and each rule's own row. A task
+  whose session never ran is left out of every rate and counted apart.
+- **Had it, in time** (`collect.py`): a session had a lesson when an entry
+  that holds it, which the session did not write itself, was given to it
+  before its first call of the command the rule governs, by the memory
+  service's clock and the world's.
+
+The first try of the stream, one run of the arms none, built-in and tidied
+on the cheapest model, was stopped by the installation's limit for trials:
+all trials together may make 300 requests in a day (ADR 0065), a task is
+about seven, and the three arms reached it after 25, 9 and 8 tasks. The
+tasks after that never ran, and the runner now stops when two in a row use
+nothing of the model. It cost $0.09. What the part that ran showed about
+the harness:
+
+- the arm with none ran into each rule again every time it was needed
+  (about 0.9 refusals for each rule a task turned on) and failed the tasks
+  that rest on what was told once, as the design means it to;
+- the built-in arm wrote two memory files in its first eight tasks, and the
+  tidied arm nine notes, with a night between days;
+- the world's refusals say enough to go on: the first meeting of a rule
+  cost under one refusal on average. Deploys to prod, which turn on three
+  or four rules at once, were what the cheapest model failed.
+
+It says nothing yet about the arms against each other: the two with memory
+ran eight and nine tasks.
+
+Not built yet: nothing the design names. Not done: a whole pass of the
+stream on the cheapest model, which needs the trials' limit raised.
 
 ## Consequences
 

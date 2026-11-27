@@ -174,14 +174,25 @@ func (c *command) harnessFlags() []string {
 		for _, dir := range l.read {
 			allowed = append(allowed, "Read(/"+dir+"/**)")
 		}
+		// Directories it may write under (CMEM_ROUTINE_WRITE, separated by
+		// colons): the harness's own memory, for an agent given it. An
+		// Edit rule covers every tool that writes a file (seen on 2.1.326:
+		// a Write rule is not matched by the file checks).
+		l.write = routineReads(c.getenv("CMEM_ROUTINE_WRITE"))
 		tools := "Read,Glob,Grep"
+		for _, dir := range l.write {
+			allowed = append(allowed, "Read(/"+dir+"/**)", "Edit(/"+dir+"/**)")
+		}
+		if len(l.write) > 0 {
+			tools += ",Write,Edit"
+		}
 		if len(allowed) > 0 {
 			tools = "Bash," + tools
 		}
 		flags = []string{"--permission-mode", "dontAsk", "--tools", tools, "--allowedTools"}
 		flags = append(flags, append(allowed, l.tools...)...)
-		if len(l.read) > 0 {
-			flags = append(append(flags, "--add-dir"), l.read...)
+		if dirs := append(append([]string{}, l.read...), l.write...); len(dirs) > 0 {
+			flags = append(append(flags, "--add-dir"), dirs...)
 		}
 		flags = append(flags, "--append-system-prompt", limitsText(l))
 	}
@@ -312,6 +323,8 @@ type limits struct {
 	read, tools, commands []string
 	// run: commands it may run with any subcommands (ADR 0061).
 	run []string
+	// write: directories it may also write files under.
+	write []string
 }
 
 // limitsText is what a restricted agent is told of its limits, appended to
@@ -341,6 +354,9 @@ func limitsText(l limits) string {
 	}
 	if len(l.read) > 0 {
 		fmt.Fprintf(&b, "- You may read the files under %s, with Read, Glob and Grep.\n", strings.Join(l.read, " and "))
+	}
+	if len(l.write) > 0 {
+		fmt.Fprintf(&b, "- You may read and write the files under %s, with Read, Glob, Grep, Write and Edit.\n", strings.Join(l.write, " and "))
 	}
 	if len(l.tools) > 0 {
 		fmt.Fprintf(&b, "- You may call these tools: %s.\n", strings.Join(l.tools, ", "))
