@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A trial whose agents reach the model (ADR new-a-trial-agent-reaches-the-model),
+# A trial whose agents reach the model (ADR 0065),
 # end to end: an agent held to one command runs a routine on the cheapest
 # model, started by a rule when a page this script changes is seen to have
 # changed; two agents of the trial exchange a message; and the installation's

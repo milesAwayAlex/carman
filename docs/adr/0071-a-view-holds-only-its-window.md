@@ -1,4 +1,4 @@
-# new-a-view-holds-only-its-window: A view is a session that holds its one window, not a session of the pod's group
+# 0071: A view is a session that holds its one window, not a session of the pod's group
 
 Status: Proposed (2026-11-27). Changes one part of ADR 0057: how a view is
 made and how it ends when its window closes.

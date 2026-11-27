@@ -172,7 +172,7 @@ Built so far:
   waiting on him first, and goes to one: `kubectl exec` into a standing
   agent's pod, at a view of its own (`agent-view`: a tmux session that
   holds that one window, with no status line and no prefix; ADR
-  new-a-view-holds-only-its-window), attached again after a
+  0071), attached again after a
   dropped connection with `--keep`.
 - The definition from within (ADR 0056, proposed): an agent with
   `definition: true` reads the installation's definition in its pod
@@ -193,7 +193,7 @@ Built so far:
   `TRIAL_MODEL` and `TRIAL_AGENT_BASE` gives a trial's agents that address,
   a placeholder, and an image with the harness and the checkout's code.
 
-- Who comes in (ADR new-who-comes-in-and-a-new-pods-first-second,
+- Who comes in (ADR 0066,
   proposed): the proxy admits only the pods that leave through it, isolated
   or not; an isolated namespace names who a load balancer's traffic comes
   from (`memory.service.admitFrom`, `dispatcher.service.admitFrom`: a CIDR

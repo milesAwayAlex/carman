@@ -162,7 +162,7 @@ first (idle with a message for him unread, then working with one, then
 idle, then busy, then those not running that can be gone to), and for one
 in a standing agent's pod runs `kubectl exec` there into `agent-view`, a
 tmux session of its own that holds that session's window and no other
-(ADR new-a-view-holds-only-its-window), with no status line and no
+(ADR 0071), with no status line and no
 prefix, and ends with the window. How the attach ended tells a
 leave (status 0) from a dropped connection, after which `--keep` attaches
 again. A job's kept conversation is still gone to by the checkout's
@@ -210,7 +210,7 @@ together, until the proxy keeps budgets. Two network policies let pods
 labelled for it out of the sandbox to that port and into the
 installation's namespace at it.
 
-### Who comes in, and a pod's first second (ADR new-who-comes-in-and-a-new-pods-first-second, proposed)
+### Who comes in, and a pod's first second (ADR 0066, proposed)
 
 Nothing outside the installation's namespace connects to a pod in it but
 by a way in that is named: a service reached through a load balancer

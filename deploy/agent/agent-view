@@ -125,7 +125,7 @@ view="view-$$"
 # The view is a session with the one window in it, the same window main
 # has: tmux ends a session whose last window closes, so the view ends with
 # its window and has no neighbour to show (ADR
-# new-a-view-holds-only-its-window). A session cannot be made empty, so it
+# 0071). A session cannot be made empty, so it
 # starts with a window of its own that is gone before anything is drawn.
 # Were the session's window to close just now, that one ends in a moment
 # and the view with it.
