@@ -81,9 +81,11 @@ rules:
   - apiGroups: ["batch"]
     resources: ["cronjobs"]
     verbs: ["get", "list"]
+  # (watch: for a trial's own meter, which keeps an index of the sandbox's
+  # pods as the installation's keeps its namespace's.)
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["list", "get"]
+    verbs: ["list", "get", "watch"]
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]
