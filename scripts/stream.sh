@@ -27,36 +27,7 @@ context="${1:-}" action="${2:-}"
 
 if [ "$action" = report ]; then
     shift 2
-    python3 - "$@" <<'PY'
-import json, sys
-rows = []
-for d in sys.argv[1:]:
-    try:
-        meta = json.load(open(d + "/run.json"))
-        results = json.load(open(d + "/results.json"))
-    except OSError as err:
-        sys.exit(f"stream: {d} is not a finished run: {err}")
-    rows.append((meta, results))
-tasks = [r["task"] for r in rows[0][1]]
-print("%-6s %-4s %-8s %s" % ("task", "day", "role", "  ".join("%-22s" % m["arm"] for m, _ in rows)))
-for i, t in enumerate(tasks):
-    cells = []
-    for _, results in rows:
-        r = results[i]
-        cells.append("%-22s" % ("%s  wrong %d  $%.4f" % ("pass" if r["pass"] else "FAIL", r["wrong_calls"], r.get("cost_usd", 0))))
-    r = rows[0][1][i]
-    print("%-6s %-4s %-8s %s" % (t, r["day"], r["role"], "  ".join(cells)))
-print("%-20s %s" % ("passed", "  ".join("%-22s" % ("%d of %d" % (sum(r["pass"] for r in res), len(res))) for _, res in rows)))
-print("%-20s %s" % ("wrong calls", "  ".join("%-22d" % sum(r["wrong_calls"] for r in res) for _, res in rows)))
-print("%-20s %s" % ("cost, runs' own", "  ".join("%-22s" % ("$%.4f" % sum(r.get("cost_usd", 0) for r in res)) for _, res in rows)))
-print("%-20s %s" % ("calls to the world", "  ".join("%-22d" % sum(r.get("calls", 0) for r in res) for _, res in rows)))
-print("%-20s %s" % ("the nights' cost", "  ".join("%-22s" % ("$%.4f" % m.get("nights_cost_usd", 0)) for m, _ in rows)))
-print("%-20s %s" % ("notes written", "  ".join("%-22d" % sum(r.get("notes", 0) for r in res) for _, res in rows)))
-print("%-20s %s" % ("recalls", "  ".join("%-22d" % sum(r.get("recalls", 0) for r in res) for _, res in rows)))
-print("%-20s %s" % ("had the lesson", "  ".join("%-22s" % ("%d of %d lesson tasks" % (sum(1 for r in res if r.get("had_lesson")), sum(1 for r in res if "had_lesson" in r))) for _, res in rows)))
-print("%-20s %s" % ("seconds", "  ".join("%-22d" % m.get("seconds", 0) for m, _ in rows)))
-PY
-    exit 0
+    exec python3 bench/stream/report.py "$@"
 fi
 
 [ "$action" = run ] || die "say: run ARM, or report DIR..."
@@ -97,7 +68,7 @@ agents:
     takesMessages: true
     tools:
       memory: $memory
-      run: [ops help, ops stages, ops status, ops change, ops deploy, ops attach]
+      run: [ops help, ops stages, ops status, ops owner, ops service, ops change, ops registry, ops deploy, ops config, ops attach]
     models: [$model]
     budgetUSD: 0.5
     deadlineSeconds: 600
@@ -157,6 +128,18 @@ YAML
 world_do() { "${kube[@]}" exec "${pre}world" -- /stream admin "$@"; }
 say "the trial $name is up, with the world $world"
 
+# Notes that are in memory from the start, in an arm that has one: an
+# agent's observations that nothing has checked, some of them wrong.
+if [ "$arm" != none ] && [ -f "bench/stream/$world.seeds.json" ]; then
+    token="$("${kube[@]}" get secret "${pre}cmem-tokens" -o 'jsonpath={.data.worker}' | base64 -d)"
+    python3 -c 'import json,sys; [print(s["kind"] + "\t" + s["text"]) for s in json.load(open(sys.argv[1]))]' "bench/stream/$world.seeds.json" |
+        while IFS="$(printf '\t')" read -r kind text; do
+            "${kube[@]}" exec "${pre}cmem-0" -- env CMEM_URL=http://127.0.0.1:8377 "CMEM_TOKEN=$token" \
+                cmem note --kind "$kind" --global --evidence "seen once, some time ago, by an agent of the team; nothing checked it" "$text" >/dev/null </dev/null
+        done
+    say "memory starts with $(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "bench/stream/$world.seeds.json") notes nobody checked"
+fi
+
 # One frame of words for every arm; only the sentence about memory differs.
 case "$arm" in
 none) about="You have no memory of earlier tickets: nothing is carried from one session to the next." ;;
@@ -202,37 +185,16 @@ Ticket: $ticket")"
     # What the memory service gave and took in that time, and the run's own count.
     "${kube[@]}" logs "${pre}cmem-0" --since-time="$began" 2>/dev/null | grep -E ' msg=(index|recall|read|note|flashback) ' > "$out/$id.memory.log" || true
     usage="$(owner log --type run.usage --last 5 2>/dev/null | grep -F "${sent%% *}" | tail -1 || true)"
-    python3 - "$id" "$how" "$out/$id.memory.log" "$usage" >> "$out/tasks.jsonl" <<'PY'
+    python3 - "$id" "$how" "$usage" >> "$out/tasks.jsonl" <<'PY'
 import json, re, sys
-tid, how, memlog, usage = sys.argv[1:5]
-# What memory gave this session (the entries' ids) and took from it.
-row = {"task": tid, "ended": how, "recalls": 0, "notes": 0, "given": [], "wrote": []}
-def ids(line, key):
-    m = re.search(key + r'="?\[([^\]]*)\]', line)
-    return m.group(1).split() if m else []
-for line in open(memlog):
-    m = re.search(r" msg=(\w+) ", line)
-    kind = m.group(1) if m else ""
-    if kind in ("index", "flashback"):
-        row["given"] += ids(line, "shown")
-    elif kind == "recall":
-        row["recalls"] += 1
-        row["given"] += ids(line, "found")
-    elif kind == "read":
-        m = re.search(r" entry=(\S+)", line)
-        row["given"] += [m.group(1)] if m else []
-    elif kind == "note":
-        row["notes"] += 1
-        m = re.search(r" entry=(\S+)", line)
-        row["wrote"] += [m.group(1)] if m else []
-row["given"] = sorted(set(row["given"]))
+tid, how, usage = sys.argv[1:4]
+row = {"task": tid, "ended": how}
 m = re.search(r'\{.*\}', usage)
 if m:
     try:
         u = json.loads(m.group(0))
         row["cost_usd"] = u.get("cost_usd", 0)
         row["tokens"] = u.get("tokens", {})
-        row["turns"] = u.get("turns", 0)
     except ValueError:
         pass
 print(json.dumps(row))
@@ -246,39 +208,7 @@ go run ./bench/stream score "$tasks" "$out/state.json" > "$out/score.json"
 "${kube[@]}" exec "${pre}cmem-0" -- tar -C /data -cf - library > "$out/library.tar" 2>/dev/null || true
 mkdir -p "$out/memory" && tar -C "$out/memory" -xf "$out/library.tar" 2>/dev/null || true
 owner log --type run.usage --last 100 > "$out/run-usage.log" 2>/dev/null || true
-python3 - "$out" "$arm" "$world" "$model" "$began_all" "$tasks" <<'PY'
-import glob, json, os, re, sys, time
-out, arm, world, model, began, tasks = sys.argv[1:7]
-score = json.load(open(out + "/score.json"))
-lesson = {t["id"]: t.get("lesson", "") for t in json.load(open(tasks))}
-# Every entry memory ever held in this run, by id: its text.
-text = {}
-for f in glob.glob(out + "/memory/library/entries/**/*.md", recursive=True):
-    body = open(f).read()
-    text[os.path.basename(f)[:-3]] = body.split("\n---\n", 1)[-1]
-extra = {}
-for line in open(out + "/tasks.jsonl"):
-    row = json.loads(line)
-    extra[row["task"]] = row
-for r in score:
-    e = extra.get(r["task"], {})
-    r.update({k: v for k, v in e.items() if k != "task"})
-    # Had it: an entry that holds the family's lesson, and that this session
-    # did not write itself, was among what memory gave the session. (That it
-    # came before the call it governs is not checked here.)
-    if lesson.get(r["task"]):
-        earlier = [i for i in e.get("given", []) if i not in e.get("wrote", [])]
-        r["had_lesson"] = any(re.search(lesson[r["task"]], text.get(i, ""), re.I | re.S) for i in earlier)
-json.dump(score, open(out + "/results.json", "w"), indent=1)
-nights = 0.0
-for line in open(out + "/run-usage.log"):
-    m = re.search(r"\{.*\}", line)
-    if m and '"agent":"dreamer"' in line:
-        nights += json.loads(m.group(0)).get("cost_usd", 0)
-entries = len(text)
-json.dump({"arm": arm, "world": world, "model": model, "seconds": int(time.time()) - int(began),
-           "nights_cost_usd": nights, "entries_ever": entries}, open(out + "/run.json", "w"))
-PY
+python3 bench/stream/collect.py "$out" "$arm" "$world" "$model" "$began_all" "$tasks"
 owner log --last 400 > "$out/dispatcher.log" 2>/dev/null || true
 "${kube[@]}" logs "${pre}cmem-0" > "$out/memory.log" 2>/dev/null || true
 [ -n "$keep" ] || scripts/trial.sh "$context" down | tail -1
