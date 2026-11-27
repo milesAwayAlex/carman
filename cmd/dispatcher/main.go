@@ -366,6 +366,9 @@ func status(ctx context.Context, c *api.Client, pos []string) error {
 		if j.Reason != "" {
 			reason = " (" + j.Reason + ")"
 		}
+		if j.Why != nil && j.Why.Killed != "" {
+			reason += " killed for its " + j.Why.Killed
+		}
 		fmt.Printf("  %s  %-22s %-9s%s%s  %s  %s, by %s\n", j.Ended.UTC().Format("2006-01-02 15:04"), j.Template, j.Outcome, reason, code, took, j.Job, j.By)
 	}
 	return nil

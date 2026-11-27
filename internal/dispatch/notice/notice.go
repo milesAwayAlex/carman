@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
@@ -167,6 +168,9 @@ func (n *Notifier) deploy(args string) string {
 	return fmt.Sprintf("scripts/deploy.sh %s %s", n.Context, args)
 }
 
+// kubeWord is the shape of the cluster's reasons (OOMKilled, Evicted).
+var kubeWord = regexp.MustCompile(`^[A-Z][A-Za-z]{1,40}$`)
+
 // Compose gives the notice an event calls for, if any.
 func (n *Notifier) Compose(ctx context.Context, r dispatch.Record) (Notice, bool) {
 	no := Notice{Urgency: "today", Importance: "normal", Event: r.ID}
@@ -189,9 +193,23 @@ func (n *Notifier) Compose(ctx context.Context, r dispatch.Record) (Notice, bool
 		if j.ExitCode != nil {
 			how += fmt.Sprintf(", exit code %d", *j.ExitCode)
 		}
+		// Only the cluster's own words for why: its messages and the log's
+		// lines stay in the dispatcher's log (ADR 0048).
+		more := ""
+		if w := j.Why; w != nil {
+			for _, r := range []string{w.PodReason, w.Termination} {
+				if r != "" && r != j.Reason && kubeWord.MatchString(r) {
+					how += ", " + r
+				}
+			}
+			if w.Killed != "" {
+				how += ", killed for its " + w.Killed
+			}
+			more = fmt.Sprintf(" Why, with its log's last lines: %s.", n.deploy("dispatch log --type job.ended"))
+		}
 		no.Title = fmt.Sprintf("%s failed", j.Template)
-		no.Text = fmt.Sprintf("The Job %s (%s, started by %s) failed at %s: %s. Its log, while the cluster keeps the Job: %s. What ran lately: %s.",
-			j.Job, j.Template, j.By, at(j.Ended), strings.TrimPrefix(how, ", "), n.kubectl("logs job/"+j.Job), n.deploy("dispatch status"))
+		no.Text = fmt.Sprintf("The Job %s (%s, started by %s) failed at %s: %s.%s Its log, while the cluster keeps the Job: %s. What ran lately: %s.",
+			j.Job, j.Template, j.By, at(j.Ended), strings.TrimPrefix(how, ", "), more, n.kubectl("logs job/"+j.Job), n.deploy("dispatch status"))
 	case kube.TypeRunMissed:
 		var m kube.RunMissed
 		if json.Unmarshal(r.Data, &m) != nil {

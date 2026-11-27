@@ -5,14 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"carman/internal/dispatch"
+	"carman/internal/secret"
 )
 
 // Event types and the source of the watcher's events.
@@ -38,7 +42,30 @@ type JobEnded struct {
 	// The Job says it tells the owner of its own failure
 	// (AnnotationNotifiesOwner).
 	NotifiesOwner bool `json:"notifies_owner,omitempty"`
+	// Why it failed, as far as the cluster knows.
+	Why *Why `json:"why,omitempty"`
 }
+
+// Why is what the cluster says of a failed Job and its last pod. Its log's
+// lines are for the dispatcher's log only, never for a notice (ADR 0048):
+// a line shaped like a credential is withheld, and the whole is bounded.
+type Why struct {
+	Message            string   `json:"message,omitempty"`             // the Job's failed condition's
+	Pod                string   `json:"pod,omitempty"`                 // its last pod
+	PodReason          string   `json:"pod_reason,omitempty"`          // the pod's: Evicted, DeadlineExceeded
+	PodMessage         string   `json:"pod_message,omitempty"`         //
+	Termination        string   `json:"termination,omitempty"`         // the container's: Error, OOMKilled
+	TerminationMessage string   `json:"termination_message,omitempty"` // what it wrote to its termination log
+	Killed             string   `json:"killed,omitempty"`              // memory or deadline, when it was
+	LogTail            []string `json:"log_tail,omitempty"`            // its log's last lines
+}
+
+// Bounds of what Why keeps of a pod's log and messages.
+const (
+	logTailLines = 20
+	logTailBytes = 8 << 10
+	lineMax      = 300
+)
 
 // AnnotationNotifiesOwner, "true" on a Job (put on its CronJob's job
 // template), says that the program it runs tells the owner itself when it
@@ -70,14 +97,22 @@ type object struct {
 			LastTransitionTime time.Time `json:"lastTransitionTime"`
 		} `json:"conditions"`
 		// A pod's.
+		Reason            string `json:"reason"`
+		Message           string `json:"message"`
 		ContainerStatuses []struct {
-			State struct {
-				Terminated *struct {
-					ExitCode int `json:"exitCode"`
-				} `json:"terminated"`
-			} `json:"state"`
+			Name      string         `json:"name"`
+			State     containerState `json:"state"`
+			LastState containerState `json:"lastState"`
 		} `json:"containerStatuses"`
 	} `json:"status"`
+}
+
+type containerState struct {
+	Terminated *struct {
+		ExitCode int    `json:"exitCode"`
+		Reason   string `json:"reason"`
+		Message  string `json:"message"`
+	} `json:"terminated"`
 }
 
 type list struct {
@@ -217,7 +252,11 @@ func (w *Watcher) handle(ctx context.Context, job object) error {
 	if seen {
 		return nil
 	}
-	ended.ExitCode = w.exitCode(ctx, job.Metadata.Name)
+	ended.ExitCode, ended.Why = w.lastPod(ctx, job.Metadata.Name, ended.Outcome != "succeeded")
+	if ended.Why != nil {
+		ended.Why.Message = clip(failedMessage(job))
+		ended.Why.Killed = killed(ended)
+	}
 	data, err := json.Marshal(ended)
 	if err != nil {
 		return err
@@ -236,6 +275,9 @@ func (w *Watcher) handle(ctx context.Context, job object) error {
 			f.Message = "job " + ended.Job + " failed: " + ended.Reason
 			if ended.ExitCode != nil {
 				f.Message += fmt.Sprintf(", exit code %d", *ended.ExitCode)
+			}
+			if ended.Why != nil && ended.Why.Killed != "" {
+				f.Message += ", killed for its " + ended.Why.Killed
 			}
 		}
 		data, _ := json.Marshal(f)
@@ -304,14 +346,18 @@ func endOf(job object) (JobEnded, bool) {
 	return e, true
 }
 
-// exitCode is the exit code of the first container of the Job's last pod,
-// if the cluster still has one.
-func (w *Watcher) exitCode(ctx context.Context, job string) *int {
+// lastPod reads the Job's last pod, if the cluster still has one: the exit
+// code of its first container and, for a Job that failed, why it ended.
+func (w *Watcher) lastPod(ctx context.Context, job string, failed bool) (*int, *Why) {
+	var why *Why
+	if failed {
+		why = &Why{}
+	}
 	var l list
 	q := url.Values{"labelSelector": {"job-name=" + job}}
 	if err := w.Client.do(ctx, http.MethodGet, w.Client.path("pods")+"?"+q.Encode(), nil, &l); err != nil {
 		w.Log.Warn("reading a job's pods", "job", job, "error", err)
-		return nil
+		return nil, why
 	}
 	var last *object
 	for i := range l.Items {
@@ -319,9 +365,94 @@ func (w *Watcher) exitCode(ctx context.Context, job string) *int {
 			last = &l.Items[i]
 		}
 	}
-	if last == nil || len(last.Status.ContainerStatuses) == 0 || last.Status.ContainerStatuses[0].State.Terminated == nil {
+	if last == nil {
+		return nil, why
+	}
+	if why != nil {
+		why.Pod, why.PodReason, why.PodMessage = last.Metadata.Name, last.Status.Reason, clip(last.Status.Message)
+	}
+	if len(last.Status.ContainerStatuses) == 0 {
+		return nil, why
+	}
+	c := last.Status.ContainerStatuses[0]
+	end := c.State.Terminated
+	if end == nil {
+		end = c.LastState.Terminated // restarted, and waiting again
+	}
+	if why != nil {
+		if end != nil {
+			why.Termination, why.TerminationMessage = end.Reason, withheld(clip(end.Message))
+		}
+		why.LogTail = w.logTail(ctx, last.Metadata.Name, c.Name)
+	}
+	if c.State.Terminated == nil {
+		return nil, why
+	}
+	code := c.State.Terminated.ExitCode
+	return &code, why
+}
+
+// logTail is the last lines of a container's log, bounded, each line that
+// looks like a credential withheld. None when the log cannot be read.
+func (w *Watcher) logTail(ctx context.Context, pod, container string) []string {
+	q := url.Values{"tailLines": {strconv.Itoa(logTailLines)}, "limitBytes": {strconv.Itoa(logTailBytes)}}
+	if container != "" {
+		q.Set("container", container)
+	}
+	resp, err := w.Client.request(ctx, http.MethodGet, w.Client.path("pods")+"/"+url.PathEscape(pod)+"/log?"+q.Encode(), nil)
+	if err != nil {
+		w.Log.Warn("reading a job's log", "pod", pod, "error", err)
 		return nil
 	}
-	code := last.Status.ContainerStatuses[0].State.Terminated.ExitCode
-	return &code
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, logTailBytes))
+	var lines []string
+	for _, line := range strings.Split(strings.TrimRight(string(b), "\n"), "\n") {
+		if line = strings.TrimRight(line, "\r"); line != "" {
+			lines = append(lines, withheld(clip(line)))
+		}
+	}
+	return lines[max(len(lines)-logTailLines, 0):]
+}
+
+// failedMessage is the message of the Job's Failed condition.
+func failedMessage(job object) string {
+	for _, c := range job.Status.Conditions {
+		if c.Type == "Failed" && c.Status == "True" {
+			return c.Message
+		}
+	}
+	return ""
+}
+
+// killed says what the Job was killed for, if the cluster says: its memory
+// (the kernel's OOM killer), or its deadline (the Job's or the pod's).
+func killed(e JobEnded) string {
+	switch {
+	case e.Why.Termination == "OOMKilled":
+		return "memory"
+	case e.Reason == "DeadlineExceeded" || e.Why.PodReason == "DeadlineExceeded":
+		return "deadline"
+	}
+	return ""
+}
+
+func clip(s string) string {
+	s = strings.ToValidUTF8(strings.TrimSpace(s), "?")
+	if len(s) <= lineMax {
+		return s
+	}
+	cut := lineMax
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
+}
+
+// withheld is the text, or what stands for it when it looks like a credential.
+func withheld(s string) string {
+	if kind, found := secret.Find(s); found {
+		return "[withheld: it looks like it contains " + kind + "]"
+	}
+	return s
 }
