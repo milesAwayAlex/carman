@@ -366,7 +366,7 @@ func (a *Agents) Agents(ctx context.Context) (map[string]message.AgentInfo, erro
 			} `json:"spec"`
 		} `json:"items"`
 	}
-	if err := a.Client.do(ctx, http.MethodGet, a.Client.path("cronjobs"), nil, &list); err != nil {
+	if err := a.Client.do(ctx, http.MethodGet, a.Client.list("cronjobs"), nil, &list); err != nil {
 		return nil, err
 	}
 	out := map[string]message.AgentInfo{}
@@ -386,7 +386,7 @@ func (a *Agents) Agents(ctx context.Context) (map[string]message.AgentInfo, erro
 			} `json:"metadata"`
 		} `json:"items"`
 	}
-	if err := a.Client.do(ctx, http.MethodGet, a.Client.path("pods")+"?labelSelector=agent", nil, &pods); err != nil {
+	if err := a.Client.do(ctx, http.MethodGet, a.Client.list("pods", "agent"), nil, &pods); err != nil {
 		return nil, err
 	}
 	for _, p := range pods.Items {

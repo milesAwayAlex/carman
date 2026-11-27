@@ -16,6 +16,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -24,7 +25,10 @@ import (
 type Client struct {
 	Base      string // https://HOST:PORT
 	Namespace string
-	HTTP      *http.Client
+	// Selector narrows what the dispatcher lists and watches to objects
+	// with these labels (k=v,k=v), for several in one namespace.
+	Selector string
+	HTTP     *http.Client
 	// Token returns the bearer token for a request. It is asked each time:
 	// a pod's projected token is renewed on disk while the pod runs.
 	Token func() (string, error)
@@ -138,6 +142,28 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 		return err
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// list is the path that lists resource, narrowed to the selector and to
+// the labels given.
+func (c *Client) list(resource string, labels ...string) string {
+	if c.Selector != "" {
+		labels = append(labels, c.Selector)
+	}
+	if len(labels) == 0 {
+		return c.path(resource)
+	}
+	return c.path(resource) + "?" + url.Values{"labelSelector": {strings.Join(labels, ",")}}.Encode()
+}
+
+// Selects says whether an object with these labels is within the selector.
+func (c *Client) Selects(labels map[string]string) bool {
+	for _, kv := range strings.Split(c.Selector, ",") {
+		if k, v, ok := strings.Cut(kv, "="); ok && labels[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Client) path(resource string) string {

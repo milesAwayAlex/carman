@@ -88,8 +88,11 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 		}
 	case r.Method == http.MethodGet && path == "/apis/batch/v1/namespaces/ns/jobs":
 		items := []any{}
+		sel := &Client{Selector: r.URL.Query().Get("labelSelector")}
 		for _, j := range f.jobs {
-			items = append(items, j)
+			if l, _ := dig(j, "metadata", "labels").(map[string]any); sel.Selects(stringMap(l)) {
+				items = append(items, j)
+			}
 		}
 		json.NewEncoder(w).Encode(map[string]any{"metadata": map[string]any{"resourceVersion": "7"}, "items": items})
 	case r.Method == http.MethodGet && path == "/api/v1/namespaces/ns/pods":
@@ -353,5 +356,32 @@ func TestR7ClassModels(t *testing.T) {
 	}
 	if _, err := s.Models(ctx, "nothing"); err == nil {
 		t.Error("a class with no CronJob has a ladder")
+	}
+}
+
+// TestR6SelectorKeepsTrialsApart: with a selector, a dispatcher records the
+// ends of its own Jobs only, and starts nothing from another's CronJob.
+func TestR6SelectorKeepsTrialsApart(t *testing.T) {
+	f, c := newFakeAPI(t)
+	c.Selector = "trial=a"
+	mine, theirs := endedJob("a-1", "u1", "succeeded", nil), endedJob("b-1", "u2", "succeeded", nil)
+	mine["metadata"].(map[string]any)["labels"] = map[string]any{"trial": "a"}
+	theirs["metadata"].(map[string]any)["labels"] = map[string]any{"trial": "b"}
+	f.jobs["a-1"], f.jobs["b-1"] = mine, theirs
+	var l log
+	w := &Watcher{Client: c, Emit: l.emit, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if _, err := w.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if events := l.all(); len(events) != 1 || events[0].ID != "job.ended/u1" {
+		t.Errorf("events: %+v", events)
+	}
+	f.cronjobs["sleeper"] = cronJob("sleeper")
+	if err := (&Starter{Client: c}).Start(context.Background(), attempt("x", 1, "")); err == nil || f.creates != 0 {
+		t.Errorf("started from a CronJob outside the selector: %v", err)
+	}
+	f.cronjobs["sleeper"]["metadata"].(map[string]any)["labels"] = map[string]any{"trial": "a"}
+	if err := (&Starter{Client: c}).Start(context.Background(), attempt("x", 1, "")); err != nil {
+		t.Errorf("its own CronJob: %v", err)
 	}
 }

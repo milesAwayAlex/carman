@@ -135,7 +135,7 @@ func (w *Watcher) Run(ctx context.Context) {
 // resource version, from which a watch carries on.
 func (w *Watcher) Sync(ctx context.Context) (string, error) {
 	var l list
-	if err := w.Client.do(ctx, http.MethodGet, w.Client.path("jobs"), nil, &l); err != nil {
+	if err := w.Client.do(ctx, http.MethodGet, w.Client.list("jobs"), nil, &l); err != nil {
 		return "", err
 	}
 	var errs []error
@@ -152,6 +152,9 @@ var errGone = errors.New("the watch's resource version is too old")
 func (w *Watcher) watch(ctx context.Context, rv string, d time.Duration) (string, error) {
 	q := url.Values{"watch": {"1"}, "resourceVersion": {rv}, "allowWatchBookmarks": {"true"},
 		"timeoutSeconds": {strconv.Itoa(max(int(d.Seconds()), 1))}}
+	if w.Client.Selector != "" {
+		q.Set("labelSelector", w.Client.Selector)
+	}
 	resp, err := w.Client.request(ctx, http.MethodGet, w.Client.path("jobs")+"?"+q.Encode(), nil)
 	if err != nil {
 		return rv, err
