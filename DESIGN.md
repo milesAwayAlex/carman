@@ -101,6 +101,10 @@ for an agent by name starts a new conversation; one for the owner is a
 notice. The owner writes with `scripts/deploy.sh CONTEXT dispatch send`,
 which runs the client on the owner's machine with the owner's token; the
 token is kept only there, and the dispatcher knows its SHA-256 (ADR 0051).
+A notice's words are checked before they are handed on: one that looks
+like a credential or matches a shape the installation names
+(`dispatcher.notices.withhold`) is replaced by one saying where to read it,
+recorded as `notice.replaced`; words without a shape are not caught.
 (2026-11-25) Such a run has its agent's time limit (the Job's deadline,
 plus ten minutes; thirty minutes where there is none) and records its cost
 as `run.usage`, as a routine's run does.

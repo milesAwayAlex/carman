@@ -948,7 +948,12 @@ with the recipient fixed inside it (ADR 0036). It is called as
     notify-owner --urgency now|today|whenever --importance high|normal|low [--link URL] TITLE TEXT
 
 and every routine that runs with all tools is told to use it when something
-needs you. With `agent.sessionStorage` set, a job's conversation is kept
+needs you. The dispatcher checks the notices it hands to it
+(`dispatcher.notices.withhold`), but an agent calls `notify-owner` itself,
+and nothing of the platform's stands between them: make the command run
+the same check before it sends (refuse words that look like a credential
+or match your shapes, and say so to the agent), since the channel carries
+no personal data, internal identifiers or keys (ADR 0048). With `agent.sessionStorage` set, a job's conversation is kept
 after its pod is gone, and a notice can give you its id to carry on.
 
 ### Resuming an agent's conversation

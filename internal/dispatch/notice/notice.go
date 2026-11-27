@@ -8,6 +8,14 @@
 // notice, whose task ID is derived from the event's, so that reading the
 // log again after a restart sends nothing twice. Switched off, each is
 // recorded as notice.withheld, with the words it would have sent.
+//
+// Before a notice is handed on, its words are checked (ADR 0048: the channel
+// carries no credentials, personal data or internal identifiers): one that
+// looks like a credential, or matches a shape the installation names, is
+// replaced by one that says a notice was held back and where to read it.
+// This catches only what has a shape: a name, a description of a person or
+// a system in plain words, or an identifier the installation did not list,
+// goes through.
 package notice
 
 import (
@@ -21,6 +29,7 @@ import (
 
 	"carman/internal/dispatch"
 	"carman/internal/dispatch/kube"
+	"carman/internal/secret"
 )
 
 const (
@@ -71,6 +80,76 @@ type Notifier struct {
 	Logger *slog.Logger
 	// Every is how often it reads; five seconds when zero.
 	Every time.Duration
+	// Withhold are the shapes the installation names that no notice may
+	// carry (its account ids, hostnames, e-mail addresses), beside the
+	// credentials secret.Find knows.
+	Withhold []*regexp.Regexp
+}
+
+// Shapes reads the installation's shapes, one regular expression a line,
+// matched without regard to case. A line that is not one is matched as
+// plain text, and said in the error.
+func Shapes(spec string) ([]*regexp.Regexp, error) {
+	var out []*regexp.Regexp
+	var bad []string
+	for _, l := range strings.Split(spec, "\n") {
+		if l = strings.TrimSpace(l); l == "" {
+			continue
+		}
+		re, err := regexp.Compile("(?i)" + l)
+		if err != nil {
+			bad = append(bad, fmt.Sprintf("line %d", len(out)+1))
+			re = regexp.MustCompile("(?i)" + regexp.QuoteMeta(l))
+		}
+		out = append(out, re)
+	}
+	if len(bad) > 0 {
+		return out, fmt.Errorf("not regular expressions, matched as plain text: %s", strings.Join(bad, ", "))
+	}
+	return out, nil
+}
+
+// unsafe says what in a notice's words may not go over the channel, if
+// anything: a kind of credential, or the number of a shape of the
+// installation's (not the shape itself, which may be an identifier).
+func (n *Notifier) unsafe(no Notice) (string, bool) {
+	words := no.Title + "\n" + no.Text
+	if kind, found := secret.Find(words); found {
+		return "what looks like " + kind, true
+	}
+	for i, re := range n.Withhold {
+		if re.MatchString(words) {
+			return fmt.Sprintf("a shape the installation names (number %d of dispatcher.notices.withhold)", i+1), true
+		}
+	}
+	return "", false
+}
+
+// TypeReplaced records a notice that was replaced for what its words held.
+const TypeReplaced = "notice.replaced"
+
+// checked is the notice, or the one that stands for it when its words may
+// not go over the channel; the event it is about keeps what it said.
+func (n *Notifier) checked(ctx context.Context, r dispatch.Record, no Notice) (Notice, error) {
+	why, found := n.unsafe(no)
+	if !found {
+		return no, nil
+	}
+	where := n.deploy("dispatch log --type " + TypeReplaced)
+	var m struct{ ID string }
+	if r.Type == TypeMessage && json.Unmarshal(r.Data, &m) == nil && m.ID != "" {
+		where = n.deploy("dispatch message " + m.ID)
+	}
+	data, _ := json.Marshal(map[string]string{"event": r.ID, "type": r.Type, "why": why})
+	if err := n.Log.Emit(ctx, dispatch.Event{ID: TypeReplaced + "/" + r.ID, Type: TypeReplaced, Source: Source, Subject: r.Subject, Data: data}); err != nil {
+		return no, err
+	}
+	out := Notice{Urgency: no.Urgency, Importance: no.Importance, Event: r.ID, Title: "A notice was withheld",
+		Text: fmt.Sprintf("A notice was not sent as written: its words held %s, which this channel may not carry. Read it where it is kept: %s.", why, where)}
+	if _, still := n.unsafe(out); still {
+		out.Text = "A notice was not sent as written: its words held what this channel may not carry. Read it in the dispatcher's log, as " + TypeReplaced + "."
+	}
+	return out, nil
 }
 
 type place struct {
@@ -142,6 +221,10 @@ func (n *Notifier) handle(ctx context.Context, r dispatch.Record) error {
 	no, ok := n.Compose(ctx, r)
 	if !ok {
 		return nil
+	}
+	no, err := n.checked(ctx, r, no)
+	if err != nil {
+		return err
 	}
 	if !n.Enabled {
 		data, _ := json.Marshal(no)

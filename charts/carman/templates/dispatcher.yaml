@@ -169,6 +169,8 @@ spec:
                   key: {{ $name }}
             {{- end }}
             {{- end }}
+            - name: DISPATCHER_NOTICE_WITHHOLD
+              value: {{ join "\n" (.Values.dispatcher.notices.withhold | default list) | quote }}
             # The improvement loop's settings (ADR 0058).
             - name: DISPATCHER_IMPROVEMENT
               value: {{ include "dispatcher.improvement" . | quote }}
