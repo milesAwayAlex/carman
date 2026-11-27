@@ -34,9 +34,9 @@
           },
           {
             "type": "command",
-            "command": "dispatcher hook claude-code --wait 23h",
+            "command": "dispatcher hook claude-code --wait 335h",
             "asyncRewake": true,
-            "timeout": 86400
+            "timeout": 1209600
           }
         ]
       }
@@ -95,9 +95,9 @@
           },
           {
             "type": "command",
-            "command": "dispatcher hook claude-code --wait 23h",
+            "command": "dispatcher hook claude-code --wait 335h",
             "asyncRewake": true,
-            "timeout": 86400
+            "timeout": 1209600
           }
         ]
       }

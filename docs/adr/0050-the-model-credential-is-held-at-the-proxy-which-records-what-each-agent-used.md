@@ -1,6 +1,7 @@
 # 0050: The model's credential is held at the egress proxy, which records what each agent used
 
-Status: Proposed (2026-11-26). Built; running on the local cluster with
+Status: Accepted (2026-11-27; the owner: "i scanned them, look good at
+first glance - let's test them in practice"). Built; running on the local cluster with
 `agent.modelCredential: proxy` since a real routine ran that way (below).
 
 ## Context

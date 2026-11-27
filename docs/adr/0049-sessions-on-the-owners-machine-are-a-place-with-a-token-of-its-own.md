@@ -1,7 +1,8 @@
 # 0049: Sessions on the owner's own machine are a place with a token of its own
 
-Status: Proposed (2026-11-26). Built and tested against the dispatcher's
-database; not yet tried on a cluster. Replaces the sketch in ADR 0045's
+Status: Accepted (2026-11-27; the owner: "i scanned them, look good at
+first glance - let's test them in practice"). Built, and in use on the local
+cluster from the owner's machine since 2026-11-27. Replaces the sketch in ADR 0045's
 "Sessions on the laptop: not built".
 
 ## Context

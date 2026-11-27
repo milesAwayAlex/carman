@@ -31,9 +31,9 @@ let
   # The idle listener: it waits for a message and wakes the session.
   listen = {
     type = "command";
-    command = "${exe} hook claude-code --wait 23h";
+    command = "${exe} hook claude-code --wait 335h";
     asyncRewake = true;
-    timeout = 86400;
+    timeout = 1209600;
   };
   always = [ { hooks = [ now ]; } ];
   andListen = [

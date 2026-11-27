@@ -61,7 +61,7 @@ Built so far:
   and can be given plugins, MCP servers, a cloud
   identity and commands of the installation's own.
 
-- The model's credential at the proxy (ADR 0050, proposed): with
+- The model's credential at the proxy (ADR 0050): with
   `agent.modelCredential: proxy` agent pods hold a placeholder, and a meter
   beside the proxy puts the credential on each request to the model. It
   knows the caller by its pod's address, refuses a pod that is no agent's,
@@ -112,14 +112,14 @@ Built so far:
   session that is not running starts it again as its agent. Who may write
   to an agent (ADR 0047): the owner, its own sessions, an
   answer, and the agents its `writtenBy` lists.
-- Sessions on the owner's own machine (ADR 0049, proposed): a place
+- Sessions on the owner's own machine (ADR 0049): a place
   (`dispatcher.host.place`) with the dispatcher's `host` token, its
   sessions `PLACE/NAME` named for their directory. They write as the owner
   may but are not the owner; a message for one that is not running waits
   for the next session of its name there. The same hooks, installed from
   `adapters/claude-code` with `.local/dispatcher.env`
   (`scripts/deploy.sh CONTEXT env`); the dispatcher a LoadBalancer on the
-  local cluster's port 8379. Not yet tried on a cluster.
+  local cluster's port 8379.
 
 Not built yet: the way in from a laptop to a service on a shared cluster,
 more than one machine of the owner's (one place per installation), a

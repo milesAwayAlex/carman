@@ -11,8 +11,9 @@ import (
 // Every session there is of the agent named for the place.
 
 // HostQuiet is how long a session on the owner's machine that is not
-// listening may go unheard from before it is taken to have ended: a day,
-// beyond the idle waiter's 23 hours.
+// listening may go unheard from before it is taken to have ended: a day.
+// An idle session keeps a waiter (for up to fourteen days), so one that is
+// neither listening nor heard from has most likely gone.
 const HostQuiet = 24 * time.Hour
 
 func (s *Service) isPlace(agent string) bool { return s.Place != "" && agent == s.Place }

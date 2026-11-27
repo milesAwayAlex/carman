@@ -46,7 +46,7 @@ Notes on billing:
   The owner has made the call; this note records the risk.
 - The credential is a token from `claude setup-token`. Agent pods have
   `CLAUDE_CODE_OAUTH_TOKEN` set to a placeholder, and the egress proxy's
-  meter puts the token on each request to the model (ADR 0050, proposed;
+  meter puts the token on each request to the model (ADR 0050;
   `agent.modelCredential: proxy`; `pod` puts it back in their environment).
   `ANTHROPIC_API_KEY` must not be set in the pod: headless mode uses a key
   whenever one is present.
@@ -81,7 +81,7 @@ clock ─────────────┘       │                      
 | **Verifier** | A check separate from the agent's own claim. On failure the task continues with the result | Proposed |
 | **Dreamer** | Scheduled agent run that consolidates memory | Built, switched off (ADR 0027) |
 
-### Messages (ADR 0045, proposed)
+### Messages (ADR 0045)
 
 A session (a conversation, wherever it runs or does not), an agent by name
 and the owner can be written to with the dispatcher's client
@@ -101,14 +101,14 @@ notice. The owner writes with `scripts/deploy.sh CONTEXT dispatch send`.
 plus ten minutes; thirty minutes where there is none) and records its cost
 as `run.usage`, as a routine's run does.
 
-Who may write to an agent and its sessions (ADR 0047, proposed): the
+Who may write to an agent and its sessions (ADR 0047): the
 owner, the agent's own sessions, a session answering a message it was
 sent, and the agents its `writtenBy` lists; nobody else. With no list,
 only the owner and those cases. A message that is not allowed is refused
 at sending, with who may, and recorded as `message.refused`; `peers` marks
 what the caller may not write to.
 
-Sessions on the owner's own machine (ADR 0049, proposed) are a place with
+Sessions on the owner's own machine (ADR 0049) are a place with
 a token of its own (the dispatcher's `host` role; the place is
 `dispatcher.host.place`, `host` by default), outside the cluster, with no
 pod. Each is `PLACE/NAME`, named for the directory it runs in unless
@@ -410,7 +410,7 @@ which are the weakest parts. Three things are meant to keep that manageable:
   0034). Named sessions in it are opened again on their conversations when
   the pod starts. Every agent that does ordinary work has the memory hook.
 - A job's conversation is kept, and is resumed as the agent that had it
-  (ADR 0040, proposed): `scripts/deploy.sh CONTEXT agent resume ID` makes a
+  (ADR 0040): `scripts/deploy.sh CONTEXT agent resume ID` makes a
   pod from that agent's own definition, opens the harness on the
   conversation in tmux, with the job's model, tools and memory role, and
   attaches. The pod ends when the harness and its shell are left. A
@@ -419,7 +419,7 @@ which are the weakest parts. Three things are meant to keep that manageable:
   profile) is what lasts, and a pod is where it runs for a while; a
   dispatcher will start one where a message arrives and end it when idle.
 - A job's pod, and so a resumed conversation's, finds the harness already
-  there (ADR 0041, proposed): it starts from a warm image, the agent image
+  there (ADR 0041): it starts from a warm image, the agent image
   with the harness added as one layer outside the home, which a job of the
   installation's own makes in the cluster and keeps in the installation's
   private registry. The job checks the harness's channel twice a day and
@@ -429,8 +429,8 @@ which are the weakest parts. Three things are meant to keep that manageable:
   interactive agent keeps its own copy.
 - Agents leave the cluster only through the egress proxy, which holds every
   credential and puts it on the request for its own host (ADR 0031, 0035).
-  The model's credential is held by a meter beside the proxy (ADR 0050,
-  proposed): the proxy hands it every request to the model's API with the
+  The model's credential is held by a meter beside the proxy (ADR 0050):
+  the proxy hands it every request to the model's API with the
   caller's address, the meter refuses an address that is no agent's pod of
   the namespace, puts the credential on the rest, and adds up from the
   answers what each agent's pod used, by model and kind of token. Those
@@ -587,9 +587,9 @@ Decisions are recorded one per file in `docs/adr/`. The index,
    Then (ADR 0043): schedules by time of day from the values, expectations
    of the CronJobs it does not start, notices to the owner as tasks
    (withheld until switched on), hourly usage readings and each run's cost,
-   and a first admission rule. Then (ADR 0045, proposed): messages between
+   and a first admission rule. Then (ADR 0045): messages between
    sessions, agents and the owner, each pod known by a token of its own.
-   Then (ADR 0049, proposed): the owner's own sessions, as a place with a
+   Then (ADR 0049): the owner's own sessions, as a place with a
    token of its own, through the same hooks.
    Next: move the scheduled agents onto the dispatcher one by one, switch
    notices on, and pace by a curve to reset.

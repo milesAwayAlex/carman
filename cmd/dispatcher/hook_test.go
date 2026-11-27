@@ -130,7 +130,7 @@ func TestR2HookWithoutPod(t *testing.T) {
 	os.Stdin = r
 	defer func() { os.Stdin = oldIn }()
 	done := make(chan error, 1)
-	go func() { done <- hook(context.Background(), map[string][]string{"wait": {"23h"}}) }()
+	go func() { done <- hook(context.Background(), map[string][]string{"wait": {"335h"}}) }()
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
