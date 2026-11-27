@@ -48,6 +48,12 @@ func TestR2HostIdentity(t *testing.T) {
 	if _, err := s.Take(ctx, host, "sess-a", "tool", nil, 0); !errors.Is(err, message.ErrForbidden) {
 		t.Errorf("the place taking a pod's session's messages: %v", err)
 	}
+	// The place itself sends nothing: an answer would have no session to
+	// find (seen 2026-11-27: a reply from a session whose shell did not
+	// know its id came "from agent/host").
+	if _, err := s.Send(ctx, host, "", "trial", "from nobody in particular", ""); !errors.Is(err, message.ErrInvalid) {
+		t.Errorf("the place sending with no session: %v", err)
+	}
 	// No pod, and the cluster says so of every pod: the sweep leaves it.
 	if err := (&message.Router{Service: s, Logger: slog.Default()}).Sweep(ctx); err != nil {
 		t.Fatal(err)

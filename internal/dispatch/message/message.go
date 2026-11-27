@@ -378,6 +378,11 @@ func (s *Service) Send(ctx context.Context, c Caller, session, given, body, answ
 		return Result{}, fmt.Errorf("%w: a message is at most 64 KiB; put more in a file or a repository and send where it is", ErrInvalid)
 	}
 	m := Message{ID: newID(), Given: given, Body: body, Answers: answers, Sent: s.now().UTC()}
+	if c.Host && session == "" {
+		// The place is not an agent that a message starts: an answer to
+		// "the place" would wait for whichever session there read it first.
+		return Result{}, fmt.Errorf("%w: say which session sends this (--session ID, or DISPATCHER_SESSION): an answer has to find it", ErrInvalid)
+	}
 	if !c.Owner {
 		me, _, err := s.Act(ctx, c, session)
 		if err != nil {

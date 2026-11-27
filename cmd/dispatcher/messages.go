@@ -46,7 +46,10 @@ func client() (*api.Client, error) {
 // session is the session this command runs in, as its SessionStart hook
 // told the shell, or as given.
 func session(flags map[string][]string) string {
-	return one(flags, "session", os.Getenv("DISPATCHER_SESSION"))
+	// The hook puts the session's id in the shell; where the shell did not
+	// take it (seen in a session resumed on the owner's machine, 2.1.326),
+	// the harness's own variable says it.
+	return one(flags, "session", or(os.Getenv("DISPATCHER_SESSION"), os.Getenv("CLAUDE_CODE_SESSION_ID")))
 }
 
 // text is the words after the command, or what is on stdin when they are "-".

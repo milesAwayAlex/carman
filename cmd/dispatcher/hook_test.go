@@ -140,3 +140,22 @@ func TestR2HookWithoutPod(t *testing.T) {
 		t.Errorf("the idle listener of a headless run called the dispatcher")
 	}
 }
+
+// TestR2ClientKnowsItsSession: a command in a session's shell sends as that
+// session: by the id the hook put in the shell, or, where the shell did not
+// take it, by the harness's own variable; a session named on the command
+// line comes first.
+func TestR2ClientKnowsItsSession(t *testing.T) {
+	t.Setenv("DISPATCHER_SESSION", "")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "from-harness")
+	if got := session(map[string][]string{}); got != "from-harness" {
+		t.Errorf("with only the harness's variable: %q", got)
+	}
+	t.Setenv("DISPATCHER_SESSION", "from-hook")
+	if got := session(map[string][]string{}); got != "from-hook" {
+		t.Errorf("with the hook's variable: %q", got)
+	}
+	if got := session(map[string][]string{"session": {"given"}}); got != "given" {
+		t.Errorf("named on the command line: %q", got)
+	}
+}
