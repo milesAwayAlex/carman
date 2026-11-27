@@ -226,7 +226,9 @@ order is in DESIGN.md, section 11.
 
 Go and git come from the Nix flake; nothing needs installing.
 
-- All checks: `nix develop -c scripts/test.sh`
+- All checks: `nix develop -c scripts/test.sh`. It names at the end what it
+  skipped (no Postgres, helm, restic, tmux or python3); before a merge, run
+  it with `--strict` first, which fails on a skip.
 - One requirement's checks: `nix develop -c scripts/test.sh -run M2 -v`
 - The retrieval benchmark: `nix develop -c scripts/bench-retrieval.sh`
 - The transfer benchmark (calls a model; start with one case and read the
