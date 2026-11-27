@@ -128,6 +128,8 @@ fail() { kill "$idle" "$job" "$harness" 2>/dev/null; rm -rf "$fake"; echo "$1" >
 : > "$fake/calls"
 [ "$(reopen '' '' old)" = 3 ] || fail "agent-open --reopen opens a name it does not remember"
 [ "$(reopen '' '' vpn)" = 0 ] && grep -q '^new-window .* -n vpn ' "$fake/calls" || fail "agent-open --reopen does not make the window that is gone"
+# What a window runs is read from /proc, as in a pod: checked where there is one.
+if [ -r "/proc/$$/comm" ]; then
 : > "$fake/calls"
 [ "$(reopen vpn "$idle" vpn)" = 0 ] && grep -q '^respawn-window -k -t main:=vpn ' "$fake/calls" || fail "agent-open --reopen does not replace the shell a dead harness left"
 for case in "$harness:a live harness" "$job:a shell with a job" "$idle 1:a window a person attached is looking at"; do
@@ -135,6 +137,7 @@ for case in "$harness:a live harness" "$job:a shell with a job" "$idle 1:a windo
     what="${case%%:*}"
     [ "$(reopen vpn "${what% *}" vpn "$([ "${what#* }" = 1 ] && echo 1 || echo 0)")" = 4 ] && ! grep -q -e respawn -e new-window "$fake/calls" || fail "agent-open --reopen opens over ${case#*:}"
 done
+fi
 kill "$idle" "$job" "$harness" 2>/dev/null || true
 rm -rf "$fake"
 go vet ./...
