@@ -539,8 +539,16 @@ change against it, and take it down:
 scripts/trial.sh sandbox up                  # build, make the secrets, apply; about half a minute
 scripts/trial.sh sandbox check               # the services answer; a probe task runs through the dispatcher
 scripts/trial.sh sandbox deploy dispatch status   # the deploy script against the trial
-scripts/trial.sh sandbox down                # delete everything labelled trial=trial; a few seconds
+scripts/trial.sh sandbox list                # which trials are up, whose, since when, what of the quota each holds
+scripts/trial.sh sandbox down                # delete everything labelled with this session's trial; a few seconds
 ```
+
+Several sessions' trials stand side by side in the one namespace. A trial
+is named for the agent and session it is run from (or `TRIAL_NAME`;
+`trial.sh sandbox name` says it), and its objects carry the name as a
+prefix (`NAME-dispatcher`, `NAME-cmem-tokens`). `down` takes only the
+session's own; `down NAME` takes another's. `up` refuses when the
+namespace's quota has no room for the trial, and says what is up.
 
 Trying a move from an older installation: `TRIAL_SOURCE=WORKTREE-OF-OLD
 scripts/trial.sh sandbox up --old-secret`, then `scripts/trial.sh sandbox

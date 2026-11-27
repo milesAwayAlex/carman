@@ -96,8 +96,9 @@ Built so far:
   installation names (`agent.namespaces`), and have a namespace of their
   own to run what a task needs (`agent.sandbox`, kubectl context `sandbox`).
   A trial installation runs there (ADR 0054, proposed): `scripts/trial.sh
-  CONTEXT up|check|deploy|down`, with `agent.sandbox.trial` for its
-  dispatcher to start Jobs.
+  CONTEXT up|check|deploy|list|down`, with `agent.sandbox.trial` for its
+  dispatcher to start Jobs; each session's beside the others', its
+  objects' names prefixed with its name.
 
 - The dispatcher (ADR 0039, 0042): `cmd/dispatcher`, a service
   on the cluster with its own Postgres. It starts a task as a Job made from

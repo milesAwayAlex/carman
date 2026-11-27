@@ -535,6 +535,8 @@ which are the weakest parts. Three things are meant to keep that manageable:
   node and the internet (ADR 0037). A trial installation of the platform
   runs there, from a checkout, with its own tokens and no real credential
   (ADR 0054, proposed); `agent.sandbox.trial` lets its dispatcher start Jobs.
+  Several sessions' trials stand side by side there, each one's objects
+  named with its name as a prefix, and its dispatcher narrowed to its label.
 - The installation's definition can be read and changed from within (ADR
   0056, proposed): an agent with `definition: true` has the deployed
   definition's bundle read-only, clones it (`agent-definition`), and sends

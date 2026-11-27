@@ -23,7 +23,7 @@ and pushes them to the registry the sandbox's pods pull from, under names
 that are the trial's (`TRIAL_NAME-memory`, `TRIAL_NAME-dispatcher`, never
 the project's). It makes the secrets with the deploy script's own code
 (`scripts/deploy.sh CONTEXT secrets`, with the trial's owner token in
-`.local/trial/`), and applies the chart with values of its own
+`.local/trial/NAME/`), and applies the chart with values of its own
 (`deploy/values/trial.yaml`: no egress proxy, no usage reading, no backup,
 no agents). What only the installation may make (service accounts, roles,
 role bindings, network policies) is left out, and every pod runs as the
@@ -32,19 +32,60 @@ dispatcher whether they answer and runs a task of a class `probe` (a
 suspended CronJob whose job runs `true`) through the dispatcher. `deploy`
 runs the deploy script against the trial, its `dispatch` commands with the
 trial's owner token. `down` deletes what the trial made, and only that.
+`list` says which trials are up in the namespace, whose, since when, and
+what of its quota each holds.
 
-**The chart's names are kept, and a label marks the trial's.** Every object
-the trial makes carries the label `trial=TRIAL_NAME`, and its selectors are
-narrowed to the label, so a trial never selects another's pods. The names
-stay the chart's (`dispatcher`, `cmem`, `dispatcher-tokens`), because the
-deploy script and the chart are what a trial tries, and they name those
-objects. `up` refuses where an object of one of those names is in the
-namespace and is not the trial's; `down` deletes by the label. One trial at
-a time in one namespace.
+**Trials stand side by side: each one's names carry its name.** Several
+sessions build at once, and agents cannot make namespaces, so one
+namespace holds several trials. A trial's name is `TRIAL_NAME`, or, when
+that is not set, made from the agent and the session it is run from
+(`AGENT_NAME` and the dispatcher's session name; off the cluster, the user
+and the checkout), so it is the same for the whole session and no two
+sessions share one by default. It is cut to 24 characters so that the
+chart's names still fit with it. Every object the chart makes is renamed
+`NAME-` and its own name (`NAME-dispatcher`, `NAME-cmem`), and so is every
+reference to one in a pod (a secret, a config map, a claim, a service
+reached by its name, a class in the dispatcher's schedules). The deploy
+script names the objects it reads and makes with the prefix that
+`CARMAN_OBJECT_PREFIX` gives (`NAME-dispatcher-tokens`,
+`NAME-model-credential`), so its actions against a trial (`secrets`,
+`dispatch ...`, `definition put`, `model-account`) run as they do against
+an installation; it refuses to apply the chart with a prefix, which only
+`trial.sh` does. A trial's classes are its CronJobs' names, so its probe is
+`NAME-probe`.
+
+A trial does not see another's objects. Every object it makes carries the
+label `trial=NAME` and the annotation `trial/owner` (agent and session),
+and its selectors are narrowed to the label, so it never selects another's
+pods. Its dispatcher lists, watches and starts from only what carries the
+label (`DISPATCHER_SELECTOR=trial=NAME`): it records the ends of its own
+Jobs, knows only its own agents' pods, and refuses a class whose CronJob is
+another's. `up` refuses where an object of one of its names is there and
+is not the trial's. `down` deletes by the label, and takes only the
+session's own trial unless told a name (`down NAME`); what the deploy
+script made through `trial.sh deploy` (a model credential's secret) is
+labelled there, so `down` takes it too.
+
+The other ways considered: names kept and one trial at a time (the first
+version; sessions waited for each other, and one tried its change without a
+trial); a value in the chart that prefixes every name (the same result,
+with every template and the real installation's render changed, for the
+trial's sake only); a namespace for each trial (agents may not make one).
+
+**When the quota is full.** The sandbox's quota (pods, requested CPU and
+memory, memory limits) is shared by every trial and everything else there.
+Before it applies anything, `up` adds up what the trial's pods and one task
+of its would count against the quota, with the namespace's defaults where a
+container says nothing, and refuses when it does not fit, saying which
+resource is short and listing the trials that are up and what each holds.
+Nothing is made then, and nothing of another's is taken down: the one who
+started it takes down a trial of their own, or waits for another to go.
 
 **From another checkout.** `TRIAL_SOURCE=DIR` builds and renders from
 another checkout (a worktree of an older commit), so a move from an older
-installation can be tried: `TRIAL_SOURCE=OLD up --old-secret`, then `up`.
+installation can be tried: `TRIAL_SOURCE=OLD up --old-secret`, then `up`. Its secrets are made by
+this checkout's deploy script, with the prefix; a dispatcher built from a
+checkout older than `DISPATCHER_SELECTOR` sees every trial's Jobs.
 
 **What the sandbox does not allow, and the addition proposed.** The
 dispatcher starts Jobs from CronJobs' templates with its pod's own account,
@@ -63,7 +104,7 @@ nothing. `agent.sandbox.trial: true` makes, in the sandbox:
   API's port.
 
 `scripts/trial.sh` runs the dispatcher as `trial-dispatcher`, labelled so,
-when the account is there. This gives an agent nothing it cannot do
+when the account is there. Every trial's dispatcher shares the account. This gives an agent nothing it cannot do
 already: it may run a pod as any account in the sandbox, and it may create
 Jobs and read pods there itself. What it adds is that a pod in the sandbox
 may reach the cluster's API, with whatever rights that pod's account has.
@@ -101,6 +142,12 @@ credential of the real installation's.
   of it the two image builds), taking it down a few seconds.
 - The registry keeps the trial's images after `down`: nothing in the
   sandbox may delete from it.
+- A trial's names are not the chart's, so a step of the deploy script that
+  names an object without the prefix is not tried by a trial: it touches
+  another trial's object, or none. The actions above take the prefix.
+- Several trials share the sandbox's account `trial-dispatcher`; it may
+  create Jobs from any trial's CronJob, and each dispatcher keeps to its
+  own by its selector, not by its rights.
 - A trial runs the real installation's chart with a few kinds removed, so
   what those kinds do (isolation, the accounts' rights as the chart gives
   them) is not tried there.
