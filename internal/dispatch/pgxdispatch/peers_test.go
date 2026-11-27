@@ -197,3 +197,45 @@ func TestR2PeersRoutineNobodyWritesTo(t *testing.T) {
 		t.Errorf("a finished run of an agent the cluster does not define is listed")
 	}
 }
+
+// TestR2PeersSayWhatWaitsOnTheOwner: for going to a session (ADR 0057), a
+// peer says its pod, how it runs, whether its agent is a standing one,
+// and, to the owner and the owner's machine only, how many messages it
+// sent the owner that he has not read.
+func TestR2PeersSayWhatWaitsOnTheOwner(t *testing.T) {
+	s, cl, _ := messaging(t)
+	ctx := context.Background()
+	d := pod("desk", "pod-d")
+	start(t, s, cl, d, "s-asks", "vpn", message.Idle)
+	start(t, s, cl, d, "s-quiet", "notes", message.Idle)
+	for _, body := range []string{"which one?", "and this?"} {
+		if _, err := s.Send(ctx, d, "s-asks", "owner", body, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	owner := message.Caller{Owner: true}
+	got := peers(t, s, owner, false)
+	if p := got["session/s-asks"]; p.ForOwner != 2 || p.Pod != "pod-d" || p.Mode != "interactive" {
+		t.Errorf("a session with two messages for the owner: %+v", p)
+	}
+	if p := got["session/s-quiet"]; p.ForOwner != 0 {
+		t.Errorf("a session with none: %+v", p)
+	}
+	if p := peers(t, s, message.Caller{Host: true, Agent: "host"}, false)["session/s-asks"]; p.ForOwner != 2 {
+		t.Errorf("as the owner's machine sees it: %+v", p)
+	}
+	if p := peers(t, s, pod("other", "pod-o"), false)["session/s-asks"]; p.ForOwner != 0 {
+		t.Errorf("another agent is told what waits on the owner: %+v", p)
+	}
+	// Read, it no longer waits.
+	in, err := s.Inbox(ctx, owner, "")
+	if err != nil || len(in) != 2 {
+		t.Fatalf("the owner's inbox: %d, %v", len(in), err)
+	}
+	if _, err := s.Read(ctx, owner, "", []string{in[0].ID, in[1].ID}); err != nil {
+		t.Fatal(err)
+	}
+	if p := peers(t, s, owner, false)["session/s-asks"]; p.ForOwner != 0 {
+		t.Errorf("after the owner read them: %+v", p)
+	}
+}

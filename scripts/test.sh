@@ -151,6 +151,47 @@ defn="$(mktemp -d)"
     fi
 ) || { rm -rf "$defn"; exit 1; }
 rm -rf "$defn"
+# agent-view (ADR 0057), where there is a tmux, in servers of its own that
+# read no configuration: two clients see two different windows of one pod,
+# each in a view with no status line and no prefix, the pod's own session
+# is left as it was, a view ends when its window closes and when its
+# client goes, and a name with no window is refused.
+if command -v tmux >/dev/null; then
+    view="$(mktemp -d)"
+    (
+        set -e
+        unset TMUX TMUX_PANE
+        pod() { tmux -S "$view/pod" -f /dev/null "$@"; }
+        mine() { tmux -S "$view/mine" -f /dev/null "$@"; }
+        gone() { pod kill-server 2>/dev/null || true; mine kill-server 2>/dev/null || true; }
+        trap gone EXIT
+        pod new-session -d -s main -n first -x 80 -y 24 'sleep 300'
+        pod new-window -d -t main: -n second 'sleep 300'
+        run="AGENT_TMUX=$(command -v tmux) AGENT_TMUX_SOCKET=$view/pod AGENT_ATTACH_DIR=$view/marks AGENT_HARNESS_DIR=$view/none sh $PWD/deploy/agent/agent-view"
+        mine new-session -d -s o -n one -x 80 -y 24 "$run '' first; echo left=\$? > $view/one"
+        mine new-window -d -t o: -n two "$run '' second; echo left=\$? > $view/two"
+        for _ in $(seq 50); do [ "$(pod list-sessions -F '#{session_attached}' | grep -c 1)" = 2 ] && break; sleep 0.1; done
+        seen="$(pod list-sessions -F '#{session_group} #{session_attached} #{window_name} #{status}' | sort | tr '\n' ';')"
+        [ "$seen" = "main 0 first on;main 1 first off;main 1 second off;" ] || { echo "agent-view: two clients do not see two windows, each in a view of its own: $seen" >&2; exit 1; }
+        pod show-options -t main prefix | grep -q None && { echo "agent-view takes the prefix from the pod's own session" >&2; exit 1; }
+        for v in $(pod list-sessions -F '#{session_name}' | grep '^view-'); do
+            pod show-options -t "$v" prefix | grep -q None || { echo "a view has a prefix key" >&2; exit 1; }
+        done
+        # Its window closes: the view ends by itself, as left.
+        pod kill-window -t main:second
+        for _ in $(seq 50); do [ -s "$view/two" ] && break; sleep 0.1; done
+        [ "$(cat "$view/two" 2>/dev/null)" = left=0 ] || { echo "a view does not end, as left, when its window closes: $(cat "$view/two" 2>/dev/null)" >&2; exit 1; }
+        # Its client goes: no view is left behind.
+        mine kill-window -t o:one
+        for _ in $(seq 50); do [ "$(pod list-sessions -F '#{session_name}' | grep -c '^view-')" = 0 ] && break; sleep 0.1; done
+        [ "$(pod list-sessions -F '#{session_name}' | tr '\n' ' ')" = "main " ] || { echo "a view is left behind when its client goes: $(pod list-sessions -F '#{session_name}' | tr '\n' ' ')" >&2; exit 1; }
+        code=0; eval "$run '' nosuch" >/dev/null 2>&1 || code=$?
+        [ "$code" = 3 ] || { echo "agent-view of a name with no window ends with $code, not 3" >&2; exit 1; }
+    ) || { rm -rf "$view"; exit 1; }
+    rm -rf "$view"
+else
+    echo "tmux is not here: the check of agent-view is skipped" >&2
+fi
 # agent-open --reopen (ADR 0053), against a fake tmux and real processes: a
 # name not remembered is refused, a window that is gone is made, the shell a
 # dead harness left is replaced, and a window that runs a harness, a shell

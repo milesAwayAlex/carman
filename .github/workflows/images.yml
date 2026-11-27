@@ -41,7 +41,7 @@ jobs:
           cp deploy/dispatcher/Dockerfile build/dispatcher/
           cp deploy/Dockerfile build/service/
           cp build/dispatcher/dispatcher-* build/agent/
-          cp build/service/cmem-* deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/usage-reading deploy/agent/backup-state deploy/agent/warm-harness deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/agent-open deploy/agent/agent-definition deploy/agent/oauth-credential deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json build/agent/
+          cp build/service/cmem-* deploy/agent/Dockerfile deploy/agent/run-routine deploy/agent/usage-reading deploy/agent/backup-state deploy/agent/warm-harness deploy/agent/agent-env deploy/agent/agent-session deploy/agent/agent-attach deploy/agent/agent-resume deploy/agent/agent-open deploy/agent/agent-definition deploy/agent/agent-view deploy/agent/oauth-credential deploy/agent/attention.md deploy/agent/renew-credential deploy/agent/settings.json build/agent/
           cp -R routines build/agent/routines
           echo "registry=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
       - uses: docker/setup-qemu-action@v3

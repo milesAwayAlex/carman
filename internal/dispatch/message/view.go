@@ -187,6 +187,14 @@ type Peer struct {
 	// empty when it may.
 	NotWritable string    `json:"not_writable,omitempty"`
 	Seen        time.Time `json:"seen,omitzero"`
+	// For going to a session (ADR 0057): the pod it is or was last in, how
+	// it runs (interactive or headless), whether its agent is a standing
+	// one, and, for the owner and the owner's machine only, how many
+	// messages it sent the owner that the owner has not read.
+	Pod      string `json:"pod,omitempty"`
+	Mode     string `json:"mode,omitempty"`
+	Standing bool   `json:"standing,omitempty"`
+	ForOwner int    `json:"for_owner,omitempty"`
 }
 
 // Peers are who is worth writing to: the owner, the agents a message
@@ -214,6 +222,21 @@ func (s *Service) Peers(ctx context.Context, c Caller, since time.Duration, all 
 			talked[a] = true
 		}
 	}
+	// What each session sent the owner that is not read: how many. For
+	// the owner and the owner's machine, which is where the owner looks.
+	forOwner := map[string]int{}
+	if c.Owner || c.Host {
+		recs, err := s.Store.Unmarked(ctx, []string{Owner}, "read", 200)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range recs {
+			var m Message
+			if json.Unmarshal(r.Data, &m) == nil {
+				forOwner[m.From]++
+			}
+		}
+	}
 	var running, stopped []Peer
 	interactive := map[string]bool{} // agents with an interactive session listed
 	latest := map[[2]string]bool{}
@@ -234,7 +257,8 @@ func (s *Service) Peers(ctx context.Context, c Caller, since time.Duration, all 
 			where = "on the owner's machine"
 		}
 		p := Peer{Address: SessionAddress(x.ID), Kind: "session", Agent: x.Agent, Name: x.Name, Seen: x.Seen, Running: on,
-			State: "not running (kept)", Where: "last " + where, NotWritable: s.notWritable(c, x.Agent)}
+			State: "not running (kept)", Where: "last " + where, NotWritable: s.notWritable(c, x.Agent),
+			Pod: x.Pod, Mode: x.Kind, Standing: defined[x.Agent].Interactive, ForOwner: forOwner[SessionAddress(x.ID)]}
 		// A name reaches the session seen last of that name (Resolve).
 		if x.Name != "" && first {
 			p.Named = x.Agent + "/" + x.Name
