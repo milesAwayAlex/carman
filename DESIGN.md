@@ -678,27 +678,33 @@ for what the second has found):
   should affect, and a test of the consolidation routine on a messy library.
   A case costs a few cents on Sonnet, so every arm can be run several times
   and every transcript read.
-- **Task stream (not built).** A fixed sequence of tasks, a fresh session per
-  task, only the memory carried over, each task graded by a script. Arms with
-  the same model and harness: no memory, Claude Code's built-in memory, carman
-  with recall only, carman with the hook. The score is the gain over the
-  no-memory arm, with tokens added by memory reported alongside.
+- **Task stream (designed, not built; ADR new-task-stream-benchmark,
+  proposed).** A made world worked through over days. A world service with
+  no model plays the systems an agent meets (a registry, a deploy
+  interface, tickets), with rules written down nowhere, learned by acting.
+  A task is a ticket, a fresh session of a trial's agent started by the
+  trial's dispatcher; only the arm's memory passes between tasks. The
+  world keeps the score: success and the wrong calls before it, with no
+  model judging. Forty tasks over five days, in one order: lessons met by
+  doing and needed again a day and three days on, lessons told once, rules
+  that change, the tempting wrong answer, a wrong memory, and neutral
+  tasks that memory should not touch. Arms, with the same model, harness
+  and wording, each a trial of its own (ADR 0054, 0065): no memory,
+  built-in memory, cmem filled by the sessions, and cmem with the
+  dreamer's routines between days. Measured from what the agent does not
+  write: the world's verdict, the meter's tokens for each task, the memory
+  service's record of what a session was shown, read and wrote, and harm
+  (neutral tasks failed, old rules followed, a wrong memory followed).
+  Three runs an arm tell arms fifteen points apart; the ADR says what
+  would count as memory not helping, written before any run. The run that
+  can answer is on Sonnet (on the cheapest model the agent does not write
+  lessons down), about $75 at list price; a pilot of the harness on the
+  cheapest model is under a dollar.
 
-The plan for the task stream was to adapt Continual Learning Bench, which
-already runs Claude Code headless in a container with a fresh session per
-instance. Its first pilot here was inconclusive: the task was noisy, and the
-arms were confounded by differently worded instructions (since fixed). The
-transfer benchmark is what decisions rest on for now. A stream of our own
-would cover:
-
-- a fact learned early and needed later;
-- a fact that changes midway;
-- a pitfall hit once;
-- the tempting wrong answer: a later, different-looking design task where a
-  practice that failed here earlier is the obvious recommendation, graded by
-  checking the manifest the agent produces;
-- a wrong memory that should not be followed;
-- a question memory cannot answer.
+Continual Learning Bench (`bench/clbench`) was the first plan for the
+stream. Its pilot was inconclusive: the task was noisy, and the arms were
+confounded by differently worded instructions (since fixed, and the
+lesson is kept: one frame of wording for every arm).
 
 M8 is checked by running the carman arm on a second harness with only the CLI.
 
