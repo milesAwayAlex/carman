@@ -168,6 +168,36 @@ func (s *Starter) CheckSuspended(ctx context.Context, class string) error {
 	return err
 }
 
+// Models is the ladder a class's CronJob gives its routines
+// (CMEM_ROUTINE_MODELS of its first container), first model first: none
+// when it gives none.
+func (s *Starter) Models(ctx context.Context, class string) ([]string, error) {
+	tmpl, _, err := s.template(ctx, class)
+	if err != nil {
+		return nil, err
+	}
+	containers, _ := dig(tmpl, "spec", "template", "spec", "containers").([]any)
+	if len(containers) == 0 {
+		return nil, nil
+	}
+	c, _ := containers[0].(map[string]any)
+	env, _ := c["env"].([]any)
+	for _, e := range env {
+		m, _ := e.(map[string]any)
+		if m["name"] != "CMEM_ROUTINE_MODELS" {
+			continue
+		}
+		var out []string
+		for _, model := range strings.Split(fmt.Sprint(m["value"]), ",") {
+			if model = strings.TrimSpace(model); model != "" {
+				out = append(out, model)
+			}
+		}
+		return out, nil
+	}
+	return nil, nil
+}
+
 func (s *Starter) template(ctx context.Context, class string) (map[string]any, bool, error) {
 	var cj map[string]any
 	err := s.Client.do(ctx, http.MethodGet, s.Client.path("cronjobs")+"/"+class, nil, &cj)

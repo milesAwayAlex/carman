@@ -90,6 +90,37 @@ that the Job's failure, not an overrun, is what is told. */ -}}
 {{- toJson $out }}
 {{- end -}}
 
+{{- /* The models the usage reading reads (ADR 0043), as MODEL=HOURS,...:
+every model the installation's definitions name (each agent's ladder, or
+its default; a standing agent's model where the values give one; the
+dreamer's ladders) and the reading's own, with usage.addModels and less
+usage.skipModels. The reading's own model is read every hour, the others
+every usage.everyHours, unless usage.everyHoursFor says otherwise. */ -}}
+{{- define "usage.models" -}}
+{{- $u := .Values.usage }}
+{{- $ms := list $u.model }}
+{{- range .Values.agents }}
+{{- if .interactive }}
+{{- with .model }}{{ $ms = append $ms . }}{{ end }}
+{{- range .models }}{{ $ms = append $ms . }}{{ end }}
+{{- else }}
+{{- range (.models | default (list "claude-sonnet-5-5")) }}{{ $ms = append $ms . }}{{ end }}
+{{- end }}
+{{- end }}
+{{- range .Values.dreamer.models }}{{ $ms = append $ms . }}{{ end }}
+{{- range $routine, $ladder := .Values.dreamer.modelsFor }}{{ range $ladder }}{{ $ms = append $ms . }}{{ end }}{{ end }}
+{{- range $u.addModels }}{{ $ms = append $ms . }}{{ end }}
+{{- $out := list }}
+{{- range uniq $ms }}
+{{- if not (has . $u.skipModels) }}
+{{- $every := ternary 1 $u.everyHours (eq . $u.model) }}
+{{- with index ($u.everyHoursFor | default dict) . }}{{ $every = . }}{{ end }}
+{{- $out = append $out (printf "%s=%d" . (int $every)) }}
+{{- end }}
+{{- end }}
+{{- join "," $out }}
+{{- end -}}
+
 {{- /* Who may write to each agent and its sessions besides the owner, its
 own sessions and an answer (ADR 0047), as JSON: each agent's writtenBy.
 A name there that is not an agent of the installation fails the render. */ -}}

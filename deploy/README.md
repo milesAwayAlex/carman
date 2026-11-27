@@ -636,22 +636,39 @@ annotation `dispatcher/notifies-owner: "true"` on its job template; its
 failure is then told only if it was killed before it could tell. A notice
 that fails is in the service's log, and is not itself told.
 
-**Usage.** `agent-usage`, every hour at :07, asks the cheapest model
-(`usage.model`) for one word and records the plan's windows as the harness
-reports them (`usage.observed`); every routine run records its cost, models,
-attempts and tokens (`run.usage`). `dispatch status` begins with them:
+**Usage** (ADR 0043, 0052). `agent-usage`, every hour at :07, asks each
+model due for one word and records the plan's windows as the harness
+reports them (`usage.observed`, one for each model). The models are every
+one the values name (each agent's ladder, the dreamer's, the reading's own
+`usage.model`), with `usage.addModels` and less `usage.skipModels`; the
+reading's own model is read every hour, the others every
+`usage.everyHours` (6) or as `usage.everyHoursFor` says. A plan can limit
+one model on its own, and a call refused for a limit is recorded as that
+model's reading, with the limit, its reset and the harness's words. A
+model's reading failing does not stop the others. At list price a
+reading costs about $0.0015 on the cheapest model and $0.03 to $0.12 on
+the others; with the dreamer's ladder of three, about $0.88 a day. Every
+routine run records its cost, models, attempts and tokens (`run.usage`).
+`dispatch status` begins with them:
 
 ```text
-usage, as read 12m ago (2026-11-25 10:07 UTC):
-  the five-hour window    23%, resets 2026-11-25 13:00 UTC (in 2h41m)
-  the seven-day window    41%, resets 2026-11-28 09:00 UTC (in 70h41m)
+usage, as read 12m ago (2026-11-27 07:00 UTC):
+  the five-hour window     0%, resets 2026-11-27 10:00 UTC (in 2h48m)
+  the seven-day window    70%, resets 2026-11-27 20:00 UTC (in 12h48m)
+  models, most constrained first:
+    claude-fable-5-2   REFUSED: seven_day_overage_included, until 2026-11-27 18:00 UTC (in 10h48m); "You've hit your limit …" (read 2h0m ago)
+    claude-opus-5-5    allowed; its own limit: seven-day-opus 45%, resets 2026-11-27 20:00 UTC (read 3h0m ago)
+    claude-haiku-5-5   allowed (read 12m ago)
+    claude-sonnet-5-5  allowed (read 30h0m ago, OLD: it is read every 6h0m0s)
   runs, last five hours: $0.00: no runs
   runs, last seven days: $1.84: dreamer $1.84 (6 runs)
 ```
 
 **Deferring what can wait** (`dispatcher.admission`, off): a task below
 `below` in priority is held while a window is at `above` or more and has not
-reset; `status` says why. A reading older than `maxAge` admits.
+reset; `status` says why. A reading older than `maxAge` admits. A task
+whose class's ladder starts with a model refused until a time to come is
+held until then, whatever its priority; a refusal stands until its reset.
 
 What it does not do yet: cancel or delete a Job, hold the agents still on
 their CronJobs, or let the owner answer a notice where it arrives.

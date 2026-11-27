@@ -7,7 +7,8 @@
 //	dispatcher status [ID]                what runs, what waits and why, the last runs
 //	dispatcher log [--after N] [--type T] [--limit N] [--last N]
 //	dispatcher dump > FILE                the database, as SQL that psql restores
-//	HARNESS | dispatcher reading [--model M]   record the account's usage from a harness's stream-json
+//	HARNESS | dispatcher reading [--model M] [--every HOURS]   record a model's standing from a harness's stream-json
+//	dispatcher reading --due              the models of USAGE_MODELS (MODEL=HOURS,...) to read this hour
 //	dispatcher meter                      the egress proxy's meter of model use (ADR 0050; settings in meter.go)
 //
 // The client reads DISPATCHER_URL and DISPATCHER_TOKEN. The service reads
@@ -74,7 +75,8 @@ dispatcher emit TYPE [--subject S] [--id ID] [--source S] [--data JSON]
 dispatcher status [ID]
 dispatcher log [--after N] [--type T] [--limit N] [--last N]
 dispatcher dump > FILE
-HARNESS --output-format stream-json --verbose | dispatcher reading [--model M]
+HARNESS --output-format stream-json --verbose | dispatcher reading [--model M] [--every HOURS]
+dispatcher reading --due                  the models of USAGE_MODELS (MODEL=HOURS,...) to read this hour
 dispatcher meter                          the egress proxy's meter of model use (ADR 0050)
 
 Messages (ADR 0045), as this session (DISPATCHER_SESSION) or as the owner;
@@ -100,6 +102,13 @@ func run(ctx context.Context, args []string) error {
 	}
 	if args[0] == "meter" {
 		return meterCmd(ctx)
+	}
+	if args[0] == "reading" && slices.Contains(args[1:], "--due") {
+		due, err := dueModels(os.Getenv("USAGE_MODELS"), time.Now().UTC().Hour())
+		for _, m := range due {
+			fmt.Println(m)
+		}
+		return err
 	}
 	if args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 		fmt.Println(usage)
@@ -442,13 +451,16 @@ func serve(ctx context.Context) error {
 		verify = (&kube.Verifier{Client: client}).Verify
 	}
 
-	// The admission rule reads the latest usage reading, from the database
-	// opened below.
-	var latest func(context.Context) (dispatch.Record, bool, error)
+	// The admission rule reads the latest usage readings, from the database
+	// opened below, and a class's ladder from its CronJob.
+	var readings func(context.Context) ([]dispatch.Record, error)
 	var admission dispatch.Admission
 	if os.Getenv("DISPATCHER_ADMISSION") == "on" {
 		rule := budgetRule{Below: 50, Above: 0.9, MaxAge: 2 * time.Hour,
-			Latest: func(ctx context.Context) (dispatch.Record, bool, error) { return latest(ctx) }}
+			Readings: func(ctx context.Context) ([]dispatch.Record, error) { return readings(ctx) }}
+		if s, ok := starter.(*kube.Starter); ok {
+			rule.Models = s.Models
+		}
 		if v := os.Getenv("DISPATCHER_ADMISSION_BELOW"); v != "" {
 			if rule.Below, err = strconv.Atoi(v); err != nil {
 				return fmt.Errorf("DISPATCHER_ADMISSION_BELOW: %w", err)
@@ -484,12 +496,8 @@ func serve(ctx context.Context) error {
 		}
 	}
 	defer d.Kill() // nothing is flushed: the dispatcher is safe to stop at any moment
-	latest = func(ctx context.Context) (dispatch.Record, bool, error) {
-		rs, err := d.Last(ctx, TypeUsageObserved, 1)
-		if err != nil || len(rs) == 0 {
-			return dispatch.Record{}, false, err
-		}
-		return rs[0], true, nil
+	readings = func(ctx context.Context) ([]dispatch.Record, error) {
+		return d.Last(ctx, TypeUsageObserved, readingsKept)
 	}
 
 	// The schedules are the ones the installation lists, and no others.

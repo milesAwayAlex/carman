@@ -9,7 +9,7 @@ the dispatcher put in the task's payload. */ -}}
     "resources" (dict "requests" (dict "cpu" "20m" "memory" "64Mi") "limits" (dict "memory" "256Mi"))) }}
 {{- if .Values.usage.enabled }}
 {{- $templates = append $templates (dict "name" "usage" "cronjob" "agent-usage" "deadlineSeconds" .Values.usage.deadlineSeconds
-    "command" (list "usage-reading") "env" (dict "USAGE_MODEL" .Values.usage.model) "resources" .Values.usage.resources) }}
+    "command" (list "usage-reading") "env" (dict "USAGE_MODELS" (include "usage.models" .)) "resources" .Values.usage.resources) }}
 {{- end }}
 {{- range $templates }}
 ---

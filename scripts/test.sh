@@ -37,6 +37,13 @@ if command -v helm >/dev/null; then
         echo "the chart renders a writtenBy that names no agent" >&2
         exit 1
     fi
+    # R7: the usage reading reads every model the definitions name, the
+    # reading's own every hour, and a value adds or removes one.
+    "${render[@]/templates\/dispatcher.yaml/templates/dispatched.yaml}" \
+        --set-json 'agents=[{"name":"a","routines":["x"],"models":["m-a"]},{"name":"d","interactive":true,"model":"m-d"}]' \
+        --set-json 'dreamer.models=["m-a","m-b"]' --set-json 'dreamer.modelsFor={"x":["m-c"]}' \
+        --set usage.model=m-0 --set-json 'usage.addModels=["m-e"]' --set-json 'usage.skipModels=["m-b"]' --set-json 'usage.everyHoursFor={"m-c":2}' |
+        grep -F 'value: "m-0=1,m-a=6,m-d=6,m-c=2,m-e=6"' >/dev/null || { echo "the chart does not hand the usage reading the installation's models" >&2; exit 1; }
     # The owner's machine (ADR 0049): its writtenBy, a name of its own, and
     # a way in from outside only where the addresses are given.
     "${render[@]}" --set-json 'agents=[{"name":"a","routines":["x"]}]' --set-json 'dispatcher.host.writtenBy=["a"]' |

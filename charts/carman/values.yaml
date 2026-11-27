@@ -269,18 +269,32 @@ agent:
       requests: {cpu: 250m, memory: 512Mi}
       limits: {memory: 2Gi}
 
-# The account's usage, read every hour (ADR 0043): the smallest call there
-# is, to the cheapest model, whose stream says where each of the plan's
-# windows stands, recorded as usage.observed. The dispatcher schedules it
-# (its CronJob, agent-usage, is a template only); it costs a fraction of a
-# cent a reading.
+# The account's usage (ADR 0043): the smallest call there is, to each model
+# the installation's agents are set to use, whose stream says where each of
+# the plan's windows stands and, for that model, any limit of its own,
+# recorded as usage.observed; a call refused for a limit is recorded as that
+# model's reading. The models are worked out from the definitions (every
+# agent's ladder, the dreamer's, the reading's own). The dispatcher starts
+# it (its CronJob, agent-usage, is a template only) every hour, and each
+# run reads the models due: the reading's own every hour, the others every
+# everyHours, spread over the day. At list price a reading costs about
+# $0.0015 on the cheapest model and about $0.03, $0.06 and $0.12 on the
+# three above it.
 usage:
   enabled: true
   schedule: "7 * * * *"
+  # The cheapest model, read every hour.
   model: claude-haiku-5-5
+  # How many hours apart every other model is read.
+  everyHours: 6
+  # Hours for one model, by its name: {claude-opus-5-5: 3}.
+  everyHoursFor: {}
+  # Models to read that no definition names, and models not to read.
+  addModels: []
+  skipModels: []
   # Above the admission rule's threshold: a reading is never held.
   priority: 100
-  deadlineSeconds: 300
+  deadlineSeconds: 600
   resources:
     requests: {cpu: 50m, memory: 256Mi}
     limits: {memory: 1Gi}
