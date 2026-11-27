@@ -114,7 +114,10 @@ Built so far:
   every hour and the others every six hours, a refusal for a limit
   recorded as a reading (ADR 0052, proposed), and each routine run's cost
   (`run.usage`), shown first by `dispatch status`, each model's standing
-  most constrained first. An admission rule that holds low-priority work
+  most constrained first. The dreamer, the backup and the warm job are
+  moved onto it each by a value (`dispatched`), and places of its limit
+  can be kept for scheduled work (`dispatcher.reserve`, ADR 0059,
+  proposed). An admission rule that holds low-priority work
   while a usage window is high, and a task whose ladder starts with a
   refused model, is built and off; with `mode: curve` it holds it while a
   window is ahead of a line to its reset (ADR 0060, proposed), and
@@ -165,8 +168,8 @@ watcher of ADR 0053 on the owner's machine,
 the task-stream benchmark (M7), a second harness (M8), and for agents that
 do work outside memory: triggers other than a schedule, and a way for the
 owner to answer an agent's message where it arrives (today: `dispatch reply`
-from the laptop). The scheduled agents
-are not yet moved onto the dispatcher, notices are not yet switched on, and
+from the laptop). The scheduled jobs
+are not yet moved onto the dispatcher on a real installation, and
 nothing yet acts on the room a window will leave unused. The build
 order is in DESIGN.md, section 11.
 
