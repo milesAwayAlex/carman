@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// A stand-in for the model's API (ADR new-a-trial-has-a-proxy-of-its-own):
+// A stand-in for the model's API (ADR 0068):
 // it answers a message in the API's own shapes, streamed or whole, with the
 // headers that carry the plan's standing (ADR 0064), so that a trial's
 // proxy and meter can be tried end to end with no model and no credential.

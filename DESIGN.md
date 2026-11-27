@@ -182,7 +182,7 @@ from the session in between, is recorded as not delivered and delivered
 once more, marked as a second time: at least once, never silently lost.
 
 The plan's usage limit is said to whoever waits (ADR
-new-a-limit-is-an-outcome, proposed). A run started for a message that
+0067, proposed). A run started for a message that
 fails with the limit's words is recorded as `message.limited`, and its
 sender is told the work was not done and when the limit resets; the
 dispatcher sends the message again once after the reset when the sender
@@ -223,7 +223,7 @@ installation. Every pod that is a client waits once at its start
 (`dispatcher ready`) until the dispatcher, the memory and the proxy
 answer.
 
-### A trial's own proxy and meter (ADR new-a-trial-has-a-proxy-of-its-own, proposed)
+### A trial's own proxy and meter (ADR 0068, proposed)
 
 A trial (ADR 0054) may have the chart's egress proxy and meter, made
 from the checkout (`TRIAL_PROXY`), so that a change to either is tried in
@@ -597,7 +597,7 @@ which are the weakest parts. Three things are meant to keep that manageable:
   profile) is what lasts, and a pod is where it runs for a while; a
   dispatcher will start one where a message arrives and end it when idle.
 - The dreamer is a party to messages where the dispatcher is on (ADR
-  new-the-dreamer-is-a-party): a message to `dreamer` resumes or starts a
+  0070): a message to `dreamer` resumes or starts a
   conversation of its with its own restrictions; it writes only to the
   owner and in answer; its questions for the owner are a message from the
   conversation that wrote them, and his reply resumes it.
@@ -695,7 +695,7 @@ for what the second has found):
   A case costs a few cents on Sonnet, so every arm can be run several times
   and every transcript read.
 - **Task stream (its harness built and piloted, its tasks not yet; ADR
-  new-task-stream-benchmark, proposed).** `bench/stream` is the world
+  0069, proposed).** `bench/stream` is the world
   service and the scoring, `scripts/stream.sh CONTEXT run ARM` works an
   arm through a stream in a trial of its own; the pilot's six tasks ran on
   the cheapest model. The stream's forty tasks and the built-in arm are to

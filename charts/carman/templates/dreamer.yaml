@@ -12,7 +12,7 @@
 {{- range .Values.dreamer.commands }}
 {{- if not (regexMatch "^[a-z0-9][a-z0-9._-]*( [a-z0-9][a-z0-9._-]*){0,2} (view|list|ls|show|get|status|diff|log|describe|search|checks)$" .) }}{{ fail (printf "dreamer.commands: %q is not plainly a read: a program and one to three subcommands, lowercase, no flags or shell characters, ending in view, list, ls, show, get, status, diff, log, describe, search or checks" .) }}{{ end }}
 {{- end }}
-{{- /* A party to messages like any agent (ADR new-the-dreamer-is-a-party). */ -}}
+{{- /* A party to messages like any agent (ADR 0070). */ -}}
 {{- $messages := and .Values.dispatcher.enabled (ne .Values.dreamer.messages false) }}
 {{- with .Values.dreamer.mcp }}
 ---

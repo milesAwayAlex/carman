@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # A trial with an egress proxy and meter of its own (ADR
-# new-a-trial-has-a-proxy-of-its-own), end to end with no model: the
+# 0068), end to end with no model: the
 # trial's proxy and meter, built from this checkout, in front of a stand-in
 # for the model's API. What is tried: a request passes with the meter's
 # credential on it and is recorded; a pod that is no agent's is refused; the

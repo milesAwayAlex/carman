@@ -1,4 +1,4 @@
-# ADR new-a-limit-is-an-outcome: A run that stops at the plan's usage limit says so to whoever waits on it
+# ADR 0067: A run that stops at the plan's usage limit says so to whoever waits on it
 
 Status: Proposed (2026-11-27). Adds to ADR 0045 (what a run started for a
 message sends back) and ADR 0053 (what a standing agent's pod attends to).

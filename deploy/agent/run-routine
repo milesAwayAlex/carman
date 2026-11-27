@@ -69,7 +69,7 @@ for routine in "$@"; do
     # anything itself. When its report has questions for them, they are told
     # here, once, with the conversation to resume as this agent, so that the
     # answer is acted on with this agent's role (ADR 0040).
-    # Where it is a party to messages (ADR new-the-dreamer-is-a-party), they
+    # Where it is a party to messages (ADR 0070), they
     # go to the owner as a message from its conversation instead: his
     # answer (dispatch reply) resumes that conversation as this agent.
     if [ "${CMEM_ROUTINE_TOOLS:-}" != all ] && [ "${DISPATCHER_HOOK:-}" = on ] && [ -r /var/run/secrets/dispatcher/token ] &&

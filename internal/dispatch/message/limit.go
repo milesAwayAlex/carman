@@ -13,7 +13,7 @@ import (
 )
 
 // A run started for a message that stopped at the plan's usage limit is an
-// outcome of its own (ADR new-a-limit-is-an-outcome): recorded as such, the
+// outcome of its own (ADR 0067): recorded as such, the
 // sender told plainly that the work was not done and when the limit resets,
 // and the message sent again once after the reset, where the sender or the
 // installation asked for that.

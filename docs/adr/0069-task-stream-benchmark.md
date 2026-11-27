@@ -1,4 +1,4 @@
-# new-task-stream-benchmark: The task-stream benchmark is a made world worked through over days, in trials, scored by the world and not by a model
+# 0069: The task-stream benchmark is a made world worked through over days, in trials, scored by the world and not by a model
 
 Status: Proposed (2026-11-27). The harness is built and its pilot has run
 (below). The run that could answer the question has not: it is the owner's

@@ -1,4 +1,4 @@
-# new-a-trial-has-a-proxy-of-its-own: A trial may have an egress proxy and meter of its own, in front of a stand-in for the model's API or chained to the installation's meter
+# 0068: A trial may have an egress proxy and meter of its own, in front of a stand-in for the model's API or chained to the installation's meter
 
 Status: Proposed (2026-11-27).
 

@@ -1,4 +1,4 @@
-# ADR new-the-dreamer-is-a-party: The dreamer is a party to messages, writing only to the owner and in answer
+# ADR 0070: The dreamer is a party to messages, writing only to the owner and in answer
 
 Status: Proposed (2026-11-27). Narrows ADR 0036 and 0040 for the dreamer:
 where it is a party to messages, its questions for the owner go to him as a

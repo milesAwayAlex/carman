@@ -40,7 +40,7 @@
 # them out to it. Without them a trial's agents have no model, as before.
 #
 # TRIAL_PROXY=1: the trial has an egress proxy and meter of its own, made from
-# this checkout (ADR new-a-trial-has-a-proxy-of-its-own), so that a change to
+# this checkout (ADR 0068), so that a change to
 # the meter, the proxy's configuration, a budget or a credential's reload is
 # tried without touching the installation's. Its agents leave through it as
 # an installation's do. What the meter sends to: a stand-in for the model's

@@ -6,7 +6,7 @@ import (
 )
 
 // TestR2LimitReset: the harness's words at the plan's limit are known, and
-// when it resets is read from them (ADR new-a-limit-is-an-outcome).
+// when it resets is read from them (ADR 0067).
 func TestR2LimitReset(t *testing.T) {
 	now := time.Date(2026, 11, 27, 9, 0, 0, 0, time.UTC)
 	for words, want := range map[string]time.Time{

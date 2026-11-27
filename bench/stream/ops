@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# The agent's way to the benchmark's world (ADR new-task-stream-benchmark):
+# The agent's way to the benchmark's world (ADR 0069):
 # every word goes to the world service, which answers with what a system
 # would print and how it would end. Nothing of the world's rules is here.
 import json, os, sys, urllib.request

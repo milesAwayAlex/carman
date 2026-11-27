@@ -1,5 +1,5 @@
 // Command stream is the task-stream benchmark's world and its scoring (ADR
-// new-task-stream-benchmark).
+// 0069).
 //
 //	stream world                 the world service: the systems an agent's commands reach
 //	stream admin task ID DAY     (in the world's pod) the task that begins now

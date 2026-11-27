@@ -234,7 +234,7 @@ EOF
         $([ $rc -eq 0 ] || echo --failed) || true
     # The result, and whether the harness called it an error: a run that
     # stopped at the plan's usage limit says so in both, and the dispatcher
-    # tells the sender that, not the words as an answer (ADR new-a-limit-is-an-outcome).
+    # tells the sender that, not the words as an answer (ADR 0067).
     result="$(python3 - "$out" <<'PY'
 import json, sys
 for line in reversed(open(sys.argv[1]).read().splitlines()):

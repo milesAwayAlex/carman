@@ -82,7 +82,7 @@ if command -v helm >/dev/null; then
     # The dreamer is a party to messages where the dispatcher is on: known
     # by its label, its pod's identity mounted, the dispatcher's hooks on;
     # with messages off, or no dispatcher, none of it. Nobody's writtenBy
-    # may name it (ADR new-the-dreamer-is-a-party).
+    # may name it (ADR 0070).
     dreamer=(helm template t charts/carman --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0
         --set backup.repository=r --show-only templates/dreamer.yaml)
     out="$("${dreamer[@]}" --set dispatcher.enabled=true)"

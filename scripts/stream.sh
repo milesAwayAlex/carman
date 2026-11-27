@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The task-stream benchmark (ADR new-task-stream-benchmark): works one arm
+# The task-stream benchmark (ADR 0069): works one arm
 # through a stream of tasks, each a fresh session of a trial's agent, in a
 # trial installation of the arm's own, and scores it by the world.
 #

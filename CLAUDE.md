@@ -23,7 +23,7 @@ Built so far:
   Its `consolidate` command tests the consolidation routine on a messy
   library. Results are in `bench/transfer/RESULTS.md`.
 - `bench/stream` and `scripts/stream.sh`: the task-stream benchmark (M7;
-  ADR new-task-stream-benchmark, proposed): a world service with no model
+  ADR 0069, proposed): a world service with no model
   that keeps the score, and a runner that works one arm (none, notes,
   tidied) through a stream of tasks in a trial of its own. Its harness is
   piloted; the stream's forty tasks and the run that answers are not done.
@@ -94,7 +94,7 @@ Built so far:
   its own (`scripts/deploy.sh CONTEXT agent resume ID`, ADR 0040). The dreamer's too: a report of its with questions for the
   owner sends one notice, or, where the dispatcher is on, a message he
   answers with `dispatch reply`; the dreamer is written to by name and
-  writes only to the owner and in answer (ADR new-the-dreamer-is-a-party).
+  writes only to the owner and in answer (ADR 0070).
 
 - The warm image (ADR 0041): agents' jobs start from the agent
   image with the harness already in it, made in the cluster by a job
@@ -162,7 +162,7 @@ Built so far:
   sender why when it does not. A session stopped at the plan's usage
   limit, and a run for a message that did, are told to whoever waits on
   them, the message sent again once after the reset if asked
-  (`--again-after-limit`; ADR new-a-limit-is-an-outcome).
+  (`--again-after-limit`; ADR 0067).
 - `carman go` (ADR 0057, proposed): `cmd/carman`, the owner's way to a
   session from any directory. It lists the dispatcher's sessions, those
   waiting on him first, and goes to one: `kubectl exec` into a standing
@@ -197,7 +197,7 @@ Built so far:
   from where each caller is. The network knows a new pod a moment after it
   starts: `dispatcher ready` waits once, first, in every agent pod
   (`agent_setup`) and a watch's job.
-- A trial's own proxy and meter (ADR new-a-trial-has-a-proxy-of-its-own,
+- A trial's own proxy and meter (ADR 0068,
   proposed): `TRIAL_PROXY=1 scripts/trial.sh CONTEXT up` gives a trial the
   chart's egress proxy and meter from the checkout, in front of
   `dispatcher stand-in` (the model API's shapes and ADR 0064's headers, no

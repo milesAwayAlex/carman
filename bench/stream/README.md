@@ -3,7 +3,7 @@
 Whether agents working through a stream of tasks over days do better with
 memory than without (M7). The design, what would count as memory not
 helping, and what the pilot showed are in
-`docs/adr/new-task-stream-benchmark.md`.
+`docs/adr/0069-task-stream-benchmark.md`.
 
 - `world.go`, `main.go`: the world service and the scoring (`stream world`,
   `stream admin`, `stream score`). The world has no model; its rules are
