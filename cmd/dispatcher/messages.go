@@ -291,8 +291,16 @@ func childNote() string {
 }
 
 // hooksOff says whether this harness runs without the image's hooks.
+// DISPATCHER_HOOK=on keeps these on where CMEM_HOOK=off switches memory's
+// off: the dreamer, which reads memory itself and is written to.
 func hooksOff() bool {
-	return os.Getenv("CMEM_HOOK") == "off" || os.Getenv("DISPATCHER_HOOK") == "off"
+	switch os.Getenv("DISPATCHER_HOOK") {
+	case "on":
+		return false
+	case "off":
+		return true
+	}
+	return os.Getenv("CMEM_HOOK") == "off"
 }
 
 // hook carries messages into a running session (ADR 0045), as a hook of

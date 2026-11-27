@@ -330,6 +330,8 @@ func limitsText(l limits) string {
 	}
 	if l.messages {
 		b.WriteString("- You may run the `dispatcher` command, through Bash, for messages: `dispatcher peers`, `dispatcher send`, `dispatcher reply`, `dispatcher inbox`, `dispatcher message`.\n")
+		b.WriteString("  A message to the owner reaches him as a notice of its first line, through a channel that is mostly trusted but not private: " +
+			"make that line a summary of what it is about and how urgent, with no personal data and no internal identifiers or keys; the rest stays in the dispatcher's log.\n")
 	}
 	if len(l.run) > 0 {
 		fmt.Fprintf(&b, "- You may run these commands, through Bash, with any subcommands and arguments: `%s`.\n", strings.Join(l.run, "`, `"))

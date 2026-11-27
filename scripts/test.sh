@@ -79,6 +79,25 @@ if command -v helm >/dev/null; then
         echo "the chart renders a writtenBy that names no agent" >&2
         exit 1
     fi
+    # The dreamer is a party to messages where the dispatcher is on: known
+    # by its label, its pod's identity mounted, the dispatcher's hooks on;
+    # with messages off, or no dispatcher, none of it. Nobody's writtenBy
+    # may name it (ADR new-the-dreamer-is-a-party).
+    dreamer=(helm template t charts/carman --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0
+        --set backup.repository=r --show-only templates/dreamer.yaml)
+    out="$("${dreamer[@]}" --set dispatcher.enabled=true)"
+    for want in 'agent: dreamer' 'name: DISPATCHER_HOOK' 'audience: dispatcher' 'mountPath: /var/run/secrets/dispatcher'; do
+        grep -F "$want" <<<"$out" >/dev/null || { echo "the dreamer is no party to messages: no $want" >&2; exit 1; }
+    done
+    for off in "--set dispatcher.enabled=false" "--set dispatcher.enabled=true --set dreamer.messages=false"; do
+        # shellcheck disable=SC2086
+        ! "${dreamer[@]}" $off | grep -E 'agent: dreamer|DISPATCHER_HOOK|audience: dispatcher' >/dev/null ||
+            { echo "the dreamer is a party to messages with $off" >&2; exit 1; }
+    done
+    if "${render[@]}" --set-json 'agents=[{"name":"b","routines":["x"],"writtenBy":["dreamer"]}]' >/dev/null 2>&1; then
+        echo "the chart renders a writtenBy that names the dreamer" >&2
+        exit 1
+    fi
     # Agents' limits at the proxy reach the dispatcher (ADR 0064).
     "${render[@]}" --set-json 'agents=[{"name":"a","routines":["x"],"proxyLimit":{"day":40000000}},{"name":"b","routines":["x"]}]' \
         --set-json 'dreamer.proxyLimit={"pod":8000000}' |

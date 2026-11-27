@@ -558,6 +558,11 @@ which are the weakest parts. Three things are meant to keep that manageable:
   this leads: a session (a conversation, a working directory and a
   profile) is what lasts, and a pod is where it runs for a while; a
   dispatcher will start one where a message arrives and end it when idle.
+- The dreamer is a party to messages where the dispatcher is on (ADR
+  new-the-dreamer-is-a-party): a message to `dreamer` resumes or starts a
+  conversation of its with its own restrictions; it writes only to the
+  owner and in answer; its questions for the owner are a message from the
+  conversation that wrote them, and his reply resumes it.
 - A job's pod, and so a resumed conversation's, finds the harness already
   there (ADR 0041): it starts from a warm image, the agent image
   with the harness added as one layer outside the home, which a job of the

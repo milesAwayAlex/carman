@@ -15,7 +15,8 @@ import (
 
 // TestR2HookOff: with CMEM_HOOK=off (or DISPATCHER_HOOK=off) the
 // dispatcher's hook does not call the dispatcher, so a harness an agent
-// starts for a trial registers no session and takes no message.
+// starts for a trial registers no session and takes no message; with
+// DISPATCHER_HOOK=on it does, whatever CMEM_HOOK says.
 func TestR2HookOff(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -49,6 +50,14 @@ func TestR2HookOff(t *testing.T) {
 	run()
 	if calls.Load() == 0 {
 		t.Error("the hook, on, did not call the dispatcher: the test proves nothing")
+	}
+	// The dreamer: memory's hook off, the dispatcher's on.
+	calls.Store(0)
+	t.Setenv("CMEM_HOOK", "off")
+	t.Setenv("DISPATCHER_HOOK", "on")
+	run()
+	if calls.Load() == 0 {
+		t.Error("with DISPATCHER_HOOK=on beside CMEM_HOOK=off the hook did not call the dispatcher")
 	}
 }
 

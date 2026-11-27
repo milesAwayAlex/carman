@@ -490,6 +490,13 @@ dreamer:
   # the outside through the egress proxy, with its credential.
   #   commands: [gh pr view, gh pr list, gh issue view]
   commands: []
+  # A party to messages, where the dispatcher is on (ADR
+  # new-the-dreamer-is-a-party): written to by name (`dreamer`) by the owner
+  # and his machine's sessions, it answers in a run resumed as the dreamer,
+  # as restricted; it may write to the owner and answer, nothing else; and
+  # its questions for the owner go to him as a message. Off: the notice of
+  # ADR 0036 as before.
+  messages: true
 
 backup:
   # Off until there is somewhere outside the cluster to keep the copies.

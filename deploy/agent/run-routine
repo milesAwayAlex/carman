@@ -69,7 +69,20 @@ for routine in "$@"; do
     # anything itself. When its report has questions for them, they are told
     # here, once, with the conversation to resume as this agent, so that the
     # answer is acted on with this agent's role (ADR 0040).
-    if [ "${CMEM_ROUTINE_TOOLS:-}" != all ] && command -v notify-owner >/dev/null 2>&1 && grep -qi 'questions for the owner' "$said"; then
+    # Where it is a party to messages (ADR new-the-dreamer-is-a-party), they
+    # go to the owner as a message from its conversation instead: his
+    # answer (dispatch reply) resumes that conversation as this agent.
+    if [ "${CMEM_ROUTINE_TOOLS:-}" != all ] && [ "${DISPATCHER_HOOK:-}" = on ] && [ -r /var/run/secrets/dispatcher/token ] &&
+        grep -qi 'questions for the owner' "$said"; then
+        id="$(ls -t "$HOME"/.claude/projects/*/*.jsonl 2>/dev/null | head -1)"
+        id="$(basename "${id:-}" .jsonl)"
+        {
+            printf 'The %s routine has questions for you\n\n' "$routine"
+            printf 'Its report ends with questions only you can answer. Answer them with dispatch reply; a run resumed as %s, with its role, acts on what you say.\n\n' "${AGENT_NAME:-this agent}"
+            sed -n '/[Qq]uestions for the owner/,$p' "$said" | head -c 60000
+        } | DISPATCHER_SESSION="$id" dispatcher send owner - ||
+            echo "run-routine: the questions for the owner could not be sent; they are in the report above" >&2
+    elif [ "${CMEM_ROUTINE_TOOLS:-}" != all ] && command -v notify-owner >/dev/null 2>&1 && grep -qi 'questions for the owner' "$said"; then
         id="$(ls -t "$HOME"/.claude/projects/*/*.jsonl 2>/dev/null | head -1)"
         id="$(basename "${id:-}" .jsonl | cut -c1-8)"
         notify-owner --urgency whenever --importance normal "The $routine routine has questions for you" \
