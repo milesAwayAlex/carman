@@ -717,6 +717,34 @@ agent, and recorded as `message.refused`. `dispatcher peers` marks what the
 caller may not write to. A `writtenBy` that names no agent of the values
 fails the render.
 
+A standing agent's sessions (ADR 0053): `agent-session` starts
+`dispatcher attend` in the pod (its log is `/tmp/agent-attend.log`). A
+session whose harness process has gone (killed, out of memory, its window
+closed) is shown as not running within about twenty seconds, and a message
+to a session `agent-open` remembers opens it again in its window, on its
+conversation, so that a person who attaches sees it. A session that was
+forgotten is not opened: the message waits, and `dispatch message ID` says
+why. The watcher knows a harness by the record its `SessionStart` hook
+writes in `/tmp/agent-harness/`; a harness started before that hook gets
+no verdict until it starts again.
+
+To try it in a standing pod (after a deploy of the dispatcher and the
+agent image with it, and the pod restarted):
+
+```
+pgrep -af 'dispatcher attend'                    # the watcher runs
+agent-open trial-attend ~/work                   # a named session in a window of its own
+ls /tmp/agent-harness/                           # its record, named by its session id
+dispatcher peers | grep trial-attend             # idle
+kill -9 "$(cut -d' ' -f1 /tmp/agent-harness/ID)" # its harness dies; the window keeps a shell
+tail -f /tmp/agent-attend.log                    # within ~20 s: "its harness has gone"
+dispatcher send AGENT/trial-attend 'say hello'   # "not open; the agent's pod opens it again"
+dispatcher message MESSAGE-ID                    # within ~10 s: delivered (start)
+agent-open --forget trial-attend                 # then /exit in its window, and send again:
+dispatcher message MESSAGE-ID                    # waits: "not remembered in pod ..."
+tmux kill-window -t main:=trial-attend
+```
+
 ### A harness an agent starts itself
 
 An agent that starts a harness of its own, to try something, gets the

@@ -146,6 +146,19 @@ handed it. The dispatcher's Service may be a LoadBalancer
 (`dispatcher.service.type`; the local values do this, on port 8379), and
 `scripts/deploy.sh CONTEXT env` writes `.local/dispatcher.env`.
 
+A standing agent's pod attends to its own sessions (ADR 0053, proposed).
+`dispatcher attend`, started by `agent-session`, holds a session the
+dispatcher believes runs in the pod to have ended when the harness process
+its `SessionStart` hook recorded (pid and start time) has gone, and says so
+(`/v1/attend/gone`). A message for a named session of a standing agent that
+is not open waits for the pod to open it: the watcher runs `agent-open
+--reopen NAME` for a name that is remembered there (a new window, or the
+shell the dead harness left replaced), once, then again after a backoff at
+most four times, and says on the message why it still waits
+(`/v1/attend/hold`). A name not remembered is not opened. The session
+opened again, or one of that name opened by hand, takes the messages of
+the earlier sessions of its name that are not running.
+
 ### Worker details (proposed)
 
 - **Permissions.** `dontAsk` mode with an allowlist is the documented headless
@@ -625,7 +638,8 @@ Decisions are recorded one per file in `docs/adr/`. The index,
    sessions, agents and the owner, each pod known by a token of its own.
    Then (ADR 0049): the owner's own sessions, as a place with a
    token of its own, through the same hooks. Then (ADR 0051, proposed): the
-   owner's token off the cluster, which holds only its hash.
+   owner's token off the cluster, which holds only its hash. Then
+   (ADR 0053, proposed): a standing pod's watcher of its own sessions.
    Next: move the scheduled agents onto the dispatcher one by one, switch
    notices on, and pace by a curve to reset.
 

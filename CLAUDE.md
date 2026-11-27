@@ -127,14 +127,19 @@ Built so far:
   `adapters/claude-code` with `.local/dispatcher.env`
   (`scripts/deploy.sh CONTEXT env`); the dispatcher a LoadBalancer on the
   local cluster's port 8379.
+- A standing agent's sessions (ADR 0053, proposed): `dispatcher attend`
+  in its pod says when a session's harness process has gone (recorded by
+  its `SessionStart` hook), and opens again with `agent-open --reopen` a
+  remembered session a message waits for, with a backoff, telling the
+  sender why when it does not.
 - The owner's token off the cluster (ADR 0051, proposed): the dispatcher
   knows only its SHA-256; the token is in `.local/dispatcher-owner.token`,
   and `scripts/deploy.sh CONTEXT dispatch ...` runs the client on the
   owner's machine with it (`dispatch owner-token new|back`).
 
 Not built yet: the way in from a laptop to a service on a shared cluster,
-more than one machine of the owner's (one place per installation), a
-message that starts an interactive agent's session that is not open,
+more than one machine of the owner's (one place per installation), the
+watcher of ADR 0053 on the owner's machine,
 the task-stream benchmark (M7), a second harness (M8), and for agents that
 do work outside memory: triggers other than a schedule, and a way for the
 owner to answer an agent's message where it arrives (today: `dispatch reply`

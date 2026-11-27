@@ -70,7 +70,7 @@ case "${1:-}" in
         # shell, at its prompt, is replaced; anything else is left alone.
         cmd="$(t display-message -p -t "main:=$2" '#{pane_current_command}')"
         case "$cmd" in
-        bash | sh | zsh | dash | ash | fish)
+        bash | sh | zsh | dash | ash | fish | "$(basename "${SHELL:-bash}")")
             t respawn-window -k -t "main:=$2" -c "$dir" "exec $self --run $2"
             echo "agent-open: $2 opened again in its window" ;;
         *)
