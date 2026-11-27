@@ -182,7 +182,9 @@ type Config struct {
 //
 // When ticks have passed without firing (the dispatcher was down), it fires
 // once, for the latest tick that has passed, and emits one schedule.missed
-// event whose data says how many ticks were skipped.
+// event whose data says how many ticks were skipped. Schedules that fire
+// together are submitted in the order of the ticks they fire, earliest
+// first, so that a task after another (TaskSpec.After) is submitted after it.
 type Schedule struct {
 	// Name identifies the schedule. Declaring a name again replaces its
 	// timing and template and keeps what it has fired.

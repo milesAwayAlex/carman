@@ -1,7 +1,7 @@
 // Command dispatcher is the dispatcher as a service, and its client.
 //
 //	dispatcher serve                      the service (settings from the environment, below)
-//	dispatcher submit CLASS [ID] [--priority N] [--timeout 1h] [--start-within D]
+//	dispatcher submit CLASS [ID] [--priority N] [--timeout 1h] [--start-within D] [--after CLASS [--after-within 1h]]
 //	                  [--env TASK_NAME=VALUE]... [--arg ARG]...
 //	dispatcher emit TYPE [--subject S] [--id ID] [--source S] [--data JSON]
 //	dispatcher status [ID]                what runs, what waits and why, the last runs
@@ -78,7 +78,7 @@ func main() {
 }
 
 const usage = `dispatcher serve
-dispatcher submit CLASS [ID] [--priority N] [--timeout 1h] [--start-within D] [--env TASK_NAME=VALUE]... [--arg ARG]...
+dispatcher submit CLASS [ID] [--priority N] [--timeout 1h] [--start-within D] [--after CLASS [--after-within 1h]] [--env TASK_NAME=VALUE]... [--arg ARG]...
 dispatcher emit TYPE [--subject S] [--id ID] [--source S] [--data JSON]
 dispatcher status [ID]
 dispatcher log [--after N] [--type T] [--limit N] [--last N]
@@ -257,6 +257,9 @@ func submit(ctx context.Context, c *api.Client, pos []string, flags map[string][
 		}
 		req.StartBy = time.Now().Add(within)
 	}
+	if a := one(flags, "after", ""); a != "" {
+		req.After, req.AfterWithin = a, one(flags, "after-within", "1h")
+	}
 	var payload kube.Payload
 	for _, kv := range flags["env"] {
 		k, v, ok := strings.Cut(kv, "=")
@@ -308,6 +311,8 @@ func describe(t api.Task) string {
 	switch {
 	case t.Reason == string(dispatch.ReasonLimit):
 		s += ": the running limit is reached"
+	case t.Reason == string(dispatch.ReasonAfter):
+		s += fmt.Sprintf(": after %s, which has not ended (waits at most %s from its submission)", t.Detail, t.AfterWithin)
 	case t.Wait != nil:
 		s += fmt.Sprintf(": waiting for %s %s until %s", t.Wait.Type, t.Wait.Subject, t.Wait.Deadline.Format(time.RFC3339))
 	case t.Reason != "":

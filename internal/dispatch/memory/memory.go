@@ -398,11 +398,25 @@ func (d *Dispatcher) actOnTime(now time.Time) {
 			d.transition(dispatch.TypeNotStarted, t.spec.ID, "", dispatch.Transition{StartBy: &sb})
 		}
 	}
+	type due struct {
+		s       *schedule
+		latest  time.Time
+		skipped int
+	}
+	var dues []due
 	for _, s := range d.schedules {
-		latest, skipped := s.spec.Due(s.lastTick, now)
-		if latest.IsZero() {
-			continue
+		if latest, skipped := s.spec.Due(s.lastTick, now); !latest.IsZero() {
+			dues = append(dues, due{s, latest, skipped})
 		}
+	}
+	sort.Slice(dues, func(i, j int) bool {
+		if !dues[i].latest.Equal(dues[j].latest) {
+			return dues[i].latest.Before(dues[j].latest)
+		}
+		return dues[i].s.spec.Name < dues[j].s.spec.Name
+	})
+	for _, dd := range dues {
+		s, latest, skipped := dd.s, dd.latest, dd.skipped
 		s.lastTick = latest
 		spec := s.spec.Template
 		spec.ID = dispatch.ScheduledTaskID(s.spec.Name, latest)
