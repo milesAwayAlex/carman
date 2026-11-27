@@ -274,6 +274,9 @@ func (s *Server) getEntry(r *http.Request, _ Role) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Which entry was read: with what a search found and a session was
+	// shown, the record of what memory gave (never the words asked with).
+	s.log.Info("read", "entry", entry.ID)
 	params := r.URL.Query()
 	if params.Get("outline") != "" {
 		// A map of the entry: where its parts start and how each begins.
@@ -350,7 +353,11 @@ func (s *Server) note(r *http.Request, role Role) (any, error) {
 	case req.Human == "":
 		return nil, fmt.Errorf("%w: say what you observed (evidence)", memory.ErrNoSource)
 	}
-	return s.store.Remember(note)
+	made, err := s.store.Remember(note)
+	if err == nil {
+		s.log.Info("note", "entry", made.ID, "kind", req.Kind, "replaces", req.Replaces, "session", req.SessionID)
+	}
+	return made, err
 }
 
 func (s *Server) recall(r *http.Request, _ Role) (any, error) {
@@ -378,7 +385,9 @@ func (s *Server) recall(r *http.Request, _ Role) (any, error) {
 	// carries its opening and the passage that matched rather than as much
 	// text as fits: enough to pick the entry, which is then read with get.
 	if params.Get("found") == "" {
-		return parts(s.store.Recall(q), foundText), nil
+		plain := s.store.Recall(q)
+		s.log.Info("recall", "found", ids(plain))
+		return parts(plain, foundText), nil
 	}
 	// The right entry is nearly always among the first few, and the answer
 	// says how many more there are.
@@ -386,6 +395,7 @@ func (s *Server) recall(r *http.Request, _ Role) (any, error) {
 		q.Limit = foundCount
 	}
 	entries, total, near, weak := s.store.Search(q)
+	s.log.Info("recall", "found", ids(entries), "total", total, "weak", weak)
 	found := Found{Entries: make([]memory.Entry, len(entries)), Total: total, Near: near, Weak: weak}
 	for i, e := range entries {
 		opening, rest, _ := strings.Cut(strings.TrimSpace(e.Text), "\n\n")
@@ -448,7 +458,17 @@ func (s *Server) index(r *http.Request, _ Role) (any, error) {
 		return nil, err
 	}
 	entries, total := s.store.Index(memory.IndexQuery{SessionID: req.SessionID, Scope: req.Scope, Budget: req.Budget})
+	s.log.Info("index", "session", req.SessionID, "shown", ids(entries), "total", total)
 	return IndexResponse{parts(entries, listedText), total}, nil
+}
+
+// ids are entries' ids, for the log.
+func ids(entries []memory.Entry) []string {
+	out := make([]string, len(entries))
+	for i, e := range entries {
+		out[i] = e.ID
+	}
+	return out
 }
 
 // FlashbackRequest is the body of POST /v1/flashback: the text of a moment in

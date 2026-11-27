@@ -1,0 +1,20 @@
+[
+  {"id": "p1", "day": 1, "family": "deploy-needs-a-change", "role": "meet",
+   "ticket": "Put version 1.4.2 of the service ledger out to the test stage.",
+   "checks": [{"fact": "deployed/ledger/test", "equals": "1.4.2"}]},
+  {"id": "p2", "day": 1, "family": "notes-end-with-reviewed-by", "role": "told",
+   "ticket": "Write a two-line release note for ledger 1.4.2 and attach it under the name release-note. From now on, every release note ends with a line that says exactly: Reviewed-by: platform",
+   "checks": [{"attached": "release-note", "matches": "Reviewed-by: platform\\s*$"}]},
+  {"id": "p3", "day": 1, "family": "deploy-needs-a-change", "role": "use", "lesson": "change open.*--change|--change.*change open",
+   "ticket": "Put version 2.0.1 of the service mailer out to the test stage.",
+   "checks": [{"fact": "deployed/mailer/test", "equals": "2.0.1"}]},
+  {"id": "p4", "day": 1, "role": "neutral",
+   "ticket": "Which stages are there? Attach their names, one to a line, under the name stages.",
+   "checks": [{"attached": "stages", "matches": "(?s)test.*staging.*prod"}]},
+  {"id": "p5", "day": 2, "family": "deploy-needs-a-change", "role": "use", "lesson": "change open.*--change|--change.*change open",
+   "ticket": "Put version 0.9.0 of the service search out to the staging stage.",
+   "checks": [{"fact": "deployed/search/staging", "equals": "0.9.0"}]},
+  {"id": "p6", "day": 2, "family": "notes-end-with-reviewed-by", "role": "use", "lesson": "Reviewed-by",
+   "ticket": "Write a two-line release note for search 0.9.0 and attach it under the name release-note.",
+   "checks": [{"attached": "release-note", "matches": "Reviewed-by: platform\\s*$"}]}
+]

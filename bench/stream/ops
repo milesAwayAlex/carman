@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+# The agent's way to the benchmark's world (ADR new-task-stream-benchmark):
+# every word goes to the world service, which answers with what a system
+# would print and how it would end. Nothing of the world's rules is here.
+import json, os, sys, urllib.request
+
+url = os.environ.get("WORLD_URL", "").rstrip("/")
+if not url:
+    sys.exit("ops: WORLD_URL is not set")
+req = urllib.request.Request(url + "/ops", data=json.dumps({"argv": sys.argv[1:]}).encode(),
+                             headers={"Content-Type": "application/json"})
+# Not through a proxy: the world is a neighbour in the cluster.
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+try:
+    with opener.open(req, timeout=20) as resp:
+        answer = json.load(resp)
+except Exception as err:
+    sys.exit(f"ops: the systems do not answer: {err}")
+if answer.get("out"):
+    print(answer["out"])
+sys.exit(int(answer.get("code", 1)))

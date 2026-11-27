@@ -1,7 +1,46 @@
 # new-task-stream-benchmark: The task-stream benchmark is a made world worked through over days, in trials, scored by the world and not by a model
 
-Status: Proposed (2026-11-27). The design and its cost; nothing is built or
-run until the owner's side says so.
+Status: Proposed (2026-11-27). The harness is built and its pilot has run
+(below). The run that could answer the question has not: it is the owner's
+to start.
+
+## What the owner is asked
+
+**To say yes or no to one run**: forty tasks over five days of a made
+world, four arms (no memory, Claude Code's built-in memory, cmem filled by
+the sessions, cmem with the nightly tidying), three runs of each, on
+Sonnet. 480 sessions and twelve nights.
+
+- **Cost**: about $25 at list price by what the pilot's tasks cost, and no
+  more than $75 if the stream's tasks turn out several times larger than
+  the pilot's; one to two tenths of a week's window, by one evening's
+  readings.
+- **Two values to set for it** (ADR 0065): `egress.model.trials.models`
+  to allow Sonnet, and `egress.model.trials.requests` raised from 300 a
+  day to about 8,000 for the days of the run.
+- **Before it**: the stream's forty tasks and the built-in arm are still to
+  be written, and are committed before any arm with memory runs on them.
+
+**What would count as memory not helping**, written before any run:
+
+1. on tasks a lesson bears on, the notes arm does not pass more often, nor
+   with fewer wrong calls, than the arm with none, beyond what three runs
+   can separate;
+2. the notes arm's cost per passed task is above the arm with none: what
+   memory adds to every session is more than it saves;
+3. on neutral tasks an arm with memory passes less often than the arm with
+   none: memory misled;
+4. after a rule changes, an arm with cmem follows the old rule more often
+   than built-in does;
+5. the tidied arm is not at least as good as the notes arm on the last
+   three days, in success or in cost: the nightly tidying does not pay
+   (R8's second half);
+6. carman's arms pass less often than built-in beyond the margin the owner
+   sets, or cost more per task beyond it: M7 is not met.
+
+Three runs an arm can tell apart arms that differ by fifteen points on
+lesson tasks; they cannot show two arms equal within five. Whatever comes
+out is reported as it is, with the transcripts.
 
 ## Context
 
@@ -162,25 +201,7 @@ separate them.
 
 ### What would count as memory not helping
 
-Written down before any run:
-
-- on tasks a lesson bears on, the notes arm does not pass more often, nor
-  with fewer wrong calls, than the arm with none, beyond what three runs
-  can separate;
-- the notes arm's cost per passed task is above the arm with none: what
-  memory adds to every session is more than it saves;
-- on neutral tasks an arm with memory passes less often than the arm with
-  none: memory misled;
-- after a rule changes, an arm with cmem follows the old rule more often
-  than built-in does;
-- the tidied arm is not at least as good as the notes arm on the last
-  three days, in success or in cost: the nightly tidying does not pay
-  (R8's second half);
-- carman's arms pass less often than built-in beyond the owner's margin,
-  or cost more per task beyond it: M7 is not met.
-
-Any of these is a result to report as it is, with the transcripts that
-show why.
+The six conditions at the head of this record, written before any run.
 
 ### Where it runs
 
@@ -210,11 +231,15 @@ distilling runs show).
   assumed; about 220 requests, inside the 300 a day all trials may make
   now. It changes no setting.
 - **A run that could answer the question**: forty tasks, four arms, three
-  runs, on Sonnet: 480 sessions and twelve nights. About $75 at list price
-  (between $50 and $100); about $7 on the cheapest model, which would not
-  answer it; about $230 on Opus. About 7,700 requests: the limit for
-  trials has to be raised for it (`egress.model.trials.requests`, and
-  `models` to allow Sonnet), which is the owner's value to set.
+  runs, on Sonnet: 480 sessions and twelve nights. Before the pilot it was
+  put at about $75 at list price (a task at $0.15). The pilot's tasks
+  cost a fifth of what was assumed for the cheapest model, which puts the
+  run nearer $25; the stream's tickets are longer than the pilot's, so $75
+  stays as the most it should be. About $230 at most on Opus; a few
+  dollars on the cheapest model, which would not answer it. Up to 7,700
+  requests: the limit for trials has to be raised for it
+  (`egress.model.trials.requests`, and `models` to allow Sonnet), which is
+  the owner's value to set.
 - **Against the plan's windows**, from the one evening of readings there
   is on this account (heavy use of the two strongest models: about $41 of
   runs and several sessions took the five-hour window to 41% and the
@@ -226,6 +251,43 @@ distilling runs show).
   forecast 65 points unused. These conversions are rough: one evening, and
   it is not known that Sonnet counts against the windows as the stronger
   models do.
+
+## The pilot (2026-11-27)
+
+Built: `bench/stream` (the world service, the pilot's world of six tasks,
+scoring) and `scripts/stream.sh`, which stands up an arm's trial, works it
+through the tasks and scores it. Run three times for the arms none and
+tidied (notes with one night), on the cheapest model, to try the harness.
+About $0.09 in all by the runs' own count; a task cost $0.001 to $0.003, a
+night $0.005 to $0.007; an arm's six tasks took two to three minutes, and
+two arms ran side by side as two trials.
+
+What it showed about the harness:
+
+- A task reaches a fresh session of the trial's agent as a message, the
+  agent is held to the world's commands (and the memory command, in an arm
+  that has memory; ADR 0061), and its run ends by itself: 36 of 36 tasks
+  ended, none by its time limit.
+- The world keeps the score. The rule nobody wrote down (a deploy names an
+  open change) was run into, by wrong calls the world counted, and the
+  count fell where memory had the rule: the same task took 2 to 6 wrong
+  calls with no memory and 1 with it.
+- The memory service's log says what a session was given and wrote, so
+  "had the lesson" can be set beside "used it": in one run the session had
+  the entry with the told rule and still did not follow it, which is the
+  case the measure exists for. (Two faults of the first runs are fixed: the
+  log's lists were misread, and a session's own note counted as given.)
+- The night ran as the dreamer's two routines in the trial and merged two
+  of the day's notes.
+- Runs differ: the told rule was carried in one run of three, and a task
+  the arm with none failed in two runs it passed in the third. Three runs
+  an arm is the least that will do.
+- Cost is the runs' own count here. The meter's record of the same pods
+  (`trial/stream-ARM/worker`) is in the installation's log, which its
+  owner reads; the two are to be set side by side before the run.
+
+Not built yet: the stream's forty tasks and their world, the built-in arm,
+and the report across runs.
 
 ## Consequences
 

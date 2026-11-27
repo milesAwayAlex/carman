@@ -651,8 +651,12 @@ for what the second has found):
   should affect, and a test of the consolidation routine on a messy library.
   A case costs a few cents on Sonnet, so every arm can be run several times
   and every transcript read.
-- **Task stream (designed, not built; ADR new-task-stream-benchmark,
-  proposed).** A made world worked through over days. A world service with
+- **Task stream (its harness built and piloted, its tasks not yet; ADR
+  new-task-stream-benchmark, proposed).** `bench/stream` is the world
+  service and the scoring, `scripts/stream.sh CONTEXT run ARM` works an
+  arm through a stream in a trial of its own; the pilot's six tasks ran on
+  the cheapest model. The stream's forty tasks and the built-in arm are to
+  come, and the run that answers is the owner's to start. A made world worked through over days. A world service with
   no model plays the systems an agent meets (a registry, a deploy
   interface, tickets), with rules written down nowhere, learned by acting.
   A task is a ticket, a fresh session of a trial's agent started by the

@@ -22,6 +22,11 @@ Built so far:
   session is used in another, in the same repository and in a different one.
   Its `consolidate` command tests the consolidation routine on a messy
   library. Results are in `bench/transfer/RESULTS.md`.
+- `bench/stream` and `scripts/stream.sh`: the task-stream benchmark (M7;
+  ADR new-task-stream-benchmark, proposed): a world service with no model
+  that keeps the score, and a runner that works one arm (none, notes,
+  tidied) through a stream of tasks in a trial of its own. Its harness is
+  piloted; the stream's forty tasks and the run that answers are not done.
 - `bench/clbench`: arms for Continual Learning Bench. Its first pilot was
   inconclusive; `bench/transfer` is the benchmark to trust for now.
 - `adapters/claude-code`: how to install the hook.
