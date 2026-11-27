@@ -67,14 +67,32 @@ case "${1:-}" in
     [ -n "$dir" ] || { echo "agent-open: $2 is not remembered here" >&2; exit 3; }
     if t list-windows -t main -F '#{window_name}' 2>/dev/null | grep -qxF "$2"; then
         # The window outlives its harness, with a shell left in it: that
-        # shell, at its prompt, is replaced; anything else is left alone.
-        cmd="$(t display-message -p -t "main:=$2" '#{pane_current_command}')"
-        case "$cmd" in
+        # shell, idle at its prompt, is replaced; anything else is left
+        # alone. Not by tmux's name for what runs: a harness that agent-open
+        # runs shows as the script's shell (seen 2026-11-27), so a live one
+        # looked like the shell it leaves.
+        pane="$(t display-message -p -t "main:=$2" '#{pane_pid}')"
+        shell="$pane"
+        if tr '\0' ' ' < "/proc/$pane/cmdline" 2>/dev/null | grep -q -- '--run'; then
+            # agent-open --run: what it runs now (the harness, or the shell
+            # it leaves after), its only child.
+            shell="$(pgrep -P "$pane" 2>/dev/null | head -1)"
+        fi
+        what="$(cat "/proc/$shell/comm" 2>/dev/null || echo nothing)"
+        case "$what" in
+        bash | sh | zsh | dash | ash | fish | "$(basename "${SHELL:-bash}")")
+            # A shell running something (a job of its own), or one a person
+            # is looking at (perhaps typing at its prompt), is theirs.
+            [ -z "$(pgrep -P "$shell" 2>/dev/null)" ] || what="$what, with a job of its own"
+            [ "$(t display-message -p -t "main:=$2" '#{&&:#{session_attached},#{window_active}}')" != 1 ] || what="$what, in front of a person attached"
+            ;;
+        esac
+        case "$what" in
         bash | sh | zsh | dash | ash | fish | "$(basename "${SHELL:-bash}")")
             t respawn-window -k -t "main:=$2" -c "$dir" "exec $self --run $2"
             echo "agent-open: $2 opened again in its window" ;;
         *)
-            echo "agent-open: $2: its window runs $cmd" >&2; exit 4 ;;
+            echo "agent-open: $2: its window runs $what" >&2; exit 4 ;;
         esac
     else
         open_window "$2" "$dir"

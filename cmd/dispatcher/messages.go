@@ -332,17 +332,37 @@ func hook(ctx context.Context, flags map[string][]string) error {
 			return nil
 		}
 		c.HTTP = &http.Client{}
+		// A listener outlives a harness that is killed: it would take the
+		// next message for a session nobody runs (ADR 0053). It listens
+		// only while the harness that started it is there.
+		gone := harnessGoneFunc(os.Getppid())
 		until := time.Now().Add(total)
 		for left := time.Until(until); left > time.Second; left = time.Until(until) {
+			if gone() {
+				return nil
+			}
 			chunk := min(left, 30*time.Minute)
 			cctx, cancel := context.WithTimeout(ctx, chunk+30*time.Second)
+			stop := context.AfterFunc(cctx, func() {})
+			go func() {
+				for cctx.Err() == nil {
+					if gone() {
+						cancel()
+						return
+					}
+					time.Sleep(2 * time.Second)
+				}
+			}()
 			t, err := func() (message.Taken, error) {
 				defer cancel()
+				defer stop()
 				var t message.Taken
 				err := c.Do(cctx, http.MethodPost, "/v1/inbox/take", nil, api.TakeRequest{Session: in.SessionID, How: "wake", Wait: chunk.String()}, &t)
 				return t, err
 			}()
 			switch {
+			case err != nil && gone():
+				return nil
 			case err != nil:
 				time.Sleep(5 * time.Second) // the dispatcher restarting: wait for it
 			case t.Busy:
@@ -385,7 +405,14 @@ func hook(ctx context.Context, flags map[string][]string) error {
 		if name != "" && agent != "" {
 			me += fmt.Sprintf(", called %s (%s/%s)", name, agent, name)
 		}
-		t, _ := take("start", 0)
+		// What waits is taken here only by a session whose start is a turn
+		// (headless). An interactive one would hold it at an idle prompt
+		// (seen 2026-11-27 on a session opened again for a message): its
+		// listener takes it instead, which starts a turn.
+		var t message.Taken
+		if kind != "interactive" {
+			t, _ = take("start", 0)
+		}
 		say("SessionStart", strings.TrimSpace(fmt.Sprintf(intro, me)+"\n\n"+t.Text))
 	case "UserPromptSubmit":
 		_ = present(message.Busy)

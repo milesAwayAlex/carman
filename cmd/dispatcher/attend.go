@@ -106,6 +106,19 @@ func recordHarness(session string) {
 	}
 }
 
+// harnessGoneFunc says, each time it is asked, whether the harness that is
+// an ancestor of pid has gone; never, where none is found.
+func harnessGoneFunc(pid int) func() bool {
+	hp, start, ok := findHarness(pid)
+	return func() bool {
+		if !ok {
+			return false
+		}
+		_, now, err := procStat(hp)
+		return err != nil || now != start
+	}
+}
+
 // harnessAlive says whether a session's harness is known here, and if so
 // whether its process is still there (the same process: same start time).
 func harnessAlive(session string) (known, alive bool) {
@@ -227,7 +240,9 @@ func (a *attender) pass(ctx context.Context) error {
 		}
 		a.logf("session %s (%s): its harness has gone; the dispatcher is told it ended", x.ID, or(x.Name, "no name"))
 		delete(a.gone, x.ID)
-		os.Remove(filepath.Join(harnessDir(), x.ID))
+		// The record stays: if the dispatcher comes to believe the session
+		// runs again (a word from a process its harness left), it is judged
+		// again. A session started again on the same id records anew.
 	}
 	for id := range a.gone {
 		if !believed[id] {

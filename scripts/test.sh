@@ -97,9 +97,10 @@ fi
 scripts/check-backup-copy.sh
 # Nothing here needs a C compiler, and not every place that runs this has one.
 export CGO_ENABLED="${CGO_ENABLED:-0}"
-# agent-open --reopen (ADR 0053), against a fake tmux: a name not
-# remembered is refused, a window that is gone is made, the shell a dead
-# harness left is replaced, and a window that runs something else is not.
+# agent-open --reopen (ADR 0053), against a fake tmux and real processes: a
+# name not remembered is refused, a window that is gone is made, the shell a
+# dead harness left is replaced, and a window that runs a harness, a shell
+# with a job, or is in front of a person attached, is not.
 fake="$(mktemp -d)"
 printf '%s\t%s\n' vpn "$fake" > "$fake/list"
 cat > "$fake/tmux" <<'SH'
@@ -108,18 +109,33 @@ shift 2
 echo "$*" >> "$FAKE/calls"
 case "$1" in
 list-windows) printf '%s' "$FAKE_WINDOWS" ;;
-display-message) echo "$FAKE_CMD" ;;
+display-message)
+    case "$*" in
+    *pane_pid*) echo "$FAKE_PID" ;;
+    *session_attached*) echo "${FAKE_ATTACHED:-0}" ;;
+    esac ;;
 esac
 SH
-chmod +x "$fake/tmux"
-reopen() { FAKE="$fake" AGENT_TMUX="$fake/tmux" AGENT_SESSIONS_FILE="$fake/list" FAKE_WINDOWS="$1" FAKE_CMD="$2" sh deploy/agent/agent-open --reopen "$3" >/dev/null 2>&1; echo $?; }
+printf '#!/bin/sh\nsleep 60\n' > "$fake/claude"
+chmod +x "$fake/tmux" "$fake/claude"
+mkfifo "$fake/fifo"
+bash -c "read -r x < '$fake/fifo'" & idle=$!
+sh -c 'sleep 60; true' & job=$!
+"$fake/claude" & harness=$!
+sleep 0.3
+reopen() { FAKE="$fake" AGENT_TMUX="$fake/tmux" AGENT_SESSIONS_FILE="$fake/list" FAKE_WINDOWS="$1" FAKE_PID="$2" FAKE_ATTACHED="${4:-0}" sh deploy/agent/agent-open --reopen "$3" >/dev/null 2>&1; echo $?; }
+fail() { kill "$idle" "$job" "$harness" 2>/dev/null; rm -rf "$fake"; echo "$1" >&2; exit 1; }
 : > "$fake/calls"
-[ "$(reopen '' '' old)" = 3 ] || { echo "agent-open --reopen opens a name it does not remember" >&2; exit 1; }
-[ "$(reopen '' '' vpn)" = 0 ] && grep -q '^new-window .* -n vpn ' "$fake/calls" || { echo "agent-open --reopen does not make the window that is gone" >&2; exit 1; }
+[ "$(reopen '' '' old)" = 3 ] || fail "agent-open --reopen opens a name it does not remember"
+[ "$(reopen '' '' vpn)" = 0 ] && grep -q '^new-window .* -n vpn ' "$fake/calls" || fail "agent-open --reopen does not make the window that is gone"
 : > "$fake/calls"
-[ "$(reopen vpn bash vpn)" = 0 ] && grep -q '^respawn-window -k -t main:=vpn ' "$fake/calls" || { echo "agent-open --reopen does not replace the shell a dead harness left" >&2; exit 1; }
-: > "$fake/calls"
-[ "$(reopen vpn claude vpn)" = 4 ] && ! grep -q -e respawn -e new-window "$fake/calls" || { echo "agent-open --reopen opens over a window that runs something" >&2; exit 1; }
+[ "$(reopen vpn "$idle" vpn)" = 0 ] && grep -q '^respawn-window -k -t main:=vpn ' "$fake/calls" || fail "agent-open --reopen does not replace the shell a dead harness left"
+for case in "$harness:a live harness" "$job:a shell with a job" "$idle 1:a window a person attached is looking at"; do
+    : > "$fake/calls"
+    what="${case%%:*}"
+    [ "$(reopen vpn "${what% *}" vpn "$([ "${what#* }" = 1 ] && echo 1 || echo 0)")" = 4 ] && ! grep -q -e respawn -e new-window "$fake/calls" || fail "agent-open --reopen opens over ${case#*:}"
+done
+kill "$idle" "$job" "$harness" 2>/dev/null || true
 rm -rf "$fake"
 go vet ./...
 go test ./... "$@"

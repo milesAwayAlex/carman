@@ -115,6 +115,9 @@ for o in out:
     o["metadata"].setdefault("labels", {})["trial"] = name
     spec = o.get("spec", {})
     pod = spec.get("template") or spec.get("jobTemplate", {}).get("spec", {}).get("template")
+    if "jobTemplate" in spec:
+        # The dispatcher gives a Job it starts the labels of this template.
+        spec["jobTemplate"].setdefault("metadata", {}).setdefault("labels", {})["trial"] = name
     if pod is not None:
         pod.setdefault("metadata", {}).setdefault("labels", {})["trial"] = name
         pod["spec"]["serviceAccountName"] = "default"

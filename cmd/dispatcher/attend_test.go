@@ -141,8 +141,47 @@ func TestR2AttendHarnessGone(t *testing.T) {
 	if strings.Join(f.gone, ",") != "s-dead,s-reused" {
 		t.Errorf("ended: %v", f.gone)
 	}
-	if _, err := os.Stat(filepath.Join(harnessDir(), "s-dead")); err == nil {
-		t.Error("the record of a harness that has gone is kept")
+	// The record stays: a session the dispatcher comes to believe runs
+	// again (a listener its harness left took a message, seen 2026-11-27)
+	// is judged again, and said again to have ended.
+	if _, err := os.Stat(filepath.Join(harnessDir(), "s-dead")); err != nil {
+		t.Error("the record of a harness that has gone is removed, so a session believed running again is never judged")
+	}
+	f.attend.Running = []message.Session{{ID: "s-dead"}}
+	f.gone = nil
+	for range 2 {
+		if err := a.pass(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if strings.Join(f.gone, ",") != "s-dead" {
+		t.Errorf("believed running again, then ended: %v", f.gone)
+	}
+}
+
+// TestR2ListenerLeavesWithItsHarness: the idle listener asks whether the
+// harness above it is there, so that one left behind by a killed harness
+// takes no message (ADR 0053).
+func TestR2ListenerLeavesWithItsHarness(t *testing.T) {
+	dir := t.TempDir()
+	procRoot = filepath.Join(dir, "proc")
+	t.Cleanup(func() { procRoot = "/proc" })
+	fakeProc(t, procRoot, 200, 1, "777", "/home/a/.local/bin/claude --name vpn")
+	fakeProc(t, procRoot, 210, 200, "780", "/bin/sh -c dispatcher hook claude-code --wait 335h")
+	gone := harnessGoneFunc(210)
+	if gone() {
+		t.Error("a harness that is there is taken for gone")
+	}
+	os.RemoveAll(filepath.Join(procRoot, "200"))
+	if !gone() {
+		t.Error("a harness that has gone is taken for there")
+	}
+	fakeProc(t, procRoot, 200, 1, "999", "bash")
+	if !gone() {
+		t.Error("another process with the harness's id is taken for the harness")
+	}
+	if harnessGoneFunc(12345)() {
+		t.Error("with no harness found, the listener would never listen")
 	}
 }
 

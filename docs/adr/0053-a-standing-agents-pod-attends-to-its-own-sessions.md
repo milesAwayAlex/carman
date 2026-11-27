@@ -72,14 +72,20 @@ for each runs `agent-open --reopen NAME`:
   its window is made, as at the pod's start.
 - Its window is there with the shell its dead harness left at its prompt:
   that shell is replaced by the session (`tmux respawn-window`), on its
-  conversation, as `agent-open NAME` does.
+  conversation, as `agent-open NAME` does. What runs in the window is
+  judged by its processes, not by tmux's name for it (a live harness that
+  `agent-open` runs shows as the script's shell): a harness, a shell with
+  a job of its own, or a window a person attached is looking at is left
+  alone.
 - Its window runs anything else: it is left alone (exit 4), and the
   sender is told so; it is tried again later.
 - The name is not remembered (forgotten with `agent-open --forget`, left
   with `exit`, or never opened here): it is not opened (exit 3); the
   message waits and its sender is told why.
 
-The session's own start takes the message: a named session of a standing
+The session's listener takes the message, which starts a turn (an
+interactive session's start is not one: what its `SessionStart` hook took
+would sit in its context at an idle prompt): a named session of a standing
 agent's pod is handed, as on the owner's machine (ADR 0049), the messages
 of the earlier sessions of its name that are not running, since the
 harness may give a reopened session a new id. A session of that name
@@ -123,6 +129,25 @@ are refused.
   if it was at its prompt: a person who ran something in it keeps it.
 - The watcher is one more process per standing pod, with one request to
   the dispatcher every ten seconds, which reads the agent's sessions.
+
+## Found in the first trial in a pod (2026-11-27), and changed
+
+- The idle listener (`dispatcher hook claude-code --wait`) outlived a
+  harness killed with `kill -9` and took the next message for the session,
+  as a wake to a harness that was gone: the message was marked delivered
+  and the session busy again. The listener now listens only while the
+  harness above it is there (by its process and start time, as the
+  watcher judges it), and stops when it goes.
+- The watcher removed a session's record when it said the session had
+  ended, so a session the dispatcher came to believe runs again was never
+  judged again. The record is kept.
+- A session opened again for a message took it in its `SessionStart` hook
+  and sat at its prompt without acting on it. An interactive session's
+  start takes nothing now; its listener does, which starts a turn.
+- `agent-open --reopen` judged a window by tmux's name for what runs in
+  it, which for a live harness started by `agent-open` is the script's
+  shell, and replaced a live harness (tried on a trial session). It now
+  looks at the window's processes.
 
 ## The owner's machine (not built)
 

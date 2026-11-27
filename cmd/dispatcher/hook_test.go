@@ -57,12 +57,16 @@ func TestR2HookOff(t *testing.T) {
 // session for its directory, registers it as interactive, puts its id in
 // the shell, and says where it is; without it, the hook does nothing.
 func TestR2HookWithoutPod(t *testing.T) {
-	var auth, presence []string
+	var auth, presence, takes []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth = append(auth, r.Header.Get("Authorization"))
 		if r.URL.Path == "/v1/sessions" {
 			b, _ := io.ReadAll(r.Body)
 			presence = append(presence, string(b))
+		}
+		if r.URL.Path == "/v1/inbox/take" {
+			b, _ := io.ReadAll(r.Body)
+			takes = append(takes, string(b))
 		}
 		w.Write([]byte(`{}`))
 	}))
@@ -113,6 +117,11 @@ func TestR2HookWithoutPod(t *testing.T) {
 	if b, _ := os.ReadFile(envFile); !strings.Contains(string(b), "DISPATCHER_SESSION=s1") {
 		t.Errorf("the shell is not told its session: %q", b)
 	}
+	// An interactive session's start is no turn: what waits is left for its
+	// listener, whose wake starts one (ADR 0053).
+	if len(takes) != 0 {
+		t.Errorf("an interactive session took its messages at its start: %v", takes)
+	}
 	// A headless run there (claude -p) is headless: an idle listener would
 	// hold the run open, since the harness waits for it.
 	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "sdk-cli")
@@ -121,6 +130,9 @@ func TestR2HookWithoutPod(t *testing.T) {
 	run("SessionStart")
 	if len(presence) != 1 || !strings.Contains(presence[0], `"kind":"headless"`) {
 		t.Errorf("a headless run on the owner's machine says of itself: %v", presence)
+	}
+	if len(takes) != 1 || !strings.Contains(takes[0], `"start"`) {
+		t.Errorf("a headless run, whose start is a turn, takes what waits at its start: %v", takes)
 	}
 	calls := len(auth)
 	r, w, _ := os.Pipe()
