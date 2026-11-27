@@ -25,6 +25,8 @@ var tests = []test{
 	{"R7_ReasonIsTheLastConsideration", false, testReasonAtLimit},
 	{"Overrun", false, testOverrun},
 	{"NotStartedInTime", false, testNotStarted},
+	{"After", false, testAfter},
+	{"AfterLapses", false, testAfterLapses},
 	{"R2_WaitWokenByEvent", false, testWakeByEvent},
 	{"R2_WaitWokenByDeadline", false, testWakeByDeadline},
 	{"R2_WaitEventBeforeRegistered", false, testEventBeforeRegistered},
@@ -497,4 +499,62 @@ func (e *env) staysReason(d dispatch.Dispatcher, id string, kind dispatch.Reason
 				id, st.State, st.Reason.Kind, st.Reason.Detail, kind, detail)
 		}
 	}
+}
+
+func after(id, class string, within time.Duration) dispatch.TaskSpec {
+	s := spec(id, 0)
+	s.After, s.AfterWithin = class, within
+	return s
+}
+
+func testAfter(t *testing.T, f Factory) {
+	e := newEnv(t, f, 4)
+	d := e.open("b1")
+	c, cancel := ctx()
+	defer cancel()
+	if err := d.Submit(c, after("bad", "a", 0)); !errors.Is(err, dispatch.ErrInvalid) {
+		t.Errorf("a task after a class with no wait: %v, want ErrInvalid", err)
+	}
+	first := spec("first", 0)
+	first.Class = "a"
+	e.submit(d, first)
+	e.waitEvent(d, tid(dispatch.TypeStarted, "first", attempt("first", 1)), react)
+	e.submit(d, after("second", "a", time.Hour))
+	// Nothing of class b was submitted before it: it starts at once.
+	e.submit(d, after("free", "b", time.Hour))
+	e.waitEvent(d, tid(dispatch.TypeStarted, "free", attempt("free", 1)), react)
+	e.eventually(react, "second to be held after first", func() bool {
+		st := e.explain(d, "second")
+		return st.Reason.Kind == dispatch.ReasonAfter && st.Reason.Detail == "first"
+	})
+	// A task of the class submitted later does not hold it.
+	later := spec("later", 0)
+	later.Class = "a"
+	e.setHold("later", "not now")
+	e.submit(d, later)
+	e.staysReason(d, "second", dispatch.ReasonAfter, "first")
+	e.expectNoCall(attempt("second", 1), 0)
+	// However first ends, second starts.
+	e.finish(d, attempt("first", 1), dispatch.OutcomeFailed, nil)
+	e.waitEvent(d, tid(dispatch.TypeStarted, "second", attempt("second", 1)), react)
+	e.wantTransitions(d, "second", dispatch.TypeSubmitted, dispatch.TypeStarted+" second#1")
+	e.check(d)
+}
+
+func testAfterLapses(t *testing.T, f Factory) {
+	e := newEnv(t, f, 4)
+	d := e.open("b1")
+	e.setHold("stuck", "not now")
+	stuck := spec("stuck", 0)
+	stuck.Class = "a"
+	e.submit(d, stuck)
+	e.submit(d, after("next", "a", time.Second))
+	r := e.waitEvent(d, tid(dispatch.TypeAfterLapsed, "next", ""), react+time.Second)
+	var tr dispatch.Transition
+	if err := json.Unmarshal(r.Data, &tr); err != nil || tr.After != "stuck" {
+		t.Errorf("task.after-lapsed data %s, want after stuck", r.Data)
+	}
+	e.waitEvent(d, tid(dispatch.TypeStarted, "next", attempt("next", 1)), react)
+	e.wantTransitions(d, "next", dispatch.TypeSubmitted, dispatch.TypeAfterLapsed, dispatch.TypeStarted+" next#1")
+	e.check(d)
 }

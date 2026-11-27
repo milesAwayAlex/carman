@@ -80,7 +80,9 @@ func (d *Dispatcher) nextDue(ctx context.Context) (time.Duration, error) {
 			(SELECT min(started_at + timeout_us * interval '1 microsecond') FROM tasks WHERE state = 'running'),
 			(SELECT min(wait_deadline) FROM tasks WHERE state = 'waiting'),
 			(SELECT min(start_by) FROM tasks t
-				WHERE state = 'pending' AND attempt <= 1 AND NOT not_started AND NOT `+live(d.schema)+`)
+				WHERE state = 'pending' AND attempt <= 1 AND NOT not_started AND NOT `+live(d.schema)+`),
+			(SELECT min(`+afterUntil+`) FROM tasks t
+				WHERE state = 'pending' AND attempt <= 1 AND NOT `+lapsed+` AND `+blocker+` IS NOT NULL)
 		) - clock_timestamp())::float8`).Scan(&secs)
 	if err != nil {
 		return idlePoll, err
@@ -275,8 +277,50 @@ func (w *wtx) actOnTime() error {
 			return err
 		}
 	}
+	// A task held after another past its AfterWithin is let go, once.
+	rows, err = w.tx.Query(w.ctx, `SELECT id, `+blocker+` FROM tasks t
+		WHERE state = 'pending' AND attempt <= 1 AND NOT `+lapsed+` AND `+afterUntil+` <= $1`, w.now)
+	if err != nil {
+		return err
+	}
+	type lapse struct{ id, after string }
+	lapses, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (lapse, error) {
+		var l lapse
+		var b *string
+		err := row.Scan(&l.id, &b)
+		if b != nil {
+			l.after = *b
+		}
+		return l, err
+	})
+	if err != nil {
+		return err
+	}
+	for _, l := range lapses {
+		if l.after == "" {
+			continue
+		}
+		if err := w.transition(dispatch.TypeAfterLapsed, l.id, "", dispatch.Transition{After: l.after}); err != nil {
+			return err
+		}
+	}
 	return w.fireSchedules()
 }
+
+// afterUntil is when the task t is no longer held after another, and lapsed
+// whether it was let go; both are read from the log, so as to need no
+// columns.
+const (
+	afterUntil = `(SELECT e.time + ((t.spec->>'after_within')::bigint / 1000) * interval '1 microsecond'
+		FROM events e WHERE e.id = 'task.submitted/' || t.id || '/')`
+	lapsed = `EXISTS (SELECT 1 FROM events e WHERE e.id = 'task.after-lapsed/' || t.id || '/')`
+)
+
+// blocker is, for the task t, the latest task submitted before it of the
+// class it is after that has not ended, or NULL.
+const blocker = `(SELECT b.id FROM tasks b WHERE t.spec->>'after' IS NOT NULL
+		AND b.state IN ('pending', 'running', 'waiting') AND b.ord < t.ord
+		AND b.spec->>'class' = t.spec->>'after' ORDER BY b.ord DESC LIMIT 1)`
 
 type sched struct {
 	spec dispatch.Schedule
@@ -378,7 +422,8 @@ func (d *Dispatcher) startWhatCan(ctx context.Context) (time.Duration, error) {
 	// This instance starts one task at a time, so a claim of its own found
 	// now is left from a start whose outcome was not recorded: not live.
 	rows, err := d.pool.Query(ctx, `SELECT spec, payload, attempt, reason, state = 'running',
-			state = 'running' OR (t.starting_by <> $1 AND `+live(d.schema)+`)
+			state = 'running' OR (t.starting_by <> $1 AND `+live(d.schema)+`),
+			CASE WHEN state = 'pending' AND attempt <= 1 AND NOT `+lapsed+` THEN `+blocker+` END
 		FROM tasks t WHERE state IN ('pending', 'running')
 		ORDER BY priority DESC, ord`, d.id)
 	if err != nil {
@@ -386,11 +431,14 @@ func (d *Dispatcher) startWhatCan(ctx context.Context) (time.Duration, error) {
 	}
 	var cands []candidate
 	var running []dispatch.TaskSpec
+	var held []candidate
+	var heldAfter []string
 	for rows.Next() {
 		var spec, payload []byte
 		var c candidate
 		var isRunning, busy bool
-		if err := rows.Scan(&spec, &payload, &c.attempt, &c.reason, &isRunning, &busy); err != nil {
+		var after *string
+		if err := rows.Scan(&spec, &payload, &c.attempt, &c.reason, &isRunning, &busy, &after); err != nil {
 			rows.Close()
 			return again, err
 		}
@@ -403,12 +451,20 @@ func (d *Dispatcher) startWhatCan(ctx context.Context) (time.Duration, error) {
 			if !isRunning {
 				again = recheck // another instance's start, which may have died
 			}
+		} else if after != nil {
+			held = append(held, c)
+			heldAfter = append(heldAfter, *after)
 		} else {
 			cands = append(cands, c)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return again, err
+	}
+	for i, c := range held {
+		if err := d.setReason(ctx, c, dispatch.ReasonAfter, heldAfter[i]); err != nil {
+			return again, err
+		}
 	}
 
 	for i, c := range cands {

@@ -37,6 +37,8 @@ type task struct {
 	wake       *dispatch.Wake
 	reason     dispatch.Reason
 	notStarted bool
+	submitted  time.Time
+	lapsed     bool // task.after-lapsed was emitted
 }
 
 type schedule struct {
@@ -171,8 +173,8 @@ func (d *Dispatcher) Events(ctx context.Context, after int64, limit int) ([]disp
 }
 
 func (d *Dispatcher) Submit(ctx context.Context, t dispatch.TaskSpec) error {
-	if t.ID == "" || t.Class == "" || t.AttemptTimeout <= 0 {
-		return fmt.Errorf("%w: task needs id, class and a positive attempt timeout", dispatch.ErrInvalid)
+	if err := t.Check(); err != nil {
+		return err
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -188,7 +190,7 @@ func (d *Store) submit(t dispatch.TaskSpec) {
 		return
 	}
 	d.order++
-	d.tasks[t.ID] = &task{spec: t, order: d.order, state: dispatch.Pending}
+	d.tasks[t.ID] = &task{spec: t, order: d.order, state: dispatch.Pending, submitted: time.Now()}
 	d.transition(dispatch.TypeSubmitted, t.ID, "", dispatch.Transition{Spec: &t})
 }
 
@@ -354,6 +356,30 @@ func (d *Dispatcher) wakeUp(t *task, w *dispatch.Wake) {
 	d.transition(dispatch.TypeWoken, t.spec.ID, name, dispatch.Transition{Attempt: name, Wake: w})
 }
 
+// blocker is the ID of the task t is held after, or "". Caller holds mu.
+func (d *Store) blocker(t *task, now time.Time) string {
+	if t.spec.After == "" || t.attempt > 1 || t.lapsed {
+		return ""
+	}
+	var b *task
+	for _, o := range d.tasks {
+		if o.spec.Class == t.spec.After && o.order < t.order &&
+			(o.state == dispatch.Pending || o.state == dispatch.Running || o.state == dispatch.Waiting) &&
+			(b == nil || o.order > b.order) {
+			b = o
+		}
+	}
+	if b == nil {
+		return ""
+	}
+	if now.Sub(t.submitted) >= t.spec.AfterWithin {
+		t.lapsed = true
+		d.transition(dispatch.TypeAfterLapsed, t.spec.ID, "", dispatch.Transition{After: b.spec.ID})
+		return ""
+	}
+	return b.spec.ID
+}
+
 // actOnTime handles overruns, deadlines, late starts and schedules.
 func (d *Dispatcher) actOnTime(now time.Time) {
 	for _, t := range d.tasks {
@@ -409,6 +435,10 @@ func (d *Dispatcher) startWhatCan() {
 			if t.state == dispatch.Running || t.inFlight() {
 				running = append(running, t.spec)
 			} else if t.state == dispatch.Pending && !asked[t.spec.ID] {
+				if b := d.blocker(t, time.Now()); b != "" {
+					t.reason = dispatch.Reason{Kind: dispatch.ReasonAfter, Detail: b}
+					continue
+				}
 				pending = append(pending, t)
 			}
 		}
