@@ -84,7 +84,7 @@ func TestR7BudgetRuleRefusedModel(t *testing.T) {
 	ladders := map[string][]string{"night": {"strong", "cheap"}, "day": {"cheap", "strong"}}
 	rule := budgetRule{Below: 50, Above: 0.9, MaxAge: 2 * time.Hour, Now: func() time.Time { return now },
 		Readings: func(context.Context) ([]dispatch.Record, error) { return recs, nil },
-		Models:   func(_ context.Context, class string) ([]string, error) { return ladders[class], nil }}
+		Models:   func(_ context.Context, task dispatch.TaskSpec) ([]string, error) { return ladders[task.Class], nil }}
 	ctx := context.Background()
 	ok, why := rule.admit(ctx, dispatch.TaskSpec{ID: "n", Class: "night", Priority: 90}, nil)
 	if ok || why != "strong, the first model of this task's ladder, is refused (seven_day_overage_included) until 2026-11-27 18:00 UTC; this task waits for it" {

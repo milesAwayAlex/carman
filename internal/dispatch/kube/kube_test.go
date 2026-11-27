@@ -415,8 +415,9 @@ func TestR6WatchSeesAnEnd(t *testing.T) {
 	}
 }
 
-// TestR7ClassModels: a class's ladder is the CMEM_ROUTINE_MODELS of its
-// CronJob's container, first model first; none when it sets none.
+// TestR7ClassModels: a task's ladder is that of the first routine its Job
+// runs (CMEM_ROUTINE_MODELS_ROUTINE), else its CronJob's
+// CMEM_ROUTINE_MODELS, first model first; none when it sets none.
 func TestR7ClassModels(t *testing.T) {
 	f, c := newFakeAPI(t)
 	f.cronjobs["sleeper"] = cronJob("sleeper")
@@ -424,15 +425,30 @@ func TestR7ClassModels(t *testing.T) {
 	ct := dig(cj, "spec", "jobTemplate", "spec", "template", "spec", "containers").([]any)[0].(map[string]any)
 	ct["env"] = append(ct["env"].([]any), map[string]any{"name": "CMEM_ROUTINE_MODELS", "value": "strong, cheap,cheap"})
 	f.cronjobs["ladder"] = cj
+	own := cronJob("own")
+	ct = dig(own, "spec", "jobTemplate", "spec", "template", "spec", "containers").([]any)[0].(map[string]any)
+	ct["args"] = []any{"tidy-up", "distill"}
+	ct["env"] = append(ct["env"].([]any), map[string]any{"name": "CMEM_ROUTINE_MODELS", "value": "cheap"},
+		map[string]any{"name": "CMEM_ROUTINE_MODELS_DISTILL", "value": "middle"},
+		map[string]any{"name": "CMEM_ROUTINE_MODELS_TIDY_UP", "value": "strong,cheap"})
+	f.cronjobs["own"] = own
 	s := &Starter{Client: c}
 	ctx := context.Background()
-	if got, err := s.Models(ctx, "ladder"); err != nil || strings.Join(got, ",") != "strong,cheap,cheap" {
-		t.Errorf("ladder: %v, %v", got, err)
+	task := func(class, payload string) dispatch.TaskSpec {
+		return dispatch.TaskSpec{Class: class, Payload: json.RawMessage(payload)}
 	}
-	if got, err := s.Models(ctx, "sleeper"); err != nil || got != nil {
-		t.Errorf("no ladder: %v, %v", got, err)
+	for _, tc := range []struct{ class, payload, want string }{
+		{"ladder", "", "strong,cheap,cheap"},
+		{"own", "", "strong,cheap"},
+		{"own", `{"env":{"TASK_MESSAGE":"m1"}}`, "cheap"},
+		{"sleeper", "", ""},
+	} {
+		got, err := s.Models(ctx, task(tc.class, tc.payload))
+		if err != nil || strings.Join(got, ",") != tc.want {
+			t.Errorf("%s %s: %v, %v; want %s", tc.class, tc.payload, got, err, tc.want)
+		}
 	}
-	if _, err := s.Models(ctx, "nothing"); err == nil {
+	if _, err := s.Models(ctx, task("nothing", "")); err == nil {
 		t.Error("a class with no CronJob has a ladder")
 	}
 }

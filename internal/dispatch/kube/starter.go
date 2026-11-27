@@ -168,11 +168,14 @@ func (s *Starter) CheckSuspended(ctx context.Context, class string) error {
 	return err
 }
 
-// Models is the ladder a class's CronJob gives its routines
-// (CMEM_ROUTINE_MODELS of its first container), first model first: none
-// when it gives none.
-func (s *Starter) Models(ctx context.Context, class string) ([]string, error) {
-	tmpl, _, err := s.template(ctx, class)
+// Models is the ladder of models task's Job starts with, first model first:
+// that of the first routine the Job runs (its CronJob's first argument, or
+// else the payload's), which is CMEM_ROUTINE_MODELS_ROUTINE (the name in
+// capitals, _ for -) where the CronJob's first container sets one, and else
+// its CMEM_ROUTINE_MODELS (ADR 0062). A run for a message runs no routine
+// and starts with the latter. None when the CronJob gives none.
+func (s *Starter) Models(ctx context.Context, task dispatch.TaskSpec) ([]string, error) {
+	tmpl, _, err := s.template(ctx, task.Class)
 	if err != nil {
 		return nil, err
 	}
@@ -181,21 +184,46 @@ func (s *Starter) Models(ctx context.Context, class string) ([]string, error) {
 		return nil, nil
 	}
 	c, _ := containers[0].(map[string]any)
+	var p Payload
+	_ = json.Unmarshal(task.Payload, &p)
+	routine := ""
+	if args, _ := c["args"].([]any); len(args) > 0 {
+		routine = fmt.Sprint(args[0])
+	} else if len(p.Args) > 0 {
+		routine = p.Args[0]
+	}
+	if p.Env["TASK_MESSAGE"] != "" {
+		routine = ""
+	}
+	own := ""
+	if routine != "" {
+		own = "CMEM_ROUTINE_MODELS_" + strings.ToUpper(strings.ReplaceAll(routine, "-", "_"))
+	}
+	var class, mine []string
 	env, _ := c["env"].([]any)
 	for _, e := range env {
 		m, _ := e.(map[string]any)
-		if m["name"] != "CMEM_ROUTINE_MODELS" {
-			continue
+		switch m["name"] {
+		case "CMEM_ROUTINE_MODELS":
+			class = splitModels(fmt.Sprint(m["value"]))
+		case own:
+			mine = splitModels(fmt.Sprint(m["value"]))
 		}
-		var out []string
-		for _, model := range strings.Split(fmt.Sprint(m["value"]), ",") {
-			if model = strings.TrimSpace(model); model != "" {
-				out = append(out, model)
-			}
-		}
-		return out, nil
 	}
-	return nil, nil
+	if own != "" && len(mine) > 0 {
+		return mine, nil
+	}
+	return class, nil
+}
+
+func splitModels(v string) []string {
+	var out []string
+	for _, model := range strings.Split(v, ",") {
+		if model = strings.TrimSpace(model); model != "" {
+			out = append(out, model)
+		}
+	}
+	return out
 }
 
 func (s *Starter) template(ctx context.Context, class string) (map[string]any, bool, error) {
