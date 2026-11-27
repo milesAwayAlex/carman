@@ -141,6 +141,12 @@ Built so far:
   its `SessionStart` hook), and opens again with `agent-open --reopen` a
   remembered session a message waits for, with a backoff, telling the
   sender why when it does not.
+- `carman go` (ADR 0057, proposed): `cmd/carman`, the owner's way to a
+  session from any directory. It lists the dispatcher's sessions, those
+  waiting on him first, and goes to one: `kubectl exec` into a standing
+  agent's pod, at a view of its own (`agent-view`: a tmux session in the
+  pod's group, with no status line and no prefix), attached again after a
+  dropped connection with `--keep`.
 - The definition from within (ADR 0056, proposed): an agent with
   `definition: true` reads the installation's definition in its pod
   (`agent-definition clone|update|propose`), and its proposal, a message

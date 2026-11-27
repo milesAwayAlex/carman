@@ -778,6 +778,25 @@ agent, and recorded as `message.refused`. `dispatcher peers` marks what the
 caller may not write to. A `writtenBy` that names no agent of the values
 fails the render.
 
+Going to a session from the owner's machine, from any directory (ADR
+0057): the `carman` program (`nix build .#carman`), with `CARMAN_CONTEXT`
+set to the cluster's kubectl context and the dispatcher's address and the
+machine's token as the `dispatcher` client has them (`CARMAN_NAMESPACE`,
+`CARMAN_KUBECTL` and `CARMAN_CHECKOUT` when they differ or are wanted):
+
+```sh
+carman go                    # pick one: those waiting on you first
+carman go --list             # the same list, printed
+carman go desk/paris-vpn     # by name; or a name alone, or the start of an id
+carman go --keep NAME        # attach again after a dropped connection, until it is left
+```
+
+In the pod each attach is a view of its own of that one session's window,
+with no status line and no prefix key, so it sits in a window of your own
+tmux as if it ran there; two windows can show two sessions of one pod. It
+is left by closing your window, or by ending the session. `agent attach
+NAME` still attaches to the pod's whole tmux.
+
 A standing agent's sessions (ADR 0053): `agent-session` starts
 `dispatcher attend` in the pod (its log is `/tmp/agent-attend.log`). A
 session whose harness process has gone (killed, out of memory, its window

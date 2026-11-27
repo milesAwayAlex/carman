@@ -146,6 +146,17 @@ handed it. The dispatcher's Service may be a LoadBalancer
 (`dispatcher.service.type`; the local values do this, on port 8379), and
 `scripts/deploy.sh CONTEXT env` writes `.local/dispatcher.env`.
 
+The owner goes to a session with `carman go` (ADR 0057, proposed): the
+program asks the dispatcher for the sessions, lists those that wait on him
+first (idle with a message for him unread, then working with one, then
+idle, then busy, then those not running that can be gone to), and for one
+in a standing agent's pod runs `kubectl exec` there into `agent-view`, a
+tmux session of its own in the pod's group that shows that session's
+window, with no status line and no prefix. How the attach ended tells a
+leave (status 0) from a dropped connection, after which `--keep` attaches
+again. A job's kept conversation is still gone to by the checkout's
+`agent resume`.
+
 A standing agent's pod attends to its own sessions (ADR 0053, proposed).
 `dispatcher attend`, started by `agent-session`, holds a session the
 dispatcher believes runs in the pod to have ended when the harness process
