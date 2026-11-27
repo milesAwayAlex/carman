@@ -207,7 +207,12 @@ expired by then.
   by default (ADR 0043): below a priority, a task is held while a window is
   above a utilization and has not reset; a reading too old admits. A task
   whose ladder starts with a model refused until a time to come waits for
-  it, whatever its priority (ADR 0052). The dreamer and benchmark runs are
+  it, whatever its priority (ADR 0052). Then the curve (ADR 0060,
+  proposed, `mode: curve`): a line from zero at a window's start to a
+  target at its reset, the rate from recent readings; below the priority,
+  a task waits while a window is ahead of its line, with when it expects
+  to run, and a window resetting soon with room admits all; `usage.room`
+  says what a window will leave unused at the present rate. The dreamer and benchmark runs are
   backlog jobs.
 - Per run: `maxBudgetUsd` and `maxTurns` are hard stops.
 
@@ -657,7 +662,8 @@ Decisions are recorded one per file in `docs/adr/`. The index,
    owner's token off the cluster, which holds only its hash. Then
    (ADR 0053, proposed): a standing pod's watcher of its own sessions.
    Next: move the scheduled agents onto the dispatcher one by one, switch
-   notices on, and pace by a curve to reset.
+   notices on, and act on room a window will leave unused (the curve:
+   ADR 0060, proposed).
 
 ## 12. References
 
