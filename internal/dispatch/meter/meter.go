@@ -150,6 +150,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rq.sniff = &sniffer{body: r.Body}
 		r.Body = rq.sniff
 	}
+	// The answer may start before the request is all sent on (its body's
+	// last read, for its end, comes after the API has it): writing the
+	// answer must not close the body under the meter, which cut the answer.
+	_ = http.NewResponseController(w).EnableFullDuplex()
 	p.rp.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, rq)))
 }
 
