@@ -3,7 +3,8 @@
 // the roles allowed to use it, as the memory service does.
 //
 // The roles:
-//   - owner: everything; submits work, reads the tasks and the log.
+//   - owner: everything; submits work, reads the tasks and the log. The
+//     service knows its token only by the token's SHA-256 (ADR 0051).
 //   - agent: any agent or watcher. It may only emit events, and not of the
 //     types the dispatcher and its job watcher write (task.*, job.*,
 //     schedule.*): it can say what it saw, not that work started or ended.
@@ -19,6 +20,7 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
@@ -82,6 +84,9 @@ type Store interface {
 type Server struct {
 	Store  Store
 	Tokens map[string]Role
+	// OwnerSHA256 is the SHA-256 of the owner's token (ADR 0051): the
+	// token itself stays on the owner's machine.
+	OwnerSHA256 []byte
 	// Check says whether a task can be started at all (its class names a
 	// template, its payload is allowed); nil accepts every task.
 	Check func(context.Context, dispatch.TaskSpec) error
@@ -199,6 +204,9 @@ func (s *Server) authenticate(r *http.Request) (Role, message.Caller, error) {
 	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || token == "" {
 		return "", message.Caller{}, errUnauthorized
+	}
+	if sum := sha256.Sum256([]byte(token)); len(s.OwnerSHA256) == sha256.Size && subtle.ConstantTimeCompare(sum[:], s.OwnerSHA256) == 1 {
+		return RoleOwner, message.Caller{Owner: true}, nil
 	}
 	for known, role := range s.Tokens {
 		if subtle.ConstantTimeCompare([]byte(known), []byte(token)) == 1 {

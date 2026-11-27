@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"log/slog"
@@ -147,6 +149,46 @@ func TestR2HostRole(t *testing.T) {
 	}
 	if _, err := ParseTokens("owner=o,host=h"); err != nil {
 		t.Errorf("a host token: %v", err)
+	}
+}
+
+// TestR2OwnerTokenHash: the service knows the owner's token only by its
+// SHA-256 (ADR 0051). The token is the owner; a wrong one, and the hash
+// presented as a token, are refused.
+func TestR2OwnerTokenHash(t *testing.T) {
+	const token = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a6978"
+	sum := sha256.Sum256([]byte(token))
+	s := &Server{Store: &fakeStore{}, Tokens: map[string]Role{"a": RoleAgent}, OwnerSHA256: sum[:],
+		Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	call := func(tok string) int {
+		req, _ := http.NewRequest("GET", srv.URL+"/v1/tasks", nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if code := call(token); code != 200 {
+		t.Errorf("the owner's token: %d, want 200", code)
+	}
+	for name, tok := range map[string]string{
+		"a wrong token":    token[:len(token)-1] + "0",
+		"the hash, in hex": hex.EncodeToString(sum[:]),
+	} {
+		if code := call(tok); code != 401 {
+			t.Errorf("%s: %d, want 401", name, code)
+		}
+	}
+	if code := call("a"); code != 403 {
+		t.Errorf("an agent's token on an owner's route: %d, want 403", code)
+	}
+	s.OwnerSHA256 = nil
+	if code := call(token); code != 401 {
+		t.Errorf("the owner's token where no hash is set: %d, want 401", code)
 	}
 }
 

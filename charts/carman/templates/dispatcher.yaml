@@ -94,15 +94,13 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.dispatcher.tokensSecret }}
                   key: DISPATCHER_TOKENS
-            # For the client inside this pod, which is how the owner's
-            # commands reach the service (scripts/deploy.sh dispatch).
-            - name: DISPATCHER_URL
-              value: http://127.0.0.1:8379
-            - name: DISPATCHER_TOKEN
+            # The owner's token is not on the cluster, only its hash
+            # (ADR 0051); the owner's client runs on the owner's machine.
+            - name: DISPATCHER_OWNER_SHA256
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.dispatcher.tokensSecret }}
-                  key: owner
+                  key: owner-sha256
             - name: DISPATCHER_NAMESPACE
               valueFrom:
                 fieldRef:

@@ -26,7 +26,8 @@ In the namespace `carman` (`CARMAN_NAMESPACE` names another):
   dreamer" below), switched off until it has a model credential.
 - `deployment/dispatcher` and `statefulset/dispatcher-db`, the dispatcher
   and its own Postgres, with `pvc/data-dispatcher-db-0` (2 GiB),
-  `secret/dispatcher-tokens` (owner, agent and backup roles) and
+  `secret/dispatcher-tokens` (the agent, backup and host roles' tokens, and
+  the SHA-256 of the owner's, ADR 0051) and
   `secret/dispatcher-db` (the database's password), both made from random
   values on the first deploy (see "The dispatcher" below).
 
@@ -476,8 +477,12 @@ Agents are given no key: what they build goes to repositories of their own.
 
 The dispatcher (ADR 0042) starts agents' runs as Jobs and records in its log
 how every Job in the namespace ended, whoever started it: a CronJob, the
-dispatcher, or a person. Its client runs inside its pod as the owner, so
-these need no port of this machine:
+dispatcher, or a person. These run its client, built from this checkout,
+on this machine, as the owner (ADR 0051): with the token in
+`.local/dispatcher-owner.token`, which the deploy makes and which is the
+only copy (the cluster holds its SHA-256). They reach the service at its
+LoadBalancer where it answers here (the local cluster's port 8379), and
+otherwise through a port forwarded for the length of the command:
 
 ```sh
 scripts/deploy.sh devvm dispatch status            # running, pending and why, the last runs
@@ -526,6 +531,23 @@ scripts/deploy.sh devvm dispatch restore dispatcher.sql
 and starts the service on it. Drop the old one when the restored one has
 been looked at: `kubectl --context CONTEXT -n carman exec dispatcher-db-0 --
 psql -U dispatcher -d postgres -c 'DROP DATABASE "dispatcher_replaced_TIME"'`.
+
+**The owner's token** (ADR 0051) is on this machine only, in
+`.local/dispatcher-owner.token`; keep a copy where the owner keeps
+credentials. A message sent with it is the owner's word to every session.
+The first deploy makes it. A deploy of an installation whose secret still
+holds the token in the clear (from before ADR 0051) makes a new one, writes
+it there, replaces the secret with one holding its hash and the other tokens
+as they were, and restarts the dispatcher; the old token stops working. A
+deploy that finds no token here, or one the cluster does not know, says so.
+To make a new one (whoever may deploy may do this):
+
+```sh
+scripts/deploy.sh devvm dispatch owner-token new
+```
+
+`dispatch owner-token back` puts it on the cluster again, for going back to
+a commit from before ADR 0051 (`deploy/RECOVERY.md`).
 
 **Schedules** (ADR 0043). The dispatcher starts on time what the values
 list: `dispatcher.schedules` (name, class, a five-field cron expression,

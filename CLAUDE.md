@@ -120,6 +120,10 @@ Built so far:
   `adapters/claude-code` with `.local/dispatcher.env`
   (`scripts/deploy.sh CONTEXT env`); the dispatcher a LoadBalancer on the
   local cluster's port 8379.
+- The owner's token off the cluster (ADR 0051, proposed): the dispatcher
+  knows only its SHA-256; the token is in `.local/dispatcher-owner.token`,
+  and `scripts/deploy.sh CONTEXT dispatch ...` runs the client on the
+  owner's machine with it (`dispatch owner-token new|back`).
 
 Not built yet: the way in from a laptop to a service on a shared cluster,
 more than one machine of the owner's (one place per installation), a
