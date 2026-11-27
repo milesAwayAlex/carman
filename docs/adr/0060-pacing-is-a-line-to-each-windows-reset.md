@@ -28,10 +28,12 @@ reading's utilization is above the line now, and under it otherwise.
 **The rate.** The readings of one window are those whose reset is the
 latest one's (within half an hour): the shared windows from every model's
 readings, a model's own windows from its own. The window's start, at
-zero, counts as a reading. The rate is the slope from the earliest
-reading within a span back from the latest (two hours for a five-hour
-window, a day for a seven-day one; the latest before the span when none
-is inside it) to the latest. So:
+zero, counts as a reading. The rate is the slope to the latest reading
+from the latest one at least a span before it (two hours for a five-hour
+window, a day for a seven-day one), or from the window's start when there
+is none. Readings closer together than the span are not used for the
+rate: utilization comes in whole points, and two readings minutes apart
+would give a rate of zero (seen in the trial). So:
 
 - with few readings, or one, the rate is the average since the window
   began, which is a real reading of the same quantity, not a guess;

@@ -154,9 +154,9 @@ func paces(rs []dispatch.Record, now time.Time, target float64) []pace {
 
 // paceOf is one window's pace from its readings, oldest first. Only the
 // readings of the latest reading's window count; the window's start, at
-// zero, is a reading of it too. The rate is the slope from the earliest
-// reading within rateSpan of the latest (or the latest one before it) to
-// the latest: with one reading, its average since the window began.
+// zero, is a reading of it too. The rate is the slope to the latest from
+// the latest reading at least rateSpan before it, or from the window's
+// start when there is none: with few readings, the average since it began.
 func paceOf(n, model string, ps []point, now time.Time, target float64) pace {
 	last := ps[len(ps)-1]
 	length := windowLength(n)
@@ -179,8 +179,8 @@ func paceOf(n, model string, ps []point, now time.Time, target float64) pace {
 		if !sameReset(q.reset, last.reset) || !q.at.After(p.Start) {
 			break
 		}
-		from = q
 		if last.at.Sub(q.at) >= rateSpan(length) {
+			from = q
 			break
 		}
 	}
