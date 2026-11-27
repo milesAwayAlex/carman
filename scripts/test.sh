@@ -332,6 +332,13 @@ run; grep -qx -- '--name trial --model cheap-model' "$fake/harness" || { rm -rf 
 open --model default trial "$fake" && : > "$fake/harness" && run && grep -qx -- '--name trial' "$fake/harness" ||
     { rm -rf "$fake"; echo "agent-open --model default does not give the session back the pod's model" >&2; exit 1; }
 rm -rf "$fake"
+# child-harness: the model and the prompt, no hooks, none of the parent's
+# session, the proxy's placeholder as the credential.
+child="$(mktemp -d)"
+printf '#!/bin/sh\necho "$*|$CLAUDE_CODE_OAUTH_TOKEN|$CMEM_HOOK|${CLAUDECODE:-}${DISPATCHER_SESSION_NAME:-}"\n' > "$child/claude" && chmod +x "$child/claude"
+seen="$(PATH="$child:$PATH" AGENT_MODEL_PLACEHOLDER=placeholder CLAUDECODE=1 DISPATCHER_SESSION_NAME=parent sh deploy/agent/child-harness cheap 'say ok' --max-turns 1)"
+rm -rf "$child"
+[ "$seen" = "-p say ok --model cheap --max-turns 1|placeholder|off|" ] || { echo "child-harness does not start the child as it should: $seen" >&2; exit 1; }
 go vet ./...
 [ -n "${DISPATCH_TEST_DATABASE_URL:-}" ] ||
     skip "the dispatcher's Postgres suite (internal/dispatch/pgxdispatch): DISPATCH_TEST_DATABASE_URL is not set"
