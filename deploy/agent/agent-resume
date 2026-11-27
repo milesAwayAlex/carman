@@ -136,6 +136,7 @@ case "${1:-}" in
     else
         mode=dontAsk tools="the memory command only"
         [ -z "${CMEM_ROUTINE_READ:-}${CMEM_ROUTINE_MCP_TOOLS:-}${CMEM_ROUTINE_COMMANDS:-}" ] || tools="the memory command, with what it may read, run and call"
+        [ "${CMEM_ROUTINE_TOOLS:-}" != named ] || tools="only what its entry names (ADR 0061)"
     fi
     if ! flags="$(cmem routine --flags 2>/dev/null)"; then
         # An image whose cmem is older than --flags: the rule it had then.

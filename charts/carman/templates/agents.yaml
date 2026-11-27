@@ -19,6 +19,7 @@ with the agent's own beside it; an agent's own variable wins. */ -}}
 {{- $hostPaths := concat ($root.Values.agent.hostPaths | default list) (.agent.hostPaths | default list) | uniq }}
 {{- $groups := concat ($root.Values.agent.groups | default list) (.agent.groups | default list) | uniq }}
 {{- with .agent }}
+{{- if and .interactive (kindIs "map" .tools) }}{{ fail (printf "agent %s: an interactive agent's tools are not named (ADR 0061): its permissionMode says how it works" .name) }}{{ end }}
 {{- if not .interactive }}
 restartPolicy: Never
 {{- end }}
@@ -94,8 +95,15 @@ containers:
         value: {{ join "," (.models | default (list "claude-sonnet-5-5")) | quote }}
       - name: CMEM_ROUTINE_BUDGET_USD
         value: {{ .budgetUSD | default 2 | quote }}
+      {{- if kindIs "map" .tools }}
+      # Only what its entry names, refused otherwise and told so (ADR 0061).
+      - name: CMEM_ROUTINE_TOOLS
+        value: named
+      {{- include "agent.namedTools" . | nindent 6 }}
+      {{- else }}
       - name: CMEM_ROUTINE_TOOLS
         value: {{ .tools | default "memory" | quote }}
+      {{- end }}
       {{- if $root.Values.dispatcher.enabled }}
       # Where a run records what it used (ADR 0043), as the agent role,
       # which may add events to the dispatcher's log and nothing more.
@@ -300,6 +308,47 @@ address is a remote server; the credential is not here: the egress proxy puts
 the real one in place of this header. One given as a map is passed on as
 written, which is how a server that is a command in the image or among the
 installation's tools is named. */ -}}
+{{- /* An agent's tools: as a map, what it may do and nothing else (ADR
+0061), as the variables cmem routine reads. The chart fails on what cmem
+routine would leave out, so that a slip is seen at the deploy. */ -}}
+{{- define "agent.namedTools" -}}
+{{- $t := .tools }}
+{{- range $key, $_ := $t }}
+{{- if not (has $key (list "memory" "commands" "run" "mcp" "read")) }}{{ fail (printf "agent %s: tools.%s is not one of memory, commands, run, mcp, read" $.name $key) }}{{ end }}
+{{- end }}
+{{- range $t.commands }}
+{{- if not (regexMatch "^[a-z0-9][a-z0-9._-]*( [a-z0-9][a-z0-9._-]*){0,2} (view|list|ls|show|get|status|diff|log|describe|search|checks)$" .) }}{{ fail (printf "agent %s: tools.commands: %q is not plainly a read: a program and one to three subcommands, lowercase, no flags or shell characters, ending in view, list, ls, show, get, status, diff, log, describe, search or checks" $.name .) }}{{ end }}
+{{- end }}
+{{- range $t.run }}
+{{- if not (regexMatch "^[a-z0-9][a-z0-9._-]*( [a-z0-9][a-z0-9._-]*){1,3}$" .) }}{{ fail (printf "agent %s: tools.run: %q is not a command: a program and one to three subcommands, lowercase, no flags or shell characters" $.name .) }}{{ end }}
+{{- end }}
+{{- $mcp := list }}
+{{- range $server, $names := $t.mcp }}
+{{- if not (hasKey ($.mcp | default dict) $server) }}{{ fail (printf "agent %s: tools.mcp names %s, which is not among its mcp" $.name $server) }}{{ end }}
+{{- range $names }}{{ $mcp = append $mcp (printf "mcp__%s__%s" $server .) }}{{ end }}
+{{- end }}
+{{- range $t.read }}
+{{- if not (hasPrefix "/" .) }}{{ fail (printf "agent %s: tools.read: %q is not a directory from the root" $.name .) }}{{ end }}
+{{- end }}
+- name: CMEM_ROUTINE_MEMORY
+  value: {{ ternary "on" "off" (default false $t.memory) | quote }}
+{{- with $t.commands }}
+- name: CMEM_ROUTINE_COMMANDS
+  value: {{ join ", " . | quote }}
+{{- end }}
+{{- with $t.run }}
+- name: CMEM_ROUTINE_RUN
+  value: {{ join ", " . | quote }}
+{{- end }}
+{{- with $mcp }}
+- name: CMEM_ROUTINE_MCP_TOOLS
+  value: {{ join "," . | quote }}
+{{- end }}
+{{- with $t.read }}
+- name: CMEM_ROUTINE_READ
+  value: {{ join ":" . | quote }}
+{{- end }}
+{{- end }}
 {{- define "agent.mcpConfigMap" -}}
 apiVersion: v1
 kind: ConfigMap

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -200,5 +201,87 @@ func TestARestrictedRoutineCanBeGivenReadOnlyCommands(t *testing.T) {
 	Run(context.Background(), []string{"routine", "--flags"}, func(k string) string { return env[k] }, nil, &out, &errOut)
 	if strings.Contains(out.String(), "gh pr view") {
 		t.Errorf("every tool: %s", out.String())
+	}
+}
+
+// ADR 0061: an agent held to named tools gets only what its entry names,
+// with nothing given by default: not the memory command, and not the
+// dispatcher's client beyond the commands named, even where the pod could
+// message. Measured 2026-11-27 with the harness (2.1.326) and these flags
+// for the surveyor: every form of `dispatcher improve` its routine uses ran,
+// a heredoc into it among them; `dispatcher send`, `gh api`, `cmem`, `ls`,
+// `dispatcher improvement` and a chain with `dispatcher send` in it were refused.
+func TestAnAgentCanBeHeldToNamedToolsAndCommands(t *testing.T) {
+	identity := t.TempDir() + "/token"
+	if err := os.WriteFile(identity, []byte("t"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	flagsFor := func(env map[string]string) ([]string, string) {
+		t.Helper()
+		var out, errOut strings.Builder
+		if code := Run(context.Background(), []string{"routine", "--flags"}, func(k string) string { return env[k] }, nil, &out, &errOut); code != 0 {
+			t.Fatalf("cmem routine --flags: exit %d: %s", code, errOut.String())
+		}
+		words, err := exec.Command("sh", "-c", `eval "set -- $0"; printf '%s\0' "$@"`, out.String()).Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Split(strings.TrimSuffix(string(words), "\x00"), "\x00"), errOut.String()
+	}
+	between := func(flags []string, from, to string) []string {
+		i, j := slices.Index(flags, from), slices.Index(flags, to)
+		if i < 0 || j < i {
+			t.Fatalf("no %s before %s: %q", from, to, flags)
+		}
+		return flags[i+1 : j]
+	}
+
+	// The surveyor, as the trial's values have it.
+	surveyor := map[string]string{"CMEM_ROUTINE_TOOLS": "named", "CMEM_ROUTINE_MEMORY": "off", "CMEM_ROUTINE_RUN": "dispatcher improve",
+		"DISPATCHER_URL": "http://dispatcher:8379", "DISPATCHER_IDENTITY": identity}
+	flags, said := flagsFor(surveyor)
+	if got, want := between(flags, "--allowedTools", "--append-system-prompt"), []string{"Bash(dispatcher improve)", "Bash(dispatcher improve *)"}; !slices.Equal(got, want) {
+		t.Errorf("allowed %q, want %q", got, want)
+	}
+	if !slices.Equal(between(flags, "--permission-mode", "--tools"), []string{"dontAsk"}) || said != "" {
+		t.Errorf("flags %q, said %q", flags, said)
+	}
+	told := flags[slices.Index(flags, "--append-system-prompt")+1]
+	expectContains(t, told, "with any subcommands and arguments: `dispatcher improve`", "Anything else is refused", "refused whole")
+	if strings.Contains(told, "`cmem`") || strings.Contains(told, "for messages") {
+		t.Errorf("the surveyor is told of what it was not given:\n%s", told)
+	}
+
+	// Everything an entry may name, and what is not a command, said and left out.
+	flags, said = flagsFor(map[string]string{"CMEM_ROUTINE_TOOLS": "named", "CMEM_ROUTINE_MEMORY": "on",
+		"CMEM_ROUTINE_RUN":       "dispatcher improve, gh, sh -c x, dispatcher improve --all, dispatcher improve",
+		"CMEM_ROUTINE_COMMANDS":  "gh pr view, gh pr edit",
+		"CMEM_ROUTINE_MCP_TOOLS": "mcp__tracker__get_issue,Write", "CMEM_ROUTINE_MCP_CONFIG": "/etc/agent/mcp/mcp.json",
+		"CMEM_ROUTINE_READ": "/etc/agent/routines"})
+	want := []string{"Bash(cmem *)", "Bash(gh pr view *)", "Bash(dispatcher improve)", "Bash(dispatcher improve *)",
+		"Read(//etc/agent/routines/**)", "mcp__tracker__get_issue"}
+	if got := between(flags, "--allowedTools", "--add-dir"); !slices.Equal(got, want) {
+		t.Errorf("allowed %q, want %q", got, want)
+	}
+	if !slices.Contains(flags, "--strict-mcp-config") {
+		t.Errorf("other MCP servers are not shut out: %q", flags)
+	}
+	for _, bad := range []string{`CMEM_ROUTINE_RUN: "gh" is refused`, `CMEM_ROUTINE_RUN: "sh -c x" is refused`,
+		`CMEM_ROUTINE_RUN: "dispatcher improve --all" is refused`, `CMEM_ROUTINE_COMMANDS: "gh pr edit" is refused`} {
+		if !strings.Contains(said, bad) {
+			t.Errorf("not said: %s\n%s", bad, said)
+		}
+	}
+
+	// Nothing named: no shell at all, and Read for the harness's own outputs.
+	flags, _ = flagsFor(map[string]string{"CMEM_ROUTINE_TOOLS": "named"})
+	if !slices.Equal(between(flags, "--tools", "--allowedTools"), []string{"Read,Glob,Grep"}) {
+		t.Errorf("nothing named: %q", flags)
+	}
+
+	// The dreamer's kind keeps the memory command and messages, as before.
+	flags, _ = flagsFor(map[string]string{"DISPATCHER_URL": "http://dispatcher:8379", "DISPATCHER_IDENTITY": identity})
+	if got := between(flags, "--allowedTools", "--append-system-prompt"); !slices.Equal(got, []string{"Bash(cmem *)", "Bash(dispatcher *)"}) {
+		t.Errorf("memory: allowed %q", got)
 	}
 }
