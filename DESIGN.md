@@ -242,6 +242,10 @@ expired by then.
   replace the hourly reading.
 - Where the policy acts: the dispatcher's admission, asked before each start
   with what is running; a task it holds says why.
+  A task may be set after a class (ADR 0062, proposed): it waits for the
+  tasks of that class submitted before it to end, however they end, at
+  most a time; the backup is after the dreamer. Admission judges a task
+  by the ladder of the first routine its job runs.
 - Policy: urgent tasks always run. Backlog tasks run only while utilization is
   under a curve that reaches full at reset. Built first as a threshold, off
   by default (ADR 0043): below a priority, a task is held while a window is

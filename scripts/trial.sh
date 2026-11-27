@@ -26,6 +26,10 @@
 # TRIAL_TICK=1: a class tick that does nothing (true, in the dispatcher's
 # image), its CronJob a suspended template on a schedule of every minute,
 # which the dispatcher starts every minute as it starts a nightly job (ADR 0059).
+# TRIAL_AFTER=1: two classes a minute apart, first every four minutes from
+# minute 0 (its job sleeps TRIAL_AFTER_SLEEP seconds, 150 unless said, then
+# exits TRIAL_AFTER_EXIT, 0 unless said) and second from minute 1, set after
+# first (ADR 0062).
 # TRIAL_VALUES=FILE: values on top of the trial's own (deploy/values/trial.yaml),
 # for a trial of something they leave off.
 #
@@ -124,6 +128,8 @@ render() {
     local tick=()
     [ -z "${TRIAL_TICK:-}" ] ||
         tick=(--set-json 'dispatcher.schedules=[{"name":"tick","class":"tick","cron":"* * * * *","startWithin":"5m","timeout":"5m","priority":100}]')
+    [ -z "${TRIAL_AFTER:-}" ] ||
+        tick=(--set-json 'dispatcher.schedules=[{"name":"first","class":"first","cron":"0-59/4 * * * *","startWithin":"5m","timeout":"10m","priority":100},{"name":"second","class":"second","cron":"1-59/4 * * * *","startWithin":"10m","timeout":"5m","priority":100,"after":"first"}]')
     helm template "$name" "$src/charts/carman" --namespace "$namespace" -f deploy/values/trial.yaml ${TRIAL_VALUES:+-f "$TRIAL_VALUES"} \
         --set "memory.image=$memory_image" --set "dispatcher.image=$dispatcher_image" --set "agent.image=$dispatcher_image" "${tick[@]}" |
         kubectl --context "$context" create --dry-run=client -o json -f - |
@@ -149,6 +155,12 @@ if os.environ.get("TRIAL_TICK"):
     out.append({"apiVersion": "batch/v1", "kind": "CronJob", "metadata": {"name": "tick"},
         "spec": {"schedule": "* * * * *", "suspend": True, "jobTemplate": {"spec": {"backoffLimit": 0, "ttlSecondsAfterFinished": 600,
             "template": {"spec": {"restartPolicy": "Never", "containers": [{"name": "tick", "image": os.environ["TRIAL_IMAGE"], "command": ["/bin/true"]}]}}}}}})
+if os.environ.get("TRIAL_AFTER"):
+    run = "sleep %d; exit %d" % (int(os.environ.get("TRIAL_AFTER_SLEEP") or 150), int(os.environ.get("TRIAL_AFTER_EXIT") or 0))
+    for cls, cmd in (("first", ["/bin/sh", "-c", run]), ("second", ["/bin/true"])):
+        out.append({"apiVersion": "batch/v1", "kind": "CronJob", "metadata": {"name": cls},
+            "spec": {"schedule": "0 0 1 1 *", "suspend": True, "jobTemplate": {"spec": {"backoffLimit": 0, "ttlSecondsAfterFinished": 1800,
+                "template": {"spec": {"restartPolicy": "Never", "containers": [{"name": cls, "image": os.environ["TRIAL_IMAGE"], "command": cmd}]}}}}}})
 out = [o for o in out if o["kind"] not in refused]
 services = {o["metadata"]["name"] for o in out if o["kind"] == "Service"}
 classes = {o["metadata"]["name"] for o in out if o["kind"] == "CronJob"}
