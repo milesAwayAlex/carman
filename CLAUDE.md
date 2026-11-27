@@ -178,6 +178,24 @@ Built so far:
   `TRIAL_MODEL` and `TRIAL_AGENT_BASE` gives a trial's agents that address,
   a placeholder, and an image with the harness and the checkout's code.
 
+- Who comes in (ADR new-who-comes-in-and-a-new-pods-first-second,
+  proposed): the proxy admits only the pods that leave through it, isolated
+  or not; an isolated namespace names who a load balancer's traffic comes
+  from (`memory.service.admitFrom`, `dispatcher.service.admitFrom`: a CIDR
+  or another namespace's pods by label), and the local cluster's values are
+  isolated. `scripts/check-ingress.sh CONTEXT NAMESPACE` tries every way in
+  from where each caller is. The network knows a new pod a moment after it
+  starts: `dispatcher ready` waits once, first, in every agent pod
+  (`agent_setup`) and a watch's job.
+- A trial's own proxy and meter (ADR new-a-trial-has-a-proxy-of-its-own,
+  proposed): `TRIAL_PROXY=1 scripts/trial.sh CONTEXT up` gives a trial the
+  chart's egress proxy and meter from the checkout, in front of
+  `dispatcher stand-in` (the model API's shapes and ADR 0064's headers, no
+  model) or, with `TRIAL_MODEL`, chained to the installation's meter for
+  trials. `scripts/check-trial-proxy.sh CONTEXT` tries metering, the
+  standing read from headers, a limit at the proxy and a credential's
+  reload there.
+
 - Triggers (ADR 0063, proposed): `dispatcher.rules` start a task of a
   class when an event of a kind is in the log (`internal/dispatch/trigger`):
   once per event, at most so often (`rule.held` otherwise), never for a

@@ -621,6 +621,11 @@ egress:
   # would close them).
   model:
     host: api.anthropic.com
+    # Where the meter sends what it passes: the host above, unless said. A
+    # trial installation's meter (scripts/trial.sh, TRIAL_PROXY) sends to a
+    # stand-in for the model or to the installation's meter for trials,
+    # inside the cluster, where http:// is taken.
+    upstream: ""
     port: 3130
     image: ""            # dispatcher.image unless set
     idle: 2m

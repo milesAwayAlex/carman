@@ -39,6 +39,16 @@
 # model's address, a placeholder for a credential, and the label that lets
 # them out to it. Without them a trial's agents have no model, as before.
 #
+# TRIAL_PROXY=1: the trial has an egress proxy and meter of its own, made from
+# this checkout (ADR new-a-trial-has-a-proxy-of-its-own), so that a change to
+# the meter, the proxy's configuration, a budget or a credential's reload is
+# tried without touching the installation's. Its agents leave through it as
+# an installation's do. What the meter sends to: a stand-in for the model's
+# API (`dispatcher stand-in`, made beside it: the API's shapes, no model, the
+# word "ok"), with a made-up credential; or, with TRIAL_MODEL as well, the
+# installation's meter for trials, so that a harness in the trial gets real
+# answers, counted there as trial/NAME/proxy.
+#
 # TRIAL_VALUES=FILE: values on top of the trial's own (deploy/values/trial.yaml),
 # for a trial of something they leave off.
 #
@@ -129,6 +139,29 @@ build_image() {  # NAME CMD DOCKERFILE
     echo "$ref"
 }
 
+# What a proxy of the trial's own needs before it starts: an authority and a
+# certificate for the model's host, as a deploy makes them; a credential,
+# made up here, which the stand-in takes; and no other credentials.
+proxy_secrets() {
+    local dir host=api.anthropic.com
+    "${kube[@]}" get secret "${pre}egress-tls" >/dev/null 2>&1 && return 0
+    dir="$(mktemp -d)" && chmod 700 "$dir"
+    printf '[req]\ndistinguished_name=dn\nx509_extensions=v3\nprompt=no\n[dn]\nCN=trial egress proxy\n[v3]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign\n' > "$dir/ca.cnf"
+    openssl ecparam -name prime256v1 -genkey -noout -out "$dir/ca.key"
+    openssl req -new -x509 -key "$dir/ca.key" -out "$dir/ca.crt" -sha256 -days 30 -config "$dir/ca.cnf"
+    printf 'subjectAltName=DNS:%s\nextendedKeyUsage=serverAuth\nbasicConstraints=CA:FALSE\n' "$host" > "$dir/tls.ext"
+    openssl ecparam -name prime256v1 -genkey -noout -out "$dir/tls.key"
+    openssl req -new -key "$dir/tls.key" -out "$dir/tls.csr" -subj "/CN=$host"
+    openssl x509 -req -in "$dir/tls.csr" -CA "$dir/ca.crt" -CAkey "$dir/ca.key" -CAcreateserial -out "$dir/tls.crt" -sha256 -days 30 -extfile "$dir/tls.ext" 2>/dev/null
+    "${kube[@]}" create configmap "${pre}egress-ca" "--from-file=ca.crt=$dir/ca.crt" --dry-run=client -o yaml | "${kube[@]}" apply -f - >/dev/null
+    "${kube[@]}" create secret generic "${pre}egress-tls" "--from-file=tls.crt=$dir/tls.crt" "--from-file=tls.key=$dir/tls.key" >/dev/null
+    "${kube[@]}" create secret generic "${pre}egress-credentials" >/dev/null
+    "${kube[@]}" create secret generic "${pre}model-credential" "--from-literal=token=stand-in-$(openssl rand -hex 12)" >/dev/null
+    "${kube[@]}" label --overwrite "configmap/${pre}egress-ca" "secret/${pre}egress-tls" "secret/${pre}egress-credentials" "secret/${pre}model-credential" "$label" >/dev/null
+    rm -rf "$dir"
+    echo "made the trial proxy's authority and certificate, and a made-up credential for the model"
+}
+
 # An agent image for the trial: an image that has the harness (TRIAL_AGENT_BASE,
 # the installation's own warm image) with this checkout's binaries, scripts
 # and routines laid over it, so that a trial's agents run what the checkout
@@ -169,10 +202,13 @@ render() {
         tick=(--set-json 'dispatcher.schedules=[{"name":"tick","class":"tick","cron":"* * * * *","startWithin":"5m","timeout":"5m","priority":100}]')
     [ -z "${TRIAL_AFTER:-}" ] ||
         tick=(--set-json 'dispatcher.schedules=[{"name":"first","class":"first","cron":"0-59/4 * * * *","startWithin":"5m","timeout":"10m","priority":100},{"name":"second","class":"second","cron":"1-59/4 * * * *","startWithin":"10m","timeout":"5m","priority":100,"after":"first"}]')
+    local proxy=()
+    [ -z "${TRIAL_PROXY:-}" ] ||
+        proxy=(--set egress.enabled=true --set agent.modelCredential=proxy --set-json 'egress.closedTo=[]' --set "egress.model.upstream=${TRIAL_MODEL:-http://model:8080}")
     helm template "$name" "$src/charts/carman" --namespace "$namespace" -f deploy/values/trial.yaml ${TRIAL_VALUES:+-f "$TRIAL_VALUES"} \
-        --set "memory.image=$memory_image" --set "dispatcher.image=$dispatcher_image" --set "agent.image=${agent_image:-$dispatcher_image}" "${tick[@]}" |
+        --set "memory.image=$memory_image" --set "dispatcher.image=$dispatcher_image" --set "agent.image=${agent_image:-$dispatcher_image}" "${tick[@]}" "${proxy[@]}" |
         kubectl --context "$context" create --dry-run=client -o json -f - |
-        TRIAL_MODEL="${TRIAL_MODEL:-}" TRIAL_REFUSED="$refused" TRIAL_LABEL="$name" TRIAL_PREFIX="$pre" TRIAL_OWNER="$holder" TRIAL_ACCOUNT="$account" TRIAL_IMAGE="$dispatcher_image" python3 -c '
+        TRIAL_PROXY="${TRIAL_PROXY:-}" TRIAL_MODEL="${TRIAL_MODEL:-}" TRIAL_REFUSED="$refused" TRIAL_LABEL="$name" TRIAL_PREFIX="$pre" TRIAL_OWNER="$holder" TRIAL_ACCOUNT="$account" TRIAL_IMAGE="$dispatcher_image" python3 -c '
 import json, os, re, sys
 refused = os.environ["TRIAL_REFUSED"].split()
 name, account, pre = os.environ["TRIAL_LABEL"], os.environ["TRIAL_ACCOUNT"], os.environ["TRIAL_PREFIX"]
@@ -201,6 +237,17 @@ if os.environ.get("TRIAL_AFTER"):
         out.append({"apiVersion": "batch/v1", "kind": "CronJob", "metadata": {"name": cls},
             "spec": {"schedule": "0 0 1 1 *", "suspend": True, "jobTemplate": {"spec": {"backoffLimit": 0, "ttlSecondsAfterFinished": 1800,
                 "template": {"spec": {"restartPolicy": "Never", "containers": [{"name": cls, "image": os.environ["TRIAL_IMAGE"], "command": cmd}]}}}}}})
+if os.environ.get("TRIAL_PROXY") and not os.environ.get("TRIAL_MODEL"):
+    # A stand-in for the model, which takes the credential the meter holds.
+    out.append({"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "model"},
+        "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "model"}}, "template": {"metadata": {"labels": {"app": "model"}}, "spec": {
+            "containers": [{"name": "model", "image": os.environ["TRIAL_IMAGE"], "command": ["dispatcher", "stand-in"],
+                "resources": {"requests": {"cpu": "10m", "memory": "16Mi"}, "limits": {"memory": "64Mi"}},
+                "env": [{"name": "STAND_IN_TOKEN_FILE", "value": "/etc/stand-in/token"}],
+                "volumeMounts": [{"name": "credential", "mountPath": "/etc/stand-in", "readOnly": True}]}],
+            "volumes": [{"name": "credential", "secret": {"secretName": "model-credential"}}]}}}})
+    out.append({"apiVersion": "v1", "kind": "Service", "metadata": {"name": "model"},
+        "spec": {"selector": {"app": "model"}, "ports": [{"port": 8080}]}})
 out = [o for o in out if o["kind"] not in refused]
 services = {o["metadata"]["name"] for o in out if o["kind"] == "Service"}
 classes = {o["metadata"]["name"] for o in out if o["kind"] == "CronJob"}
@@ -217,7 +264,7 @@ def refs(v):
         ref = v.get(k)
         if isinstance(ref, dict):
             for f in ("name", "secretName"):
-                if isinstance(ref.get(f), str):
+                if isinstance(ref.get(f), str) and ref[f] != "kube-root-ca.crt":
                     ref[f] = pre + ref[f]
     if isinstance(v.get("persistentVolumeClaim"), dict):
         v["persistentVolumeClaim"]["claimName"] = pre + v["persistentVolumeClaim"]["claimName"]
@@ -262,7 +309,7 @@ for o in out:
         if o["kind"] == "Deployment" and o["metadata"]["name"] == pre + "dispatcher" and account != "default":
             pod["spec"]["serviceAccountName"] = account
             pod["metadata"]["labels"]["reaches-the-api"] = "true"
-    if pod is not None and os.environ.get("TRIAL_MODEL"):
+    if pod is not None and os.environ.get("TRIAL_MODEL") and not os.environ.get("TRIAL_PROXY"):
         # An agent of the trial reaches the model at the installation meter
         # (TRIAL_MODEL), with a placeholder where the credential would be:
         # no credential comes into the sandbox. Its pod says so, for the
@@ -278,6 +325,15 @@ for o in out:
                 agent = next((e.get("value") for e in env if e["name"] == "AGENT_NAME"), "")
                 if agent:
                     pod["metadata"]["labels"].setdefault("agent", agent)
+    if pod is not None and o["kind"] == "Deployment" and o["metadata"]["name"] == pre + "egress":
+        # The trial meter reads the sandbox pods, as the trial dispatcher
+        # does; chained to the installation meter, its pod is the caller there.
+        if account != "default":
+            pod["spec"]["serviceAccountName"] = account
+            pod["metadata"]["labels"]["reaches-the-api"] = "true"
+        if os.environ.get("TRIAL_MODEL"):
+            pod["metadata"]["labels"]["reaches-the-model"] = "true"
+            pod["metadata"]["labels"]["agent"] = "proxy"
     if pod is not None:
         refs(pod["spec"])
         if o["kind"] == "Deployment" and o["metadata"]["name"] == pre + "dispatcher":
@@ -422,6 +478,7 @@ for k, (hard, used) in sorted(quotas(os.environ["TRIAL_QUOTA"]).items()):
     if [ "$src" = . ] || ! "${kube[@]}" get secret ${pre}dispatcher-tokens >/dev/null 2>&1; then
         deploy_sh secrets
     fi
+    [ -z "${TRIAL_PROXY:-}" ] || proxy_secrets
     if [ "${3:-}" = --old-secret ]; then
         # In its place, one in the form a deploy made before ADR 0051: the
         # owner's token in the clear, and in the file, as the owner had it.

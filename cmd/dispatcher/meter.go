@@ -39,8 +39,11 @@ func meterCmd(ctx context.Context) error {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	listen := envOr("METER_LISTEN", "127.0.0.1:3130")
 	up, err := url.Parse(envOr("METER_UPSTREAM", "https://api.anthropic.com"))
-	if err != nil || up.Scheme != "https" || up.Host == "" {
-		return fmt.Errorf("METER_UPSTREAM is an https address: %q", os.Getenv("METER_UPSTREAM"))
+	// In the clear only where it is said, for an upstream inside the
+	// cluster: a trial's stand-in, or the installation's meter for trials.
+	plain := os.Getenv("METER_UPSTREAM_PLAIN") == "on"
+	if err != nil || up.Host == "" || (up.Scheme != "https" && !(plain && up.Scheme == "http")) {
+		return fmt.Errorf("METER_UPSTREAM is an https address (or http, with METER_UPSTREAM_PLAIN=on, inside the cluster): %q", os.Getenv("METER_UPSTREAM"))
 	}
 	credFile := os.Getenv("METER_CREDENTIAL_FILE")
 	if credFile == "" {

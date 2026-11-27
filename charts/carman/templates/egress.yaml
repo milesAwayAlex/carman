@@ -275,7 +275,13 @@ spec:
             - name: METER_LISTEN
               value: "127.0.0.1:{{ .Values.egress.model.port }}"
             - name: METER_UPSTREAM
-              value: "https://{{ .Values.egress.model.host }}"
+              value: {{ .Values.egress.model.upstream | default (printf "https://%s" .Values.egress.model.host) | quote }}
+            {{- if hasPrefix "http://" (.Values.egress.model.upstream | default "") }}
+            # In the clear, to an address inside the cluster: a trial's
+            # stand-in for the model, or the installation's meter for trials.
+            - name: METER_UPSTREAM_PLAIN
+              value: "on"
+            {{- end }}
             - name: METER_CREDENTIAL_FILE
               value: /etc/meter/credential/token
             - name: METER_IDLE
