@@ -202,7 +202,8 @@ Built so far:
   known at the start; `scripts/check-improve.sh CONTEXT` tries it all in a
   trial. A deploy records what it deployed (`installation.deployed`: the
   commit and the subjects of the commits since), which is how the surveyor
-  knows what is merged.
+  knows what is merged; an agent reads it with `dispatcher deployed`, and
+  its own image in `AGENT_IMAGE`.
 
 Not built yet: the way in from a laptop to a service on a shared cluster,
 more than one machine of the owner's (one place per installation), the

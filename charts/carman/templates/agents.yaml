@@ -79,6 +79,7 @@ containers:
       {{- end }}
       - name: AGENT_NAME
         value: {{ .name | quote }}
+      {{- include "agent.imageEnv" (dict "root" $root "standing" (default false .interactive)) | nindent 6 }}
       {{- if .interactive }}
       - name: AGENT_INTERACTIVE
         value: "1"

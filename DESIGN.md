@@ -230,7 +230,9 @@ or declines. One agent, the surveyor, runs the routine `improve` on a
 schedule: it reads the evidence since the last survey through one call
 of the dispatcher (failed and missed runs, refusals, each run's cost,
 what each deploy deployed (`installation.deployed`, written by the deploy
-script: the commit and the subjects of the commits since the one before),
+script: the commit and the subjects of the commits since the one before;
+any agent reads the latest with `dispatcher deployed`, and its pod's
+image is `AGENT_IMAGE`),
 and messages and the part of a routine's report that says what it had no
 tool for and asks the owner (`routine.report`, from `cmem routine`), with
 their words only from the senders the installation lists), brings the list up to date, and asks for at most one brief. The
