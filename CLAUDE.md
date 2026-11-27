@@ -124,7 +124,8 @@ Built so far:
   while a usage window is high, and a task whose ladder starts with a
   refused model, is built and off; with `mode: curve` it holds it while a
   window is ahead of a line to its reset (ADR 0060, proposed), and
-  `usage.room` says what a window will leave unused.
+  `usage.room` says what a window will leave unused. A schedule, an agent or a
+  submitted task may start `after` another (ADR 0062, proposed).
 
 - Messages (ADR 0045): sessions, agents by name and the owner
   write to each other with `dispatcher peers|send|reply|inbox|message`
