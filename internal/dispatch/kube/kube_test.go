@@ -3,10 +3,12 @@ package kube
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +24,8 @@ type fakeAPI struct {
 	jobs     map[string]map[string]any
 	cronjobs map[string]map[string]any
 	pods     []any
+	logs     map[string]string // a pod's log, by its name
+	logQuery url.Values
 	creates  int
 	watch    chan string // lines a watch sends, then it ends
 }
@@ -46,6 +50,14 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	path := r.URL.Path
 	switch {
+	case r.Method == http.MethodGet && strings.HasPrefix(path, "/api/v1/namespaces/ns/pods/") && strings.HasSuffix(path, "/log"):
+		text, ok := f.logs[strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/namespaces/ns/pods/"), "/log")]
+		if !ok {
+			notFound()
+			return
+		}
+		f.logQuery = r.URL.Query()
+		io.WriteString(w, text)
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/apis/batch/v1/namespaces/ns/cronjobs/"):
 		cj, ok := f.cronjobs[strings.TrimPrefix(path, "/apis/batch/v1/namespaces/ns/cronjobs/")]
 		if !ok {
@@ -312,6 +324,72 @@ func TestR6JobEndedOnce(t *testing.T) {
 	json.Unmarshal(fin.Data, &data)
 	if !ok || fin.Subject != "trial-1" || data.Attempt != "trial-1#1" || data.Outcome != dispatch.OutcomeFailed {
 		t.Errorf("task.finished: %+v %+v", fin, data)
+	}
+}
+
+// TestR6FailedJobSaysWhy: a failed Job's end records why, as far as the
+// cluster knows: the container's reason and message, killed for memory, and
+// its log's last lines, bounded, a line shaped like a credential withheld.
+func TestR6FailedJobSaysWhy(t *testing.T) {
+	f, c := newFakeAPI(t)
+	job := endedJob("trial-2-1", "u5", "failed", map[string]any{
+		AnnotationTask: "trial-2", AnnotationAttempt: "trial-2#1", AnnotationClass: "sleeper"})
+	dig(job, "status", "conditions").([]any)[0].(map[string]any)["message"] = "Job has reached the specified backoff limit"
+	f.jobs["trial-2-1"] = job
+	f.pods = []any{map[string]any{"metadata": map[string]any{"name": "trial-2-1-xyz", "labels": map[string]any{"job-name": "trial-2-1"},
+		"creationTimestamp": "2026-11-24T10:00:01Z"},
+		"status": map[string]any{"containerStatuses": []any{map[string]any{"name": "main", "state": map[string]any{"terminated": map[string]any{
+			"exitCode": 137, "reason": "OOMKilled", "message": "out of room " + strings.Repeat("x", 500)}}}}}}}
+	var text strings.Builder
+	for i := range 30 {
+		fmt.Fprintf(&text, "line %d\n", i)
+	}
+	text.WriteString("token=" + "ab12cd34ef56gh78ij90\n")
+	f.logs = map[string]string{"trial-2-1-xyz": text.String()}
+	var l log
+	w := &Watcher{Client: c, Emit: l.emit, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if _, err := w.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var ended JobEnded
+	var fin dispatch.Finished
+	for _, e := range l.all() {
+		switch e.Type {
+		case TypeJobEnded:
+			json.Unmarshal(e.Data, &ended)
+		case dispatch.TypeFinished:
+			json.Unmarshal(e.Data, &fin)
+		}
+	}
+	why := ended.Why
+	if why == nil || why.Termination != "OOMKilled" || why.Killed != "memory" || why.Pod != "trial-2-1-xyz" ||
+		why.Message != "Job has reached the specified backoff limit" || len(why.TerminationMessage) > lineMax+len("…") {
+		t.Fatalf("why: %+v", why)
+	}
+	if f.logQuery.Get("container") != "main" || f.logQuery.Get("tailLines") == "" || f.logQuery.Get("limitBytes") == "" {
+		t.Errorf("the log is read unbounded, or not the container's: %v", f.logQuery)
+	}
+	tail := why.LogTail
+	if len(tail) != logTailLines || tail[0] != "line 11" || !strings.HasPrefix(tail[len(tail)-1], "[withheld") || strings.Contains(strings.Join(tail, ""), "ab12cd") {
+		t.Errorf("the log's tail: %q", tail)
+	}
+	if !strings.Contains(fin.Message, "killed for its memory") || strings.Contains(fin.Message, "line") {
+		t.Errorf("task.finished: %q", fin.Message)
+	}
+	// A Job past its deadline, its pod gone: killed for its deadline.
+	f.pods, f.logs = nil, nil
+	late := endedJob("late-1", "u6", "failed", nil)
+	dig(late, "status", "conditions").([]any)[0].(map[string]any)["reason"] = "DeadlineExceeded"
+	f.jobs = map[string]map[string]any{"late-1": late}
+	w.Sync(context.Background())
+	ended = JobEnded{}
+	for _, e := range l.all() {
+		if e.ID == "job.ended/u6" {
+			json.Unmarshal(e.Data, &ended)
+		}
+	}
+	if ended.Job != "late-1" || ended.Why == nil || ended.Why.Killed != "deadline" || ended.ExitCode != nil {
+		t.Errorf("a Job past its deadline: %+v %+v", ended, ended.Why)
 	}
 }
 

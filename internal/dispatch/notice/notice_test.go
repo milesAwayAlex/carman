@@ -83,7 +83,8 @@ func TestR10Notices(t *testing.T) {
 	n := &Notifier{Log: f, Class: "notify", Context: "CTX", Namespace: "ns", Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	n.Pass(ctx) // the first pass starts at the end: the old failure is not told
 	one := 1
-	f.add(kube.TypeJobEnded, "agent-x", kube.JobEnded{Job: "agent-x-29400000", Template: "agent-x", By: "cronjob", Outcome: "failed", Reason: "BackoffLimitExceeded", ExitCode: &one})
+	f.add(kube.TypeJobEnded, "agent-x", kube.JobEnded{Job: "agent-x-29400000", Template: "agent-x", By: "cronjob", Outcome: "failed", Reason: "BackoffLimitExceeded", ExitCode: &one,
+		Why: &kube.Why{Termination: "OOMKilled", Killed: "memory", TerminationMessage: "note-of-its-own", LogTail: []string{"a-line-of-its-log"}}})
 	f.add(kube.TypeJobEnded, "agent-x", kube.JobEnded{Job: "agent-x-29400001", Template: "agent-x", Outcome: "succeeded"})
 	f.add(kube.TypeJobEnded, "notify", kube.JobEnded{Job: "notice-1", Template: "notify", Outcome: "failed"})
 	f.add(kube.TypeJobEnded, "backup", kube.JobEnded{Job: "backup-1", Template: "backup", Outcome: "failed", ExitCode: &one, NotifiesOwner: true})
@@ -105,7 +106,8 @@ func TestR10Notices(t *testing.T) {
 	if !slices.Equal(titles, want) {
 		t.Fatalf("withheld %q, want %q", titles, want)
 	}
-	if !strings.Contains(w[0].Text, "kubectl --context CTX -n ns logs job/agent-x-29400000") || !strings.Contains(w[0].Text, "exit code 1") {
+	if !strings.Contains(w[0].Text, "kubectl --context CTX -n ns logs job/agent-x-29400000") || !strings.Contains(w[0].Text, "exit code 1, OOMKilled, killed for its memory.") ||
+		!strings.Contains(w[0].Text, "scripts/deploy.sh CTX dispatch log --type job.ended") || strings.Contains(w[0].Text, "note-of-its-own") || strings.Contains(w[0].Text, "a-line-of-its-log") {
 		t.Errorf("the text says %q", w[0].Text)
 	}
 	if !strings.Contains(w[2].Text, "2026-11-24 06:00 UTC") {

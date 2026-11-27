@@ -22,7 +22,7 @@ spec:
 # What the dispatcher may do in its namespace, and nothing more: make Jobs
 # from the CronJobs' templates, follow every Job to its end, read every
 # CronJob's schedule to know what runs to expect, and read a Job's pods for
-# the exit code. It deletes nothing and changes nothing it
+# the exit code and why it failed, with the last lines of its log. It deletes nothing and changes nothing it
 # did not make.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -41,6 +41,11 @@ rules:
     # get: which agent's pod a caller is, and whether a session's pod is
     # still there (ADR 0045).
     verbs: ["list", "get"]
+  - apiGroups: [""]
+    # A failed Job's last lines, kept in the dispatcher's log as why it
+    # failed: read-only, the pods of its own namespace.
+    resources: ["pods/log"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
