@@ -311,6 +311,9 @@ type Unheard struct {
 // hear: idle, no listener, the message older than UnheardGrace.
 func (s *Service) unheard(ctx context.Context, c Caller, running []Session) ([]Unheard, error) {
 	out := []Unheard{}
+	if c.PodUID == "" {
+		return out, nil // only a pod has windows of its own to type into
+	}
 	for _, x := range running {
 		if x.State != Idle || x.Kind != "interactive" || listening.listening(x.ID) {
 			continue
