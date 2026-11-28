@@ -1,4 +1,4 @@
-# new-the-plan-of-the-models-budget: The dispatcher plans which account the proxy holds, by arithmetic on the readings, and the room it finds is divided between the owner's priorities
+# 0077: The dispatcher plans which account the proxy holds, by arithmetic on the readings, and the room it finds is divided between the owner's priorities
 
 Status: Proposed (2026-11-28). The owner: "budget planner doesn't 'build'
 on switching, it drives switching to maximize output ... take into account
