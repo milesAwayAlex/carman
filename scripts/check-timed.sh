@@ -38,7 +38,7 @@ agents:
     storage: 1Gi
     resources:
       requests: {cpu: 100m, memory: 256Mi}
-      limits: {memory: 1Gi}
+      limits: {memory: 768Mi}
 YAML
 TRIAL_PROXY=1 TRIAL_MODEL="" TRIAL_VALUES="${TRIAL_VALUES:-$values}" scripts/trial.sh "$context" up | tail -1
 rm -f "$values"
