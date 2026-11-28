@@ -210,7 +210,7 @@ dispatcher:
   #       pick: {action: action, issue: data.identifier}
   hooks: {}
   hooksSecret: dispatcher-hooks
-  # The queue (ADR new-the-queue-runs-itself): the owner's list of what is
+  # The queue (ADR 0079): the owner's list of what is
   # to be done (`dispatcher priority add`, ADR 0077) worked through by
   # itself. While fewer than `running` of its items run, the dispatcher
   # sends the next that waits to `agent`, as the owner, and marks it done

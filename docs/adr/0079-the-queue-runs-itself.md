@@ -1,4 +1,4 @@
-# new-the-queue-runs-itself: The owner's list is worked through by itself
+# 0079: The owner's list is worked through by itself
 
 Status: Proposed (2026-11-28).
 

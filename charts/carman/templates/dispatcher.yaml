@@ -184,7 +184,7 @@ spec:
             {{- $takes := list }}{{- range $.Values.agents }}{{- if .takesMessages }}{{- $takes = append $takes .name }}{{- end }}{{- end }}
             {{- if not (has .agent $takes) }}{{ fail (printf "dispatcher.queue.agent: %q is not an agent that takes messages (takesMessages: true); those are: %s" .agent (join ", " $takes)) }}{{ end }}
             {{- if and .model (eq .model .strongest) }}{{ fail "dispatcher.queue: model is what an item runs on unless it is hard, and is not the strongest" }}{{ end }}
-            # The owner's queue, worked through by itself (ADR new-the-queue-runs-itself).
+            # The owner's queue, worked through by itself (ADR 0079).
             - name: DISPATCHER_QUEUE
               value: {{ dict "agent" .agent "running" (.running | default 1 | int) "model" (.model | default "") "strongest" (.strongest | default "") | toJson | quote }}
             {{- end }}

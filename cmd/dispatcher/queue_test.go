@@ -59,7 +59,7 @@ func (l *queueLog) Explain(_ context.Context, id string) (dispatch.TaskStatus, e
 }
 
 // TestR2TheQueueRunsItself: the owner's list is worked through by itself
-// (ADR new-the-queue-runs-itself). The next item that waits is sent to the
+// (ADR 0079). The next item that waits is sent to the
 // agent, as many at once as the installation says; an item runs on its own
 // model, the strongest only when hard; one whose model is refused is held
 // and does not hold the ones behind it; an item ends done with the first

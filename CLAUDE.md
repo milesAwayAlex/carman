@@ -99,7 +99,7 @@ Built so far:
   each account's room by them. Not built: work carrying its priority to
   the meter, and what a priority spent.
 
-- The queue (ADR new-the-queue-runs-itself, proposed): with
+- The queue (ADR 0079, proposed): with
   `dispatcher.queue.enabled` the dispatcher works through the owner's list
   (`dispatcher priority add`) by itself: the next item that waits is sent
   to the agent the installation names, on a model that is not the

@@ -14,7 +14,7 @@ import (
 	"carman/internal/dispatch/message"
 )
 
-// The queue (ADR new-the-queue-runs-itself): the owner's list of what is
+// The queue (ADR 0079): the owner's list of what is
 // to be done (ADR 0077's items, under his priorities) worked through by
 // itself. While fewer than a set number of its items run, the dispatcher
 // takes the next that waits and sends it, as the owner, to an agent that

@@ -84,7 +84,7 @@ type Message struct {
 	AgainAfterLimit bool `json:"again_after_limit,omitempty"`
 	// Model is the model the run a message starts is to use, where the
 	// dispatcher itself sends it for the owner's queue (ADR
-	// new-the-queue-runs-itself); a sender cannot say it.
+	// 0079); a sender cannot say it.
 	Model string `json:"model,omitempty"`
 	// Resends is the message this one sends again, after a limit.
 	Resends string `json:"resends,omitempty"`
@@ -427,7 +427,7 @@ type SendOptions struct {
 }
 
 // SendQueued sends an item of the owner's queue to an agent, as the owner,
-// for the dispatcher itself (ADR new-the-queue-runs-itself): the run it
+// for the dispatcher itself (ADR 0079): the run it
 // starts uses the model given, and its answer goes to the owner like any
 // answer to him. The id is the message's, made by the caller, which has
 // recorded it before sending.

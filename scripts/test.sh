@@ -125,7 +125,7 @@ if command -v helm >/dev/null; then
         --set-json 'egress.credentials=[{"host":"a.example.com","key":"app"},{"host":"a.example.com","key":"c"}]' >/dev/null 2>&1; then
         echo "the chart renders two credentials of one host for one header" >&2; exit 1
     fi
-    # The queue (ADR new-the-queue-runs-itself): off unless said; on, the
+    # The queue (ADR 0079): off unless said; on, the
     # dispatcher is told its agent and models, and an agent that takes no
     # messages is refused.
     ! "${render[@]}" | grep -q DISPATCHER_QUEUE || { echo "the chart turns the queue on by itself" >&2; exit 1; }

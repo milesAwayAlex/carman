@@ -708,7 +708,7 @@ which are the weakest parts. Three things are meant to keep that manageable:
   finish and sends what it holds, a long session's use is written every
   five minutes, and the trials' day is read back from the log (ADR
   0072, proposed).
-- The queue (ADR new-the-queue-runs-itself, proposed): where the
+- The queue (ADR 0079, proposed): where the
   installation turns it on, the dispatcher takes the next item of the
   owner's list that waits and sends it, as the owner, to one agent, as
   many at once as it is told; the run is given its model (not the

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The owner's queue worked through by itself (ADR
-# new-the-queue-runs-itself), end to end with a real harness and no model:
+# 0079), end to end with a real harness and no model:
 # a trial with a proxy of its own in front of the stand-in (ADR 0068).
 # Three items are added, the second marked hard; the strongest model is
 # refused before anything starts and comes back half way.

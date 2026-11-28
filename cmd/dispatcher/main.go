@@ -827,7 +827,7 @@ func serve(ctx context.Context) error {
 	}
 	// The owner's list of what is to be done (ADR 0077), and, where the
 	// installation says, the queue that works through it by itself (ADR
-	// new-the-queue-runs-itself). Off unless DISPATCHER_QUEUE names an agent.
+	// 0079). Off unless DISPATCHER_QUEUE names an agent.
 	priorities := &budget.Service{Store: d}
 	if qc, on, err := parseQueue(os.Getenv("DISPATCHER_QUEUE")); err != nil {
 		return err
