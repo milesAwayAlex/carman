@@ -1,4 +1,4 @@
-# new-a-turn-cut-by-an-error-is-told-to-go-on: A session whose turn ends on an error of the model's API is known to be idle, listens again, and is told by the dispatcher to go on
+# 0080: A session whose turn ends on an error of the model's API is known to be idle, listens again, and is told by the dispatcher to go on
 
 Status: Proposed (2026-11-28). Adds to ADR 0045 (how a session is known to
 be busy or idle) and ADR 0075 (a session that does not hear is noticed).

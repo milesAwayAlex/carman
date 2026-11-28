@@ -249,7 +249,7 @@ minutes) is told to its sender once, with the latest reason
 terminal, that is what a sender to a session with no listener gets.
 
 A turn cut by an error is not left hanging (ADR
-new-a-turn-cut-by-an-error-is-told-to-go-on, proposed). When the model's
+0080, proposed). When the model's
 API fails for longer than the harness tries again (some minutes), the turn
 ends with no `Stop` hook; the harness's `StopFailure` hook runs, and the
 dispatcher's client there says the session is idle and cut, and starts its

@@ -219,7 +219,7 @@ Built so far:
   `Stop`: the session is then idle and listening, `session.cut` is
   recorded, and the dispatcher tells it to go on after a minute, with a
   wait that doubles, five times at most (ADR
-  new-a-turn-cut-by-an-error-is-told-to-go-on, proposed;
+  0080, proposed;
   `scripts/check-cut.sh CONTEXT`).
 - `carman go` (ADR 0057, proposed): `cmd/carman`, the owner's way to a
   session from any directory. It lists the dispatcher's sessions, those

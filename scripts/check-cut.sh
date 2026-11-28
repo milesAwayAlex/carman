@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # A turn cut by an error of the model's API is not left hanging (ADR
-# new-a-turn-cut-by-an-error-is-told-to-go-on), end to end in a trial with
+# 0080), end to end in a trial with
 # a real harness and no model: a standing agent's pod with one session, in
 # front of the stand-in, which drops the connection in the middle of its
 # answers as a proxy that restarts does.
