@@ -53,6 +53,9 @@ type SendRequest struct {
 	AgainAfterLimit bool `json:"again_after_limit,omitempty"`
 	// Failed, for an answer: the run did not finish.
 	Failed bool `json:"failed,omitempty"`
+	// At: send it at this time, not now (a clock time in UTC, a date and
+	// time, or how long from now; message.ParseAt).
+	At string `json:"at,omitempty"`
 }
 
 func (s *Server) send(_ http.ResponseWriter, r *http.Request, _ Role) (any, error) {
@@ -67,8 +70,35 @@ func (s *Server) send(_ http.ResponseWriter, r *http.Request, _ Role) (any, erro
 	if req.To == "" && req.Answers == "" {
 		return nil, fmt.Errorf("%w: say who it is to, or which message it answers", errBadRequest)
 	}
+	if req.At != "" {
+		if req.Answers != "" {
+			return nil, fmt.Errorf("%w: an answer is sent now; a message at a time is sent to an address", errBadRequest)
+		}
+		res, err := m.SendAt(r.Context(), c, req.Session, req.To, req.Body, req.At, message.SendOptions{AgainAfterLimit: req.AgainAfterLimit})
+		return res, messageErr(err)
+	}
 	res, err := m.SendWith(r.Context(), c, req.Session, req.To, req.Body, req.Answers, message.SendOptions{AgainAfterLimit: req.AgainAfterLimit})
 	return res, messageErr(err)
+}
+
+// timed lists the caller's messages that wait for their time.
+func (s *Server) timed(_ http.ResponseWriter, r *http.Request, _ Role) (any, error) {
+	m, c, err := s.messaging(r)
+	if err != nil {
+		return nil, err
+	}
+	out, err := m.Timed(r.Context(), c, r.URL.Query().Get("session"))
+	return out, messageErr(err)
+}
+
+// cancelTimed cancels one of them.
+func (s *Server) cancelTimed(_ http.ResponseWriter, r *http.Request, _ Role) (any, error) {
+	m, c, err := s.messaging(r)
+	if err != nil {
+		return nil, err
+	}
+	out, err := m.CancelTimed(r.Context(), c, r.URL.Query().Get("session"), r.PathValue("id"))
+	return out, messageErr(err)
 }
 
 func (s *Server) answer(_ http.ResponseWriter, r *http.Request, _ Role) (any, error) {

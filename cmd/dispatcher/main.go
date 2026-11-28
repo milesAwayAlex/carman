@@ -110,6 +110,10 @@ dispatcher peers [--since 168h] [--all]   who is worth writing to: running sessi
 dispatcher send TO 'TEXT' [--answers ID] [--again-after-limit]
                                           TO: owner, an agent's name, AGENT/SESSION-NAME or session/ID; TEXT - reads stdin;
                                           --again-after-limit: if its run stops at the plan's usage limit, sent again once after the reset
+dispatcher send --at TIME TO 'TEXT'       the same, sent at TIME: a clock time in UTC (15:40), a date and time
+                                          (2026-01-02T15:04Z), or how long from now (90m). TO may be the sender itself
+dispatcher timed                          the messages of yours that wait for their time (the owner: everyone's)
+dispatcher timed cancel ID                cancel one
 dispatcher reply ID 'TEXT'                answer a message, to whoever sent it
 dispatcher inbox [--read]                 what is unread for me; --read marks it read
 dispatcher read ID...                     mark messages read
@@ -157,7 +161,7 @@ func run(ctx context.Context, args []string) error {
 		return attendCmd(ctx, flags)
 	}
 	switch args[0] {
-	case "hook", "peers", "send", "reply", "inbox", "read", "message", "watch", "whoami", "take", "answer", "session", "lift":
+	case "hook", "peers", "send", "reply", "inbox", "read", "message", "watch", "whoami", "take", "answer", "session", "lift", "timed":
 		pos, flags, err := parse(args[1:])
 		if err != nil {
 			return err

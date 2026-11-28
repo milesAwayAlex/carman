@@ -126,6 +126,18 @@ only the owner and those cases. A message that is not allowed is refused
 at sending, with who may, and recorded as `message.refused`; `peers` marks
 what the caller may not write to.
 
+A message at a time (ADR new-a-message-at-a-time, proposed): `dispatcher
+send --at TIME TO 'TEXT'` asks for a message later, to the sender itself
+or to anyone it may write to; TIME is a UTC clock time, a date and time,
+or how long from now, at most seven days ahead. What was asked is an
+event (`message.timed`), so it outlasts the dispatcher and is in the
+backup; the router's pass sends it at its time as an ordinary message
+under the same id, the address resolved and the right to write judged
+then, and records what became of it once (`message.timed.done`: sent,
+cancelled, refused). `dispatcher timed` lists a sender's own and cancels
+one. A session is told at its start to ask for such a message in the turn
+in which it says it will do something at a time.
+
 `peers` lists who is worth writing to (2026-11-27). The agents a message
 does something for: those the cluster defines with a job (a message
 starts a run), and interactive ones, defined by a standing pod that

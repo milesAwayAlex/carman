@@ -220,6 +220,9 @@ var (
 
 // Service is messaging: sending, taking, reading, where sessions are.
 type Service struct {
+	// timed: the messages asked for at a time (timed.go).
+	timed timing
+
 	Store   Store
 	Cluster Cluster
 	// Context and Namespace name the cluster in what the owner is told.
@@ -413,6 +416,8 @@ type SendOptions struct {
 	// AgainAfterLimit: sent again once after the reset if its run stops at
 	// the plan's usage limit.
 	AgainAfterLimit bool
+	// id: the id it is sent under, for a message asked for at a time.
+	id string
 }
 
 // SendWith is Send with options.
@@ -439,6 +444,9 @@ func (s *Service) send(ctx context.Context, c Caller, session, given, body, answ
 		return Result{}, fmt.Errorf("%w: a message is at most 64 KiB; put more in a file or a repository and send where it is", ErrInvalid)
 	}
 	m := Message{ID: newID(), Given: given, Body: body, Answers: answers, Sent: s.now().UTC(), AgainAfterLimit: o.AgainAfterLimit}
+	if o.id != "" {
+		m.ID = o.id
+	}
 	if c.Host && session == "" {
 		// The place is not an agent that a message starts: an answer to
 		// "the place" would wait for whichever session there read it first.

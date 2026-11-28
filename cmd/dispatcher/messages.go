@@ -98,9 +98,12 @@ func messages(ctx context.Context, c *api.Client, cmd string, pos []string, flag
 			return err
 		}
 		again := has(flags, "again-after-limit")
-		req := api.SendRequest{To: pos[0], Body: body, Answers: one(flags, "answers", ""), Session: me, AgainAfterLimit: again}
+		req := api.SendRequest{To: pos[0], Body: body, Answers: one(flags, "answers", ""), Session: me, AgainAfterLimit: again, At: one(flags, "at", "")}
 		if cmd == "reply" {
 			req.To, req.Answers = "", pos[0]
+		}
+		if req.At != "" && req.Answers != "" {
+			return errors.New("--at is for send TO 'TEXT': an answer is sent now")
 		}
 		var res message.Result
 		if err := c.Do(ctx, http.MethodPost, "/v1/messages", nil, req, &res); err != nil {
@@ -112,6 +115,29 @@ func messages(ctx context.Context, c *api.Client, cmd string, pos []string, flag
 		fmt.Printf("%s %s: %s\n", res.ID, res.State, res.Detail)
 		if res.State == "refused" {
 			os.Exit(4)
+		}
+		return nil
+	case "timed":
+		if len(pos) == 2 && pos[0] == "cancel" {
+			var t message.Timed
+			if err := c.Do(ctx, http.MethodPost, "/v1/timed/"+url.PathEscape(pos[1])+"/cancel", url.Values{"session": {me}}, nil, &t); err != nil {
+				return err
+			}
+			fmt.Printf("%s cancelled: it was to be sent to %s at %s\n", t.ID, t.To, t.At.UTC().Format("2006-01-02 15:04:05 UTC"))
+			return nil
+		}
+		if len(pos) != 0 {
+			return errors.New("say: timed (the messages of yours that wait for their time), or timed cancel ID")
+		}
+		var ts []message.Timed
+		if err := c.Do(ctx, http.MethodGet, "/v1/timed", url.Values{"session": {me}}, nil, &ts); err != nil {
+			return err
+		}
+		if len(ts) == 0 {
+			fmt.Println("no message waits for its time")
+		}
+		for _, t := range ts {
+			fmt.Println(timedLine(t, time.Now()))
 		}
 		return nil
 	case "lift":
@@ -142,7 +168,11 @@ func messages(ctx context.Context, c *api.Client, cmd string, pos []string, flag
 			fmt.Printf("%s %s %s\n", m.From, or(m.Agent, "-"), or(m.Name, "-"))
 			return nil
 		}
-		fmt.Printf("%s, from %s to %s (%s), sent %s: %s\n", m.ID, m.From, or(m.To, m.Given), st.State, m.Sent.UTC().Format(time.RFC3339), m.Body)
+		sent := "sent"
+		if st.State == "timed" || st.State == "cancelled" {
+			sent = "asked for" // a message at a time, not sent yet
+		}
+		fmt.Printf("%s, from %s to %s (%s), %s %s: %s\n", m.ID, m.From, or(m.To, m.Given), st.State, sent, m.Sent.UTC().Format(time.RFC3339), m.Body)
 		for _, e := range st.Events {
 			fmt.Printf("  %d  %s  %-18s %s\n", e.Seq, e.Time.UTC().Format(time.RFC3339), e.Type, e.Data)
 		}
@@ -256,6 +286,19 @@ func settle(ctx context.Context, c *api.Client, res message.Result, wait string)
 	return res
 }
 
+// timedLine is one message that waits for its time, as `timed` shows it.
+func timedLine(t message.Timed, now time.Time) string {
+	body := strings.Join(strings.Fields(t.Body), " ")
+	if r := []rune(body); len(r) > 80 {
+		body = string(r[:80]) + "…"
+	}
+	in := "its time has come"
+	if d := t.At.Sub(now); d > 0 {
+		in = "in " + d.Round(time.Second).String()
+	}
+	return fmt.Sprintf("%s  %s (%s)  from %s to %s: %s", t.ID, t.At.UTC().Format("2006-01-02 15:04:05 UTC"), in, t.From, t.To, body)
+}
+
 func or(a, b string) string {
 	if a != "" {
 		return a
@@ -280,6 +323,8 @@ type hookInput struct {
 const intro = "You can be written to, and can write to other sessions, to agents by name and to the owner, through the dispatcher's client in your shell: " +
 	"`dispatcher peers` (who, and whether each is busy, idle or not running), `dispatcher send TO 'TEXT'`, `dispatcher reply MESSAGE-ID 'TEXT'`, " +
 	"`dispatcher inbox`, `dispatcher message ID` (what became of one you sent), `dispatcher watch SESSION` (be told when it next goes idle). " +
+	"When you say you will do something at a time, ask for the message that wakes you in the same turn: `dispatcher send --at TIME TO 'TEXT'` " +
+	"sends at that time (15:40, a UTC clock time, or 90m from now; TO may be your own address), and `dispatcher timed` lists and cancels them; nothing else wakes an idle session at a time. " +
 	"A message reaches its addressee whether it is running or not. Messages for you arrive in this conversation as <message> blocks, " +
 	"between your tool calls or when you are idle; each says who it is from. You are %s."
 

@@ -153,7 +153,11 @@ Built so far:
   answer, and the agents its `writtenBy` lists. `scripts/check-trial-messages.sh
   CONTEXT` tries it between a trial's agents with a real harness and no
   model. A message for a conversation that was not kept is read in a new
-  one, told so.
+  one, told so. A message can be asked
+  for at a time (`dispatcher send --at TIME TO 'TEXT'`, `dispatcher
+  timed`; ADR new-a-message-at-a-time, proposed): kept as an event and
+  sent then as an ordinary message, which is how a session keeps a
+  promise to do something at a time.
 - Sessions on the owner's own machine (ADR 0049): a place
   (`dispatcher.host.place`) with the dispatcher's `host` token, its
   sessions `PLACE/NAME` named for their directory. They write as the owner
