@@ -49,7 +49,7 @@ agents:
     storage: 1Gi
     resources:
       requests: {cpu: 100m, memory: 256Mi}
-      limits: {memory: 1Gi}
+      limits: {memory: 768Mi}
 dispatcher:
   messages:
     waitNotice: 1m
