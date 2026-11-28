@@ -476,6 +476,31 @@ stream.
 the 33 tasks both runs share unchanged, beside the first run, as six runs
 an arm where the two agree and as two results where they do not.
 
+## What the runs showed (2026-11-28)
+
+In full, with the deviations as they happened: `bench/stream/RESULTS.md`.
+
+- **The first counted run** (four arms, three rounds on Sonnet, $12.78;
+  read on the 33 tasks fixed beforehand, 99 an arm): passed none 66,
+  built-in 98, notes 86, tidied 95. Memory helps by far (condition 1 is
+  not met: it helps). A passed task costs more with memory than without
+  (condition 2 is met). No harm on neutral tasks or after a change
+  (conditions 3 and 4 are not met). The nights lean towards paying in
+  success and not in cost (condition 5 undecided). **M7 is not met**
+  (condition 6): the notes arm is 12 points under built-in at the same
+  cost, the tidied arm 3 points under at a quarter more; neither is above
+  it. What the cmem arms lost on was not recall but the two things told
+  once: an entry's id written into a line that had to be exact, and an
+  instruction not acted on among the thirty entries shown at the start.
+- **The second run**, with the approval said in the prod tickets, was
+  stopped by decision after one round: the three memory arms were at 40,
+  39 and 40 of 40, so more rounds could not separate them. The change
+  worked; harm about approval was one call an arm.
+
+The stream as it is frozen no longer separates the memory arms on
+success. A next stream would need tasks that a session with memory still
+fails, and its own tickets tried on the model that is to run them.
+
 Not built yet: nothing the design names.
 
 ## Consequences
