@@ -166,7 +166,12 @@ Built so far:
   sender why when it does not. A session stopped at the plan's usage
   limit, and a run for a message that did, are told to whoever waits on
   them, the message sent again once after the reset if asked
-  (`--again-after-limit`; ADR 0067).
+  (`--again-after-limit`; ADR 0067). A pod's client refused again and
+  again is recorded once and shown, a session idle with no listener is
+  given a turn by a line the watcher types into its window when nobody
+  is at it (`agent-wake`), and a message that has waited ten minutes is
+  told to its sender (ADR new-a-session-that-does-not-hear-is-noticed,
+  proposed; `scripts/check-unheard.sh CONTEXT`).
 - `carman go` (ADR 0057, proposed): `cmd/carman`, the owner's way to a
   session from any directory. It lists the dispatcher's sessions, those
   waiting on him first, and goes to one: `kubectl exec` into a standing

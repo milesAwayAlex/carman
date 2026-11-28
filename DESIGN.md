@@ -195,6 +195,22 @@ handed a session whose harness the watcher then finds gone, with no word
 from the session in between, is recorded as not delivered and delivered
 once more, marked as a second time: at least once, never silently lost.
 
+A session that does not hear is noticed (ADR
+new-a-session-that-does-not-hear-is-noticed, proposed). A pod's client
+whose expired token the dispatcher refuses again and again (five in a
+minute) is recorded once as `client.refused`, told to the owner, and shown
+by `dispatch status`, by `peers` and in the reason a message for a session
+of that pod waits; it ends (`client.refused.ended`) after two minutes with
+no refusal. A session of a standing pod that is idle with no listener,
+and has a message waiting, is given a turn by the watcher: `agent-wake`
+types one line into its window, only when no client looks at the window
+and its prompt is empty, and the turn's hooks take the message and start
+a listener; otherwise the message says why and the watcher looks again.
+A message not delivered after `dispatcher.messages.waitNotice` (ten
+minutes) is told to its sender once, with the latest reason
+(`message.waited`); on the owner's machine, where nothing types into a
+terminal, that is what a sender to a session with no listener gets.
+
 The plan's usage limit is said to whoever waits (ADR
 0067, proposed). A run started for a message that
 fails with the limit's words is recorded as `message.limited`, and its
@@ -838,6 +854,9 @@ Decisions are recorded one per file in `docs/adr/`. The index,
    token of its own, through the same hooks. Then (ADR 0051, proposed): the
    owner's token off the cluster, which holds only its hash. Then
    (ADR 0053, proposed): a standing pod's watcher of its own sessions.
+   Then (ADR new-a-session-that-does-not-hear-is-noticed, proposed): a
+   refused client recorded, a session with no listener woken, a sender
+   told of a long wait.
    Then (ADR 0058, proposed): the list of improvements to the platform,
    its evidence and its gate, tried in a trial; the surveyor is not yet
    an agent of any installation.
