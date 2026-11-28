@@ -101,13 +101,36 @@ func newWorld(rules Rules) *World {
 func (w *World) Do(argv []string) (int, string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	code, out, rule := w.rules(w, argv)
+	var code int
+	var out, rule string
+	if asksHelp(argv) {
+		// Asking how a command is used does nothing: the usage, whatever
+		// else the words say. (A world that carried such a command out
+		// pushed an image for an agent that only asked how; seen 2026-11-28.)
+		_, out, _ = w.rules(w, []string{"help"})
+	} else {
+		code, out, rule = w.rules(w, argv)
+	}
 	kept := out
 	if len(kept) > 300 {
 		kept = kept[:300]
 	}
 	w.state.Calls = append(w.state.Calls, Call{Task: w.state.Task, Argv: argv, Code: code, Out: kept, Rule: rule, At: time.Now().UTC()})
 	return code, out
+}
+
+// asksHelp says whether a command only asks how it is used: --help or -h
+// among its words, before any text it hands in.
+func asksHelp(argv []string) bool {
+	if len(argv) > 0 && argv[0] == "attach" {
+		return len(argv) == 2 && (argv[1] == "--help" || argv[1] == "-h")
+	}
+	for _, a := range argv {
+		if a == "--help" || a == "-h" {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *World) fact(key string) string { return w.state.Facts[key] }

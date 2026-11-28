@@ -6,7 +6,7 @@
 Every number is from what the agent did not write. Runs of one arm are put
 together; a rate is of all their tasks.
 """
-import json, sys
+import json, os, sys
 from collections import defaultdict
 
 arms = defaultdict(list)  # arm -> [(meta, results)]
@@ -36,8 +36,13 @@ def ran(r):
     return r.get("ended", "done") == "done" and (r.get("calls", 0) > 0 or r.get("cost_usd", 0) > 0)
 
 
+# STREAM_LEAVE_OUT: tasks to leave out of every number (ids, with commas),
+# for a reading decided beforehand that sets some tasks aside.
+LEFT_OUT = set(filter(None, os.environ.get("STREAM_LEAVE_OUT", "").split(",")))
+
+
 def every(arm, all_tasks=False):
-    return [r for _, res in arms[arm] for r in res if all_tasks or ran(r)]
+    return [r for _, res in arms[arm] for r in res if r["task"] not in LEFT_OUT and (all_tasks or ran(r))]
 
 
 def pairs(arm, keep=lambda task, rule, l: True):
@@ -46,6 +51,8 @@ def pairs(arm, keep=lambda task, rule, l: True):
 
 
 first = arms[order[0]][0]
+if LEFT_OUT:
+    print("left out of every number: %s" % ", ".join(sorted(LEFT_OUT)))
 print("world %s, model %s; runs: %s" % (first[0]["world"], first[0]["model"], ", ".join("%s %d" % (a, len(arms[a])) for a in order)))
 row("", lambda a: a)
 row("tasks that ran", lambda a: rate(len(every(a)), len(every(a, True))))

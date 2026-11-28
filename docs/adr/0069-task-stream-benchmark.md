@@ -383,6 +383,124 @@ harness:
 One run of each arm on the cheapest model says nothing that should be
 read as the answer, and is not reported as one.
 
+**Going on after a stop.** The run on Sonnet is hours long and shares the
+plan's windows with everything else, so a run can be refused in the middle.
+The runner now tells the two ways a session comes to use nothing: where the
+dispatcher says the task's run stopped at the plan's usage limit (ADR 0067),
+it waits for the reset and gives the same ticket to a fresh session, by
+itself; where it does not (the installation's limit for trials, or a night
+that fails three times), it stops with its place kept and the trial left
+up, and `run ARM --resume DIR` goes on from that task. Tried on the
+cheapest model: a run stopped after its fourth task and gone on with ran
+the night and the last two tasks and was scored whole. The wait for a
+reset is tried only as far as reading the dispatcher's word of it; no run
+has yet met the plan's limit. A task given more than once says so in its
+result. `scripts/stream.sh CONTEXT all` runs every arm so many times, two
+at a time, and starts nothing more once the runs' own count of cost passes
+a budget.
+
+## A pilot on Sonnet, and what it changed in the stream (2026-11-28)
+
+The run on Sonnet was started and, after its first round, stopped by the
+owner for a change of model account. That round, one run of each arm on
+the stream as it then was, is kept as a pilot and is not counted:
+
+| | none | built-in | notes | tidied |
+|---|---|---|---|---|
+| Tasks passed, of 40 | 17 | 33 | 32 | 36 |
+| A lesson needed again followed, of 52 | 21 | 45 | 50 | 48 |
+| Refusals each time it was needed | 0.52 | 0.13 | 0.04 | 0.08 |
+| Cost, the runs' own count | $0.60 | $1.16 | $1.05 | $1.30 |
+
+It showed two things wrong with the stream, and both are changed before
+the run that counts:
+
+- **Whose it is to push a version.** A deploy needs the version in the
+  registry, and the tickets do not say who puts it there. The cheapest
+  model pushed it; Sonnet, with no memory, stopped and reported that no
+  build had been supplied (six of that arm's failed deploys, and two of
+  the tidied arm's on its first day). A session with memory learned from
+  an earlier one that pushing was its to do. So part of the arms'
+  difference was whether a session took a step to be its job, which is an
+  ambiguity of the tickets and not a rule forgotten. The world's help now
+  says that whoever deploys a version pushes it first if it is not there.
+  The rule stays (a deploy without the image is refused); what it costs to
+  meet is a refusal, not the task.
+- **A command given with `--help` was carried out.** `ops registry push
+  ledger 1.0.0 --help` pushed the image. It happened twice, in the arm
+  with none. A command with `--help` or `-h` now prints the usage and
+  does nothing, in every world.
+
+Both were seen on Sonnet's first pass and not on the cheapest model's,
+which is the fitting the design warned of in the other direction: the
+tasks were tried on one model and run on another. The tasks' tickets and
+checks are unchanged; the run that counts is three rounds on this stream.
+
+## The first counted run, its reading fixed after round 1, and the stream frozen (2026-11-28, 02:20 UTC)
+
+Round 1 of the counted run on Sonnet (one run an arm; rounds 2 and 3 were
+going on unchanged when this was written, and had not been looked at):
+tasks passed none 22 of 40, built-in 33, notes 29, tidied 32; a lesson
+needed again followed 9 of 52, 50, 48, 50. No deploy failed for a missing
+image any more.
+
+It showed one more thing wrong with the stream, the same in every arm:
+**all seven deploys to prod failed in all four arms, and no session ever
+passed `--approved-by`.** Sonnet brings the version to staging, reads that
+prod is approved by the service's owner, and stops to report the approval
+as pending: it does not approve in a person's name. The tickets did not
+say the approval had been given.
+
+**How the first counted run is read**, decided before rounds 2 and 3 were
+seen. It stands as it is: the stream was not changed during it. Seven
+tasks are set aside as uninformative, by id: **s10, s16, s20, s25, s29,
+s33, s37** (the deploys to prod; s20 and s29 are also the two tasks a
+wrong note bears on, and s25 the one that meets the ledger's new owner).
+No other task's check depends on one of them. M7 is read on the other 33
+tasks (`STREAM_LEAVE_OUT` in the report): success and cost per task of the
+cmem arms against built-in, and the arm with none as the floor. What this
+run cannot say is anything about stale or wrong memory about approval,
+which was most of the stream's measure of harm; the day-3 changes (the
+renamed option, the registry) remain in it.
+
+**The change for a second run, and the freeze.** Each ticket that asks for
+a deploy to prod now ends "The service's owner has approved this deploy.",
+so that what there is to learn is that the deploy names the owner
+(`--approved-by`), who it is, and that it changes. Nothing else changes:
+the world, the checks, the other 33 tickets and the two wrong notes are as
+they were. **The stream is frozen after this.** Whatever a later run shows
+wrong with a ticket is reported as a caveat and is not fixed in this
+stream.
+
+**How the second run is read**, decided now: on all forty tasks; and, on
+the 33 tasks both runs share unchanged, beside the first run, as six runs
+an arm where the two agree and as two results where they do not.
+
+## What the runs showed (2026-11-28)
+
+In full, with the deviations as they happened: `bench/stream/RESULTS.md`.
+
+- **The first counted run** (four arms, three rounds on Sonnet, $12.78;
+  read on the 33 tasks fixed beforehand, 99 an arm): passed none 66,
+  built-in 98, notes 86, tidied 95. Memory helps by far (condition 1 is
+  not met: it helps). A passed task costs more with memory than without
+  (condition 2 is met). No harm on neutral tasks or after a change
+  (conditions 3 and 4 are not met). The nights lean towards paying in
+  success and not in cost (condition 5 undecided). **M7 is not met**
+  (condition 6): the notes arm is 12 points under built-in at the same
+  cost, the tidied arm 3 points under at a quarter more; neither is above
+  it. What the cmem arms lost on was not recall but the two things told
+  once: an entry's id written into a line that had to be exact, and an
+  instruction not acted on among the thirty entries shown at the start.
+- **The second run**, with the approval said in the prod tickets, was
+  stopped by decision after one round: the three memory arms were at 40,
+  39 and 40 of 40, so more rounds could not separate them. The change
+  worked; harm about approval was one call an arm.
+
+The stream as it is frozen no longer separates the memory arms on
+success. A next stream would need tasks that a session with memory still
+fails, and its own tickets tried on the model that is to run them.
+
 Not built yet: nothing the design names.
 
 ## Consequences

@@ -456,6 +456,15 @@ SH
 else
     skip "agent-wake: no tmux"
 fi
+# The task stream's runner waits for the plan's limit to reset where the
+# dispatcher says a task's run stopped at it (ADR 0069), and not otherwise.
+if command -v python3 >/dev/null; then
+    limited='  12  2026-11-28T01:00:05Z  message.limited    {"message":"m","words":"You have hit your limit","resets":"2026-11-28T03:00:00Z"}'
+    [ "$(echo "$limited" | python3 bench/stream/limit.py 2026-11-28T01:00:00Z)" = "wait 7320" ] &&
+        [ "$(echo '  3  t  message.limited  {"message":"m","resets":"0001-01-01T00:00:00Z"}' | python3 bench/stream/limit.py)" = wait-unknown ] &&
+        [ "$(echo '  3  t  message.delivered  {}' | python3 bench/stream/limit.py)" = none ] ||
+        { echo "bench/stream/limit.py does not tell a run stopped at the plan's limit from one that was not" >&2; exit 1; }
+fi
 # agent-open --reopen (ADR 0053), against a fake tmux and real processes: a
 # name not remembered is refused, a window that is gone is made, the shell a
 # dead harness left is replaced, and a window that runs a harness, a shell

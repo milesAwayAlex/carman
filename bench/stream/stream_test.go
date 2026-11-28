@@ -198,3 +198,35 @@ func TestM7StreamRulesAreMet(t *testing.T) {
 		}
 	}
 }
+
+// TestM7WorldHelpDoesNothing: a command given with --help or -h prints the
+// usage and changes nothing, in every world and for every command; a text
+// handed in that holds those words is taken as text.
+func TestM7WorldHelpDoesNothing(t *testing.T) {
+	for name, rules := range worlds {
+		w := newWorld(rules)
+		w.Begin("t1", 1)
+		w.Do([]string{"stages"})
+		before := len(w.state.Facts)
+		for _, line := range []string{"registry push ledger 1.0.0 --help", "deploy ledger 1.0.0 --stage test --help", "change open ledger -h",
+			"config set ledger.timeout 30 --help", "service create payments-x --team payments --help", "attach --help", "deploy --help", "owner ledger -h"} {
+			code, out := w.Do(strings.Fields(line))
+			if code != 0 || !strings.Contains(out, "ops help") {
+				t.Errorf("%s: %q: status %d, and not the usage: %s", name, line, code, out)
+			}
+			if last := w.state.Calls[len(w.state.Calls)-1]; last.Rule != "" {
+				t.Errorf("%s: %q was refused under a rule", name, line)
+			}
+		}
+		if len(w.state.Facts) != before || len(w.state.Attached) != 0 || w.state.Seq != 0 {
+			t.Errorf("%s: asking for help changed the world: %v %v", name, w.state.Facts, w.state.Attached)
+		}
+		w.Do([]string{"attach", "note", "run it with --help to see"})
+		if w.state.Attached["t1/note"] != "run it with --help to see" {
+			t.Errorf("%s: a text that holds --help was not taken as text", name)
+		}
+	}
+	if _, out := newWorld(streamRules).Do([]string{"help"}); !strings.Contains(out, "pushes it first") {
+		t.Error("the stream's help does not say whose it is to push a version")
+	}
+}
