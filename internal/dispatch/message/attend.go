@@ -36,7 +36,12 @@ type Awaited struct {
 	Messages []string `json:"messages"`
 }
 
+// podOnly lets a standing agent's pod attend to its own sessions, and the
+// owner's machine, with the place's token, to the sessions of its place.
 func (s *Service) podOnly(c Caller) error {
+	if c.Host && !c.Owner && s.isPlace(c.Agent) {
+		return nil
+	}
 	if c.Owner || c.Host || c.Pod == "" || c.PodUID == "" || s.isPlace(c.Agent) {
 		return fmt.Errorf("%w: only a standing agent's pod attends to its sessions", ErrForbidden)
 	}
@@ -60,10 +65,10 @@ func (s *Service) Attending(ctx context.Context, c Caller) (Attend, error) {
 		if err != nil {
 			return out, err
 		}
-		if on && x.PodUID == c.PodUID {
+		if on && (c.Host || x.PodUID == c.PodUID) {
 			out.Running = append(out.Running, x)
 		}
-		if x.Name == "" || x.Kind != "interactive" {
+		if x.Name == "" || (x.Kind != "interactive" && !c.Host) {
 			continue
 		}
 		if on {
@@ -120,7 +125,7 @@ func (s *Service) HarnessGone(ctx context.Context, c Caller, session, why string
 	if x.Agent != c.Agent {
 		return fmt.Errorf("%w: session %s is agent %s's, and this pod is agent %s's", ErrForbidden, short(session), x.Agent, c.Agent)
 	}
-	if x.PodUID != c.PodUID {
+	if !c.Host && x.PodUID != c.PodUID {
 		return fmt.Errorf("%w: session %s last ran in pod %s, not in this one", ErrForbidden, short(session), x.Pod)
 	}
 	if x.State == Ended {
@@ -146,7 +151,11 @@ func (s *Service) HarnessGone(ctx context.Context, c Caller, session, why string
 	if _, _, err := s.Store.PutSession(ctx, x); err != nil {
 		return err
 	}
-	return s.ended(ctx, x, "its harness has gone from its pod ("+strings.TrimSpace(or(why, "no word"))+")")
+	where := "its pod"
+	if c.Host {
+		where = "the owner's machine"
+	}
+	return s.ended(ctx, x, "its harness has gone from "+where+" ("+strings.TrimSpace(or(why, "no word"))+")")
 }
 
 // Hold records why a message for a session of the caller's agent still

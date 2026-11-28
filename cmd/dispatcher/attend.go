@@ -27,12 +27,24 @@ import (
 // A session's harness is known by the record its SessionStart hook writes:
 // the harness's process id and start time, under harnessDir()/SESSION.
 
-func harnessDir() string { return or(os.Getenv("DISPATCHER_HARNESS_DIR"), "/tmp/agent-harness") }
+func harnessDir() string {
+	if d := os.Getenv("DISPATCHER_HARNESS_DIR"); d != "" {
+		return d
+	}
+	if os.Getenv("DISPATCHER_PLACE") != "" {
+		return filepath.Join(stateDir(), "harness") // the owner's machine
+	}
+	return "/tmp/agent-harness"
+}
 
 var procRoot = "/proc"
 
 // procStat is a process's parent and start time, from /proc/PID/stat.
 func procStat(pid int) (ppid int, start string, err error) {
+	if noProc() {
+		ppid, start, _, err = psStat(pid)
+		return ppid, start, err
+	}
 	b, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "stat"))
 	if err != nil {
 		return 0, "", err
@@ -53,7 +65,7 @@ func procStat(pid int) (ppid int, start string, err error) {
 // isHarness says whether a command line is the harness's.
 func isHarness(cmdline []byte) bool {
 	args := strings.Split(strings.TrimRight(string(cmdline), "\x00"), "\x00")
-	if filepath.Base(args[0]) == "claude" {
+	if filepath.Base(args[0]) == "claude" || strings.Contains(args[0], "/claude/versions/") {
 		return true
 	}
 	if filepath.Base(args[0]) == "node" {
@@ -73,11 +85,17 @@ func findHarness(pid int) (int, string, bool) {
 		if pid <= 1 {
 			break
 		}
-		cmd, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "cmdline"))
-		if err != nil {
-			break
+		var cmd []byte
+		var ppid int
+		var start string
+		var err error
+		if noProc() {
+			var words string
+			ppid, start, words, err = psStat(pid)
+			cmd = []byte(strings.Join(strings.Fields(words), "\x00"))
+		} else if cmd, err = os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "cmdline")); err == nil {
+			ppid, start, err = procStat(pid)
 		}
-		ppid, start, err := procStat(pid)
 		if err != nil {
 			break
 		}
@@ -110,11 +128,22 @@ func recordHarness(session string) {
 // an ancestor of pid has gone; never, where none is found.
 func harnessGoneFunc(pid int) func() bool {
 	hp, start, ok := findHarness(pid)
+	asked := 0
 	return func() bool {
 		if !ok {
 			return false
 		}
+		if noProc() {
+			// ps is a process each time: asked whether it is the same
+			// process only now and then, and whether one is there each time.
+			if asked++; asked%15 != 0 {
+				return !psAlive(hp)
+			}
+		}
 		_, now, err := procStat(hp)
+		if err != nil && noProc() {
+			return !psAlive(hp) // ps did not answer: gone only if no process is there
+		}
 		return err != nil || now != start
 	}
 }
@@ -135,6 +164,10 @@ func harnessAlive(session string) (known, alive bool) {
 		return false, false
 	}
 	_, now, err := procStat(pid)
+	if err != nil && noProc() && psAlive(pid) {
+		// ps did not answer, and a process of that id is there: no verdict.
+		return false, false
+	}
 	return true, err == nil && now == start
 }
 
@@ -179,6 +212,11 @@ type attender struct {
 	tries map[string]*attempt
 	// limited is, by session, the stop at the plan's limit last told.
 	limited map[string]string
+	// host: this is the owner's machine, not a pod; notify is its command
+	// for a message that waits (attend_host.go).
+	host   bool
+	notify []string
+	down   bool // the dispatcher did not answer at the last pass
 }
 
 const (
@@ -240,7 +278,7 @@ func (a *attender) pass(ctx context.Context) error {
 	for _, x := range at.Running {
 		believed[x.ID] = true
 		known, alive := harnessAlive(x.ID)
-		if alive {
+		if alive && !a.host {
 			a.limit(ctx, x.ID, or(x.Name, "no name"))
 		}
 		if !known || alive {
@@ -421,6 +459,10 @@ func harnessPid(session string) (int, bool) {
 // attend opens a name that messages wait for, once, then again only after
 // a while and a few times; and says why when it does not.
 func (a *attender) attend(ctx context.Context, w message.Awaited) {
+	if a.host {
+		a.notifyHost(ctx, w)
+		return
+	}
 	t := a.tries[w.Name]
 	if t != nil && !subset(w.Messages, t.Messages) {
 		// Another message came: it is asked for again.
@@ -501,8 +543,9 @@ func subset(a, b []string) bool {
 // attendCmd is the watcher's loop. A dispatcher that does not answer is
 // waited for; the watcher does not end.
 func attendCmd(ctx context.Context, flags map[string][]string) error {
-	if _, err := os.Stat(identityFile()); err != nil {
-		return fmt.Errorf("attend needs the pod's own token for the dispatcher (%s)", identityFile())
+	place := os.Getenv("DISPATCHER_PLACE")
+	if _, err := os.Stat(identityFile()); err != nil && place == "" {
+		return fmt.Errorf("attend needs the pod's own token for the dispatcher (%s), or on the owner's machine DISPATCHER_PLACE and the place's token", identityFile())
 	}
 	c, err := client()
 	if err != nil {
@@ -522,16 +565,31 @@ func attendCmd(ctx context.Context, flags map[string][]string) error {
 		out:   os.Stderr,
 		now:   time.Now,
 	}
+	where := "this pod"
+	if place != "" {
+		a.host, a.pod = true, place
+		a.notify = strings.Fields(one(flags, "notify", os.Getenv("DISPATCHER_ATTEND_NOTIFY")))
+		where = "the owner's machine (" + place + ")"
+		pruneRecords(a.now())
+	}
 	os.MkdirAll(filepath.Dir(a.state), 0o700)
 	a.load()
 	_, once := flags["once"]
-	a.logf("attending to the sessions of this pod, every %s", every)
+	a.logf("attending to the sessions of %s, every %s", where, every)
 	for {
 		if err := a.pass(ctx); err != nil && ctx.Err() == nil {
-			a.logf("the dispatcher: %v", err)
+			if !a.down || !a.host {
+				// On the owner's machine the dispatcher is away for as
+				// long as its cluster is: said once, and once when back.
+				a.logf("the dispatcher: %v", err)
+			}
+			a.down = true
 			if once {
 				return err
 			}
+		} else if a.down {
+			a.down = false
+			a.logf("the dispatcher answers again")
 		}
 		if once {
 			return nil

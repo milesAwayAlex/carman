@@ -175,6 +175,9 @@ const TypeSessionLimited = "session.limited"
 // senders of messages it took in the last day and has not answered. It
 // returns how many were told.
 func (s *Service) HarnessLimited(ctx context.Context, c Caller, session, key, words string) (int, error) {
+	if c.Host {
+		return 0, fmt.Errorf("%w: a stop at the limit is read in a standing agent's pod", ErrForbidden)
+	}
 	if err := s.podOnly(c); err != nil {
 		return 0, err
 	}

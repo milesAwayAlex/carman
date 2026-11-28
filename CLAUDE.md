@@ -165,7 +165,10 @@ Built so far:
   for the next session of its name there. The same hooks, installed from
   `adapters/claude-code` with `.local/dispatcher.env`
   (`scripts/deploy.sh CONTEXT env`); the dispatcher a LoadBalancer on the
-  local cluster's port 8379.
+  local cluster's port 8379. `dispatcher attend` run there says
+  when a session's harness has gone and runs the machine's notice command
+  for a message that waits; it opens nothing (ADR
+  new-the-owners-machine-attends-to-its-sessions, proposed).
 - A standing agent's sessions (ADR 0053, proposed): `dispatcher attend`
   in its pod says when a session's harness process has gone (recorded by
   its `SessionStart` hook), and opens again with `agent-open --reopen` a
@@ -256,8 +259,8 @@ Built so far:
   its own image in `AGENT_IMAGE`.
 
 Not built yet: the way in from a laptop to a service on a shared cluster,
-more than one machine of the owner's (one place per installation), the
-watcher of ADR 0053 on the owner's machine,
+more than one machine of the owner's (one place per installation),
+opening a session again on the owner's machine,
 the task-stream benchmark (M7), a second harness (M8), and for agents that
 do work outside memory: rules that chain or keep events for later (ADR
 0063), and a way for the

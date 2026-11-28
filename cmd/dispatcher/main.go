@@ -125,6 +125,10 @@ dispatcher attend [--every 10s] [--once]  in a standing agent's pod: say when a 
                                           a remembered session a message waits for (ADR 0053), and type a line into the
                                           window of an idle one with no listener that a message waits for
 dispatcher hook claude-code [--wait D]    the harness's hook that carries messages into a running session
+dispatcher attend [--notify 'CMD']        on the owner's machine (DISPATCHER_PLACE and the place's token): say when a
+                                          session's harness has gone; opens nothing. CMD, or DISPATCHER_ATTEND_NOTIFY,
+                                          is run as CMD NAME COUNT (DISPATCHER_NOTIFY_FIRST: the first one's first line)
+                                          for messages that wait for a session of that name that is not running there
 
 The list of improvements to the platform (ADR 0058):
 ` + improveUsage

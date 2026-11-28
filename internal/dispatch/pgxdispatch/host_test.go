@@ -174,3 +174,71 @@ func TestR2HostWaits(t *testing.T) {
 		t.Errorf("delivered twice: %+v, %v", tk, err)
 	}
 }
+
+// TestR2HostAttendsToItsSessions: the owner's machine, with the place's
+// token, is told which of its sessions are believed to run and which names
+// messages wait for, says one has gone, and says why a message waits. A
+// pod is told nothing of the place and may say nothing of it, and the
+// place nothing of a pod's sessions.
+func TestR2HostAttendsToItsSessions(t *testing.T) {
+	s, cl, inst := messaging(t)
+	s.Place = "host"
+	ctx := context.Background()
+	d := pod("desk", "pod-d")
+	start(t, s, cl, d, "sess-d", "front", message.Idle)
+	hostStart(t, s, "h-1", "proj", message.Idle)
+	hostStart(t, s, "h-2", "notes", message.Idle)
+
+	at, err := s.Attending(ctx, host)
+	if err != nil || len(at.Running) != 2 || len(at.Waiting) != 0 {
+		t.Fatalf("what the place attends to: %+v, %v", at, err)
+	}
+	if at, _ := s.Attending(ctx, d); len(at.Running) != 1 || at.Running[0].ID != "sess-d" {
+		t.Errorf("a pod is told of the place's sessions: %+v", at)
+	}
+	if err := s.HarnessGone(ctx, d, "h-1", "x"); !errors.Is(err, message.ErrForbidden) {
+		t.Errorf("a pod said a session on the owner's machine had gone: %v", err)
+	}
+	if err := s.HarnessGone(ctx, host, "sess-d", "x"); !errors.Is(err, message.ErrForbidden) {
+		t.Errorf("the place said a pod's session had gone: %v", err)
+	}
+	if err := s.HarnessGone(ctx, message.Caller{Owner: true}, "h-1", "x"); !errors.Is(err, message.ErrForbidden) {
+		t.Errorf("the owner's token attends: %v", err)
+	}
+
+	// Its harness has gone: ended, with why, and a message for it waits for
+	// the next session of its name, which the place is told.
+	if err := s.HarnessGone(ctx, host, "h-2", "its process is not there"); err != nil {
+		t.Fatal(err)
+	}
+	x, _, _ := inst.GetSession(ctx, "h-2")
+	if x.State != message.Ended {
+		t.Errorf("not ended: %+v", x)
+	}
+	recs, _ := inst.OfTypeAbout(ctx, message.TypeSessionEnded, "h-2")
+	if len(recs) != 1 || !strings.Contains(string(recs[0].Data), "gone from the owner's machine") {
+		t.Errorf("the end is not recorded with why: %d", len(recs))
+	}
+	res, err := s.Send(ctx, message.Caller{Owner: true}, "", "host/notes", "are you there?", "")
+	if err != nil || !strings.Contains(res.Detail, "not running") {
+		t.Fatalf("a message to it: %+v, %v", res, err)
+	}
+	at, err = s.Attending(ctx, host)
+	if err != nil || len(at.Running) != 1 || len(at.Waiting) != 1 || at.Waiting[0].Name != "notes" || len(at.Waiting[0].Messages) != 1 {
+		t.Fatalf("after it went: %+v, %v", at, err)
+	}
+	if err := s.Hold(ctx, host, res.ID, "host-notice", "a notice was shown on the owner's machine"); err != nil {
+		t.Errorf("the place saying why it waits: %v", err)
+	}
+	if err := s.Hold(ctx, d, res.ID, "host-notice", "x"); !errors.Is(err, message.ErrForbidden) {
+		t.Errorf("a pod saying why the place's message waits: %v", err)
+	}
+	// A session of the name starts: it takes the message, and nothing waits.
+	hostStart(t, s, "h-3", "notes", message.Busy)
+	if taken, err := s.Take(ctx, host, "h-3", "prompt", nil, 0); err != nil || len(taken.Messages) != 1 {
+		t.Errorf("the next session of the name: %+v, %v", taken, err)
+	}
+	if at, _ := s.Attending(ctx, host); len(at.Waiting) != 0 {
+		t.Errorf("still waited for: %+v", at.Waiting)
+	}
+}
