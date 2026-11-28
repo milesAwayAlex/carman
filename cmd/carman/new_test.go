@@ -164,7 +164,7 @@ func TestR2GoNewInThePod(t *testing.T) {
 	os.MkdirAll(bin, 0o755)
 	asked := filepath.Join(home, "asked")
 	// agent-open: with nothing, the remembered sessions as it lists them.
-	os.WriteFile(filepath.Join(bin, "agent-open"), []byte("#!/bin/sh\n[ $# -gt 0 ] || { printf '%-24s %s\\n' kept /home/agent/work/kept; exit 0; }\n{ pwd; printf '%s\\n' \"$@\"; } > "+asked+"\n"), 0o755)
+	os.WriteFile(filepath.Join(bin, "agent-open"), []byte("#!/bin/sh\n[ $# -gt 0 ] || { printf '%-24s %s\\n' kept /home/agent/work/kept; exit 0; }\n{ pwd -P; printf '%s\\n' \"$@\"; } > "+asked+"\n"), 0o755)
 	os.WriteFile(filepath.Join(bin, "tmux"), []byte("#!/bin/sh\necho bash; echo windowed\n"), 0o755)
 	run := func(name, dir, model string) (int, string) {
 		os.Remove(asked)
