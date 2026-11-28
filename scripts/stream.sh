@@ -292,7 +292,14 @@ while read -r id tday ticket_json; do
 Ticket: $ticket")"
         task="message/${sent%% *}"
         how="$(ended "$task" 900)"
-        usage="$(owner log --type run.usage --last 5 2>/dev/null | grep -F "${sent%% *}" | tail -1 || true)"
+        # Read more than once: one read that fails (the owner's client is a
+        # port forwarded each time) once stopped a run whose session had run.
+        usage=""
+        for _ in 1 2 3 4 5 6; do
+            usage="$(owner log --type run.usage --last 8 2>/dev/null | grep -F "${sent%% *}" | tail -1 || true)"
+            [ -z "$usage" ] || break
+            sleep 5
+        done
         # Did the run stop at the plan's usage limit? The dispatcher says so
         # of the message, with when the limit resets.
         limit="$(owner message "${sent%% *}" 2>/dev/null | python3 bench/stream/limit.py || echo none)"
