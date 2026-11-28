@@ -406,6 +406,12 @@ header value, and gets there by a pipe:
 
     printf 'Bearer %s' "$(PROGRAM-THAT-PRINTS-THE-TOKEN)" | scripts/deploy.sh CONTEXT secret egress-credentials KEY
 
+The credential goes in the `Authorization` header unless its entry names
+another (`header: NAME`). A host that wants two credentials, such as an
+application behind a front that asks for its own in `Proxy-Authorization`,
+has an entry for each under different keys; the proxy answers the host
+once and adds both, replacing whatever the agent sent in either header.
+
 A deploy refuses to go on while a named credential is missing. Tried from an
 agent pod with no credential in its environment: the code host's API
 answered as the token's owner, and the issue tracker's MCP endpoint accepted

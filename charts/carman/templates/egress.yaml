@@ -3,7 +3,7 @@
 {{- $renewals := .Values.egress.renewals }}
 {{- $renewed := list }}{{- range $renewals }}{{- $renewed = append $renewed .key }}{{- end }}
 {{- $hosts := list }}{{- $keys := list }}
-{{- range $creds }}{{- $hosts = append $hosts .host }}{{- if not (has .key $renewed) }}{{- $keys = append $keys .key }}{{- end }}{{- end }}
+{{- range $creds }}{{- if not (has .host $hosts) }}{{- $hosts = append $hosts .host }}{{- end }}{{- if not (has .key $renewed) }}{{- $keys = append $keys .key }}{{- end }}{{- end }}
 {{- $model := include "egress.model" . }}
 {{- if $model }}{{- $hosts = append $hosts .Values.egress.model.host }}{{- end }}
 {{- $trials := and $model .Values.egress.model.trials.enabled }}

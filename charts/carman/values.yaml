@@ -623,6 +623,12 @@ egress:
   # agent needs no credential of its own and cannot read this one.
   #   credentials:
   #     - {host: api.example.com, key: example}
+  # A credential is put in the Authorization header unless its entry names
+  # another (header: NAME). A host that wants two (an application's token
+  # behind a proxy that wants its own in Proxy-Authorization, say) has an
+  # entry for each, under different keys and headers:
+  #     - {host: app.example.com, key: app}
+  #     - {host: app.example.com, key: app-front, header: Proxy-Authorization}
   credentials: []
   credentialsSecret: egress-credentials
   # The model's API, when the proxy holds its credential

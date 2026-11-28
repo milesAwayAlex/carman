@@ -11,6 +11,17 @@ use (ADR 0050): "true" or "". */}}
 {{/* What the egress proxy runs on: see egress.yaml and ADR 0031. */}}
 {{- define "egress.envoy" -}}
 {{- $creds := .Values.egress.credentials }}
+{{- /* A host may have more than one credential, each on a header of its
+own (Authorization unless the entry names one): the host is answered once,
+under the key of its first entry, and every entry of it is added there. */}}
+{{- $hosts := list }}{{- $firsts := list }}{{- $set := list }}
+{{- range $creds }}
+{{- $on := printf "%s %s" .host (lower (.header | default "Authorization")) }}
+{{- if has $on $set }}{{ fail (printf "egress.credentials: %s has two credentials for the header %s; a second credential of a host names another header (header: NAME)" .host (.header | default "Authorization")) }}{{ end }}
+{{- $set = append $set $on }}
+{{- if not (regexMatch "^[A-Za-z][A-Za-z0-9-]*$" (.header | default "Authorization")) }}{{ fail (printf "egress.credentials: %s: header %q is not a header's name" .key .header) }}{{ end }}
+{{- if not (has .host $hosts) }}{{- $hosts = append $hosts .host }}{{- $firsts = append $firsts . }}{{- end }}
+{{- end }}
 {{- $model := include "egress.model" . }}
 {{- $modelHost := .Values.egress.model.host }}
 {{- $renewed := list }}{{- range .Values.egress.renewals }}{{- $renewed = append $renewed .key }}{{- end }}
@@ -66,7 +77,7 @@ static_resources:
                     - name: anywhere
                       domains: ["*"]
                       routes:
-                        {{- range $creds }}
+                        {{- range $firsts }}
                         # A tunnel to {{ .host }} ends here, at the listener
                         # that answers in its name and adds the credential.
                         - match:
@@ -131,7 +142,7 @@ static_resources:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
                 upgrade_configs:
                   - upgrade_type: CONNECT
-    {{- range $creds }}
+    {{- range $firsts }}
     # In the name of {{ .host }}: the agent's TLS ends here, with a
     # certificate from an authority of this installation; the credential is added;
     # and the request goes on to the real host over TLS that is checked
@@ -187,7 +198,10 @@ static_resources:
                         - match: {prefix: "/"}
                           route: {cluster: real-{{ .key }}, timeout: 0s}
                 http_filters:
-                  - name: envoy.filters.http.credential_injector
+                  {{- $host := .host }}
+                  {{- range $creds }}
+                  {{- if eq .host $host }}
+                  - name: credential-{{ .key }}
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.credential_injector.v3.CredentialInjector
                       # Whatever the agent sent in its place is replaced.
@@ -210,7 +224,9 @@ static_resources:
                           {{- else }}
                           credential: {name: credential-{{ .key }}}
                           {{- end }}
-                          header: Authorization
+                          header: {{ .header | default "Authorization" }}
+                  {{- end }}
+                  {{- end }}
                   - name: envoy.filters.http.router
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
@@ -276,7 +292,7 @@ static_resources:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
     {{- end }}
   clusters:
-    {{- range $creds }}
+    {{- range $firsts }}
     - name: answer-{{ .key }}
       load_assignment:
         cluster_name: answer-{{ .key }}
