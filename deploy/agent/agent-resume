@@ -195,15 +195,25 @@ EOF
     export DISPATCHER_SESSION_KIND=headless DISPATCHER_SESSION_NAME=message
     if [ -n "$id" ]; then
         file="$(ls /var/lib/agent/conversations/*/"$id".jsonl 2>/dev/null | head -1)"
-        [ -n "$file" ] || { echo "agent-resume: ${AGENT_NAME:-this agent} has no conversation $id" >&2; exit 1; }
-        # One writer: a session that is open somewhere gets the message
-        # there, at its next tool call or turn; this run is not needed.
-        take "$file" "pod $(hostname), as ${AGENT_NAME:-?}, for message $msg, since $(date -u '+%Y-%m-%d %H:%M UTC')"
+        if [ -n "$file" ]; then
+            # One writer: a session that is open somewhere gets the message
+            # there, at its next tool call or turn; this run is not needed.
+            take "$file" "pod $(hostname), as ${AGENT_NAME:-?}, for message $msg, since $(date -u '+%Y-%m-%d %H:%M UTC')"
+        else
+            # The conversation is not kept (an installation with no
+            # agent.sessionStorage, a trial): the message is still the
+            # session's, and is read in a new conversation under its id,
+            # told that what went before is not here.
+            echo "agent-resume: ${AGENT_NAME:-this agent} has no conversation $id here; the message is read in a new one under that id" >&2
+            unkept=1
+        fi
     fi
     . /usr/local/lib/agent-env
     agent_setup || echo "agent-resume: set-up did not finish; see above" >&2
     model=""
-    if [ -n "$id" ]; then
+    if [ -n "${unkept:-}" ]; then
+        cwd="${PWD:-/work}" how="--session-id $id"
+    elif [ -n "$id" ]; then
         found="$(held_where "$file")"
         cwd="${found% *}" model="${found##* }" how="--resume $id"
         if ! mkdir -p "$cwd" 2>/dev/null; then cwd="$HOME" how="--resume $file"; fi
@@ -220,6 +230,9 @@ EOF
         sleep 5
     done
     [ -n "$text" ] || { echo "agent-resume: message $msg was taken already; nothing to do"; exit 0; }
+    [ -z "${unkept:-}" ] || text="(This message is for a conversation of yours that this installation did not keep: you have nothing of what you said or did in it. The message is all there is to go on.)
+
+$text"
     flags="$(cmem routine --flags)" || flags="--permission-mode dontAsk --allowedTools 'Bash(dispatcher *)'"
     eval "set -- $flags"
     echo "agent-resume: message $msg for $id, in $cwd, ${model:-the harness's default model}"

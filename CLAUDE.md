@@ -150,7 +150,10 @@ Built so far:
   calls, at the end of a turn, or waking an idle one), and a message for a
   session that is not running starts it again as its agent. Who may write
   to an agent (ADR 0047): the owner, its own sessions, an
-  answer, and the agents its `writtenBy` lists.
+  answer, and the agents its `writtenBy` lists. `scripts/check-trial-messages.sh
+  CONTEXT` tries it between a trial's agents with a real harness and no
+  model. A message for a conversation that was not kept is read in a new
+  one, told so.
 - Sessions on the owner's own machine (ADR 0049): a place
   (`dispatcher.host.place`) with the dispatcher's `host` token, its
   sessions `PLACE/NAME` named for their directory. They write as the owner

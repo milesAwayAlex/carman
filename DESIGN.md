@@ -98,7 +98,9 @@ available to the agents' credential); the waiter's `rewakeMessage` and
 `rewakeSummary` make the woken session read it as a message, where the
 harness would otherwise call it a hook's blocking error. A message for a session that is not
 running becomes a task that resumes it as its agent, headless, under
-ADR 0040's one-writer lock, and its last words go back as the answer; one
+ADR 0040's one-writer lock, and its last words go back as the answer
+(where the conversation was not kept, in a new one under the session's
+id, told that what went before is not there); one
 for an agent by name starts a new conversation; one for the owner is a
 notice, which carries its first line, how to read and answer it, and how
 to go to the session it came from: `carman go` and the start of the
