@@ -63,9 +63,11 @@ await_peer() {  # WORDS [NOT-WORDS] [SECONDS]
     die "peers did not come to say \"$1\"${2:+ without \"$2\"} of desk/timer; it says: $(peer)"
 }
 await_peer "idle" "not listening" 90 >/dev/null
-# The session's id, from the dispatcher; its commands, as it runs them.
-sid="$(owner peers 2>/dev/null | grep -E '^desk/timer ' | grep -oE 'session/[0-9a-f-]+' | head -1 | cut -d/ -f2)"
-[ -n "$sid" ] || sid="$(in_pod 'ls /tmp/agent-harness | grep -v -e "^attend" -e "^\." | head -1')"
+# The session's whole id: peers gives its start, the pod's record of its
+# harness the rest. Its commands, as it runs them.
+short="$(owner peers 2>/dev/null | grep -E '^desk/timer ' | grep -oE 'session/[0-9a-f-]+' | head -1 | cut -d/ -f2)"
+[ -n "$short" ] || die "peers names no session desk/timer: $(peer)"
+sid="$(in_pod "ls /tmp/agent-harness | grep -- '^$short' | head -1")"
 [ -n "$sid" ] || die "no id for the session desk/timer: $(peer)"
 as_session() { in_pod "DISPATCHER_SESSION=$sid dispatcher $1"; }
 
