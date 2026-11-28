@@ -345,6 +345,14 @@ spec:
           image: {{ .Values.egress.image }}
           imagePullPolicy: IfNotPresent
           args: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "warn"]
+          {{- if $model }}
+          # Told to end, the proxy stays for as long as the meter waits for
+          # answers under way (METER_DRAIN): they pass through it, and
+          # were cut with it otherwise (ADR 0072).
+          lifecycle:
+            preStop:
+              sleep: {seconds: 10}
+          {{- end }}
           ports:
             - name: proxy
               containerPort: 3128

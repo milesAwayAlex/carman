@@ -51,7 +51,7 @@ TRIAL_PROXY=1 TRIAL_MODEL="" TRIAL_VALUES="$values" scripts/trial.sh "$context" 
 rm -f "$values"
 
 owner() { scripts/trial.sh "$context" deploy dispatch "$@"; }
-send() { owner send worker "$1" | sed -n 's/^\([0-9a-f-]*\) delivered.*/\1/p'; }
+send() { owner send worker "$1" | sed -n 's/^\([0-9a-f-]*\) \(delivered\|waiting\).*/\1/p'; }
 plain="$(send 'Say ok.')"
 subagent="$(send 'Do it.
 stand-in: use Agent {"description":"a part","prompt":"say ok","subagent_type":"general-purpose"}')"

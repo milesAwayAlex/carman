@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -102,9 +103,14 @@ func (o *Outside) Observed(ctx context.Context, watch string, ob Observation) (b
 			typ, c.Previous, c.Since = TypeWatchChanged, last.Digest, last.At
 		}
 		b, _ := json.Marshal(c)
-		// The digest is in the id: the same change told twice (a job
-		// that was started again) is one event.
+		// The digests and the time of the look before are in the id:
+		// the same change told twice (a job that was started again) is
+		// one event, and a source that goes back to what it was and
+		// changes the same way again is a change again.
 		id := fmt.Sprintf("%s/%s/%s/%s", typ, watch, last.Digest, ob.Digest)
+		if changed {
+			id += "/" + strconv.FormatInt(last.At.Unix(), 10)
+		}
 		if err := o.Store.Emit(ctx, dispatch.Event{ID: id, Type: typ, Source: Source, Subject: watch, Time: now, Data: b}); err != nil {
 			return false, err
 		}

@@ -334,7 +334,15 @@ func (r *Rules) Pass(ctx context.Context) error {
 		return r.Log.SetMark(ctx, MarkName, p)
 	}
 	if len(r.Rules) == 0 {
-		return nil
+		// No rule reads the log, and the place still moves with it: what
+		// happens while there are no rules starts nothing when one is
+		// written later.
+		last, err := r.Log.Last(ctx, "", 1)
+		if err != nil || len(last) == 0 || last[0].Seq <= p.Seq {
+			return err
+		}
+		p.Seq = last[0].Seq
+		return r.Log.SetMark(ctx, MarkName, p)
 	}
 	types := map[string]bool{}
 	for _, rule := range r.Rules {
