@@ -33,16 +33,12 @@ type Awaited struct {
 	Messages []string `json:"messages"`
 }
 
-// attendant is who may attend to sessions: a standing agent's pod to its
-// own, and the owner's machine to the sessions of its place.
-func (s *Service) attendant(c Caller) error {
+// podOnly lets a standing agent's pod attend to its own sessions, and the
+// owner's machine, with the place's token, to the sessions of its place.
+func (s *Service) podOnly(c Caller) error {
 	if c.Host && !c.Owner && s.isPlace(c.Agent) {
 		return nil
 	}
-	return s.podOnly(c)
-}
-
-func (s *Service) podOnly(c Caller) error {
 	if c.Owner || c.Host || c.Pod == "" || c.PodUID == "" || s.isPlace(c.Agent) {
 		return fmt.Errorf("%w: only a standing agent's pod attends to its sessions", ErrForbidden)
 	}
@@ -52,7 +48,7 @@ func (s *Service) podOnly(c Caller) error {
 // Attending is what the caller's pod has to attend to.
 func (s *Service) Attending(ctx context.Context, c Caller) (Attend, error) {
 	out := Attend{Running: []Session{}, Waiting: []Awaited{}}
-	if err := s.attendant(c); err != nil {
+	if err := s.podOnly(c); err != nil {
 		return out, err
 	}
 	all, err := s.Store.Sessions(ctx, c.Agent, s.now().Add(-s.keep()))
@@ -110,7 +106,7 @@ func (s *Service) Attending(ctx context.Context, c Caller) (Attend, error) {
 // HarnessGone records that a session the dispatcher believed running in
 // the caller's pod has no harness any more, and routes what waits for it.
 func (s *Service) HarnessGone(ctx context.Context, c Caller, session, why string) error {
-	if err := s.attendant(c); err != nil {
+	if err := s.podOnly(c); err != nil {
 		return err
 	}
 	x, ok, err := s.Store.GetSession(ctx, session)
@@ -160,7 +156,7 @@ func (s *Service) HarnessGone(ctx context.Context, c Caller, session, why string
 // waits, so that its sender sees it (dispatcher message ID). Key names
 // the reason, so that the same one is said once.
 func (s *Service) Hold(ctx context.Context, c Caller, msg, key, reason string) error {
-	if err := s.attendant(c); err != nil {
+	if err := s.podOnly(c); err != nil {
 		return err
 	}
 	if strings.TrimSpace(reason) == "" || key == "" || !nameRe.MatchString(key) {

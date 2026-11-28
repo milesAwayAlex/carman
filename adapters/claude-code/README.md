@@ -161,8 +161,8 @@ name to start there is handed it.
    if it ends. It says a session ended when its harness's process has
    gone (a closed terminal, a kill), so the session is not shown as
    running for a day. It opens no session and types nothing. With
-   `DISPATCHER_ATTEND_NOTIFY` set to a command, it runs `CMD NAME COUNT
-   'FROM: first line'` once when messages wait for a session of that name
+   `DISPATCHER_ATTEND_NOTIFY` set to a command, it runs `CMD NAME COUNT` once (the first
+   message's sender and first line in `DISPATCHER_NOTIFY_FIRST`) when messages wait for a session of that name
    that is not running, for a notification of your desktop's. Its log is
    on standard error; its records are under
    `~/.local/state/dispatcher` (or `$XDG_STATE_HOME/dispatcher`).

@@ -27,7 +27,9 @@ watcher for the machine, with what differs said plainly.
 with `DISPATCHER_PLACE` set and the host role's token (the environment the
 hooks have), attends to the sessions of the place. It runs in the
 foreground, writes its log to standard error, waits for a dispatcher that
-does not answer, and does not end by itself. What keeps it running (a
+does not answer (saying so once, and once when it answers again), ends
+when told to, and does not end by itself; with no token or no address it
+ends at once with a line saying which. What keeps it running (a
 user service of the machine's) is the machine's configuration, not this
 repository's.
 
@@ -46,7 +48,9 @@ are removed when the watcher starts.
 
 **Without `/proc`, `ps`.** Where there is no `/proc`, a process's parent,
 start time and command are asked of `ps` (`-o ppid= -o lstart= -o
-command=`, `/bin/ps` where it is), the start time kept as `ps` writes it.
+command=`, `/bin/ps` where it is, with `LC_ALL=C` and `TZ=UTC` so that the
+hook and the watcher read the same words), the start time kept as `ps`
+writes it.
 The watcher asks once per session every ten seconds. The listener, which
 looks every two seconds, asks the system only whether a process of that
 id is there, and `ps` every thirty seconds whether it is the same one.
@@ -62,10 +66,12 @@ that messages wait for and no session runs under, the watcher does one
 thing: if the machine names a command (`DISPATCHER_ATTEND_NOTIFY`, or
 `--notify`), it runs it once for the messages that wait, as
 
-    CMD NAME COUNT 'FROM: first line of the first message'
+    CMD NAME COUNT
 
-with `DISPATCHER_NOTIFY_CWD` (where the last session of that name ran) and
-`DISPATCHER_NOTIFY_SESSION` in its environment, and records on the
+with, in its environment, `DISPATCHER_NOTIFY_FIRST` (who the first message
+is from and its first line: not among the arguments, which any process on
+the machine can read), `DISPATCHER_NOTIFY_CWD` (where the last session of
+that name ran) and `DISPATCHER_NOTIFY_SESSION`, and records on the
 messages that a notice was shown and when. It runs it again only when
 another message comes for the name. What the command does (a notification
 of the desktop's, for one) is the machine's. With no command the watcher

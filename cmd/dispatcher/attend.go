@@ -194,6 +194,7 @@ type attender struct {
 	// for a message that waits (attend_host.go).
 	host   bool
 	notify []string
+	down   bool // the dispatcher did not answer at the last pass
 }
 
 const (
@@ -421,10 +422,18 @@ func attendCmd(ctx context.Context, flags map[string][]string) error {
 	a.logf("attending to the sessions of %s, every %s", where, every)
 	for {
 		if err := a.pass(ctx); err != nil && ctx.Err() == nil {
-			a.logf("the dispatcher: %v", err)
+			if !a.down || !a.host {
+				// On the owner's machine the dispatcher is away for as
+				// long as its cluster is: said once, and once when back.
+				a.logf("the dispatcher: %v", err)
+			}
+			a.down = true
 			if once {
 				return err
 			}
+		} else if a.down {
+			a.down = false
+			a.logf("the dispatcher answers again")
 		}
 		if once {
 			return nil

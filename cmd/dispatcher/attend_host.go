@@ -41,7 +41,11 @@ func noProc() bool {
 // psStat is a process's parent, start time and command, from ps. The start
 // time is ps's own words for it (five fields), compared as written.
 func psStat(pid int) (ppid int, start, command string, err error) {
-	out, err := exec.Command(psBin, "-o", "ppid=", "-o", "lstart=", "-o", "command=", "-p", strconv.Itoa(pid)).Output()
+	cmd := exec.Command(psBin, "-o", "ppid=", "-o", "lstart=", "-o", "command=", "-p", strconv.Itoa(pid))
+	// The start time is written in the caller's zone and language: one of
+	// each, so that the hook's record and the watcher's reading agree.
+	cmd.Env = append(os.Environ(), "LC_ALL=C", "TZ=UTC")
+	out, err := cmd.Output()
 	if err != nil {
 		return 0, "", "", err
 	}
@@ -95,8 +99,10 @@ func (a *attender) notifyHost(ctx context.Context, w message.Awaited) {
 		}
 		first = st.Message.From + ": " + line
 	}
-	cmd := exec.CommandContext(ctx, a.notify[0], append(append([]string{}, a.notify[1:]...), w.Name, strconv.Itoa(len(w.Messages)), first)...)
-	cmd.Env = append(os.Environ(), "DISPATCHER_NOTIFY_CWD="+w.Cwd, "DISPATCHER_NOTIFY_SESSION="+w.Session)
+	// A message's words go in the environment, not among the arguments,
+	// which any process on the machine can read.
+	cmd := exec.CommandContext(ctx, a.notify[0], append(append([]string{}, a.notify[1:]...), w.Name, strconv.Itoa(len(w.Messages)))...)
+	cmd.Env = append(os.Environ(), "DISPATCHER_NOTIFY_FIRST="+first, "DISPATCHER_NOTIFY_CWD="+w.Cwd, "DISPATCHER_NOTIFY_SESSION="+w.Session)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		a.logf("%s: the machine's notice command failed: %v: %s", w.Name, err, strings.TrimSpace(string(out)))
 		return

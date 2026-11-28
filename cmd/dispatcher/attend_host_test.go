@@ -101,7 +101,7 @@ func TestR2HostWatcherSaysGoneAndShowsANotice(t *testing.T) {
 
 	shown := filepath.Join(dir, "shown")
 	notify := filepath.Join(dir, "notify")
-	os.WriteFile(notify, []byte("#!/bin/sh\necho \"$1|$2|$DISPATCHER_NOTIFY_CWD\" >> "+shown+"\n"), 0o755)
+	os.WriteFile(notify, []byte("#!/bin/sh\necho \"$1|$2|$#|$DISPATCHER_NOTIFY_CWD\" >> "+shown+"\n"), 0o755)
 	opened := filepath.Join(dir, "opened")
 	now := time.Now()
 	f := &fakeAttend{attend: message.Attend{
@@ -122,7 +122,7 @@ func TestR2HostWatcherSaysGoneAndShowsANotice(t *testing.T) {
 		t.Error("the watcher opened a session on the owner's machine")
 	}
 	b, _ := os.ReadFile(shown)
-	if string(b) != "notes|1|/work/notes\n" {
+	if string(b) != "notes|1|2|/work/notes\n" {
 		t.Errorf("the machine's command was run as: %q", b)
 	}
 	if len(f.holds) != 1 || f.holds[0].Message != "m-1" || !strings.Contains(f.holds[0].Reason, "a notice was shown on the owner's machine") {
@@ -135,7 +135,7 @@ func TestR2HostWatcherSaysGoneAndShowsANotice(t *testing.T) {
 	for range 2 {
 		a.pass(context.Background())
 	}
-	if b, _ := os.ReadFile(shown); string(b) != "notes|1|/work/notes\nnotes|2|/work/notes\n" {
+	if b, _ := os.ReadFile(shown); string(b) != "notes|1|2|/work/notes\nnotes|2|2|/work/notes\n" {
 		t.Errorf("after another message: %q", b)
 	}
 	// With no command set nothing is run and nothing is claimed.
