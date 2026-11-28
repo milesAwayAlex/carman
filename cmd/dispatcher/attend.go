@@ -141,6 +141,9 @@ func harnessGoneFunc(pid int) func() bool {
 			}
 		}
 		_, now, err := procStat(hp)
+		if err != nil && noProc() {
+			return !psAlive(hp) // ps did not answer: gone only if no process is there
+		}
 		return err != nil || now != start
 	}
 }
@@ -161,6 +164,10 @@ func harnessAlive(session string) (known, alive bool) {
 		return false, false
 	}
 	_, now, err := procStat(pid)
+	if err != nil && noProc() && psAlive(pid) {
+		// ps did not answer, and a process of that id is there: no verdict.
+		return false, false
+	}
 	return true, err == nil && now == start
 }
 

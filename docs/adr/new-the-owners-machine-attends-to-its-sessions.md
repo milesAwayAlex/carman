@@ -54,6 +54,8 @@ writes it.
 The watcher asks once per session every ten seconds. The listener, which
 looks every two seconds, asks the system only whether a process of that
 id is there, and `ps` every thirty seconds whether it is the same one.
+A `ps` that fails, or answers in another shape, is no verdict while a
+process of that id is there: the session is not ended on it.
 With this the listener on such a machine leaves with its harness, as it
 does in a pod.
 
@@ -73,7 +75,12 @@ is from and its first line: not among the arguments, which any process on
 the machine can read), `DISPATCHER_NOTIFY_CWD` (where the last session of
 that name ran) and `DISPATCHER_NOTIFY_SESSION`, and records on the
 messages that a notice was shown and when. It runs it again only when
-another message comes for the name. What the command does (a notification
+another message comes for the name. A command that fails is run again
+after two minutes, then four, as an open is in a pod, and nothing is said
+on the messages until it has run. `DISPATCHER_NOTIFY_FIRST` holds a
+sender's words: a notice script treats it as untrusted text and hands it
+on as data (an argument to a program that shows it), never as part of a
+script it runs (`osascript -e "..."` or `sh -c` with the words inside). What the command does (a notification
 of the desktop's, for one) is the machine's. With no command the watcher
 does nothing more: the message already says that it waits for the next
 session of its name, and its sender is told after the wait that ADR

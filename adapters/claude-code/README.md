@@ -163,7 +163,10 @@ name to start there is handed it.
    running for a day. It opens no session and types nothing. With
    `DISPATCHER_ATTEND_NOTIFY` set to a command, it runs `CMD NAME COUNT` once (the first
    message's sender and first line in `DISPATCHER_NOTIFY_FIRST`) when messages wait for a session of that name
-   that is not running, for a notification of your desktop's. Its log is
+   that is not running, for a notification of your desktop's. Those
+   words are a sender's: have the script pass `$DISPATCHER_NOTIFY_FIRST`
+   as data to whatever shows it, never inside a script it runs
+   (`osascript -e "... $DISPATCHER_NOTIFY_FIRST ..."`, `sh -c`). Its log is
    on standard error; its records are under
    `~/.local/state/dispatcher` (or `$XDG_STATE_HOME/dispatcher`).
 

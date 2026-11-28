@@ -149,3 +149,83 @@ func TestR2HostWatcherSaysGoneAndShowsANotice(t *testing.T) {
 		t.Errorf("with no command, the message says a notice was shown: %+v", f.holds)
 	}
 }
+
+// TestR2HostWatcherGivesNoVerdictWhenPsFails: a ps that does not run, or
+// answers in another shape, says nothing of a process that is there: the
+// session is not ended, and its listener stays.
+func TestR2HostWatcherGivesNoVerdictWhenPsFails(t *testing.T) {
+	dir := t.TempDir()
+	procRoot = filepath.Join(dir, "no-proc-here")
+	t.Cleanup(func() { procRoot = "/proc" })
+	t.Setenv("DISPATCHER_HARNESS_DIR", filepath.Join(dir, "harness"))
+	h := aHarness(t)
+	_, start, _ := findHarness(h.Process.Pid)
+	gone := harnessGoneFunc(h.Process.Pid)
+	os.MkdirAll(harnessDir(), 0o700)
+	os.WriteFile(filepath.Join(harnessDir(), "h-live"), []byte(itoa(h.Process.Pid)+" "+start+"\n"), 0o600)
+	os.WriteFile(filepath.Join(harnessDir(), "h-dead"), []byte("2147483000 Mon_Jan_1_00:00:00_2001\n"), 0o600)
+
+	broken := filepath.Join(dir, "ps")
+	real := psBin
+	t.Cleanup(func() { psBin = real })
+	for what, script := range map[string]string{"fails": "#!/bin/sh\nexit 1\n", "another shape": "#!/bin/sh\necho 12 unexpected\n"} {
+		os.WriteFile(broken, []byte(script), 0o755)
+		psBin = broken
+		if known, alive := harnessAlive("h-live"); known || alive {
+			t.Errorf("ps %s, the process is there: known %v, alive %v; want no verdict", what, known, alive)
+		}
+		if known, alive := harnessAlive("h-dead"); !known || alive {
+			t.Errorf("ps %s, no process of that id: known %v, alive %v; want gone", what, known, alive)
+		}
+		for range 20 {
+			if gone() {
+				t.Fatalf("ps %s: the listener takes a harness that runs for gone", what)
+			}
+		}
+		now := time.Now()
+		f := &fakeAttend{attend: message.Attend{Running: []message.Session{{ID: "h-live", Name: "proj"}}}}
+		a := newAttender(t, f, nil, filepath.Join(dir, "attend.json"), &now)
+		a.host, a.pod = true, "host"
+		for range 4 {
+			a.pass(context.Background())
+		}
+		if len(f.gone) != 0 {
+			t.Errorf("ps %s: a session that runs was said to have ended: %v", what, f.gone)
+		}
+	}
+}
+
+// TestR2HostWatcherTriesAFailedNoticeAgain: a notice command that fails
+// says nothing on the message and is run again after a while.
+func TestR2HostWatcherTriesAFailedNoticeAgain(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DISPATCHER_HARNESS_DIR", filepath.Join(dir, "harness"))
+	ran := filepath.Join(dir, "ran")
+	ok := filepath.Join(dir, "ok")
+	notify := filepath.Join(dir, "notify")
+	os.WriteFile(notify, []byte("#!/bin/sh\necho x >> "+ran+"\ntest -e "+ok+"\n"), 0o755)
+	now := time.Now()
+	f := &fakeAttend{attend: message.Attend{Waiting: []message.Awaited{{Name: "notes", Session: "h-9", Messages: []string{"m-1"}}}}}
+	a := newAttender(t, f, nil, filepath.Join(dir, "attend.json"), &now)
+	a.host, a.pod, a.notify = true, "host", []string{notify}
+	runs := func() int { b, _ := os.ReadFile(ran); return strings.Count(string(b), "x") }
+	for range 3 {
+		a.pass(context.Background())
+	}
+	if runs() != 1 || len(f.holds) != 0 {
+		t.Fatalf("a failing command: run %d times, the message says %+v", runs(), f.holds)
+	}
+	now = now.Add(firstBackoff + time.Second)
+	os.WriteFile(ok, nil, 0o644)
+	for range 3 {
+		a.pass(context.Background())
+	}
+	if runs() != 2 || len(f.holds) != 1 {
+		t.Errorf("after a while: run %d times, the message says %+v", runs(), f.holds)
+	}
+	now = now.Add(time.Hour)
+	a.pass(context.Background())
+	if runs() != 2 {
+		t.Errorf("shown, and run again: %d", runs())
+	}
+}

@@ -83,10 +83,18 @@ const noticeKey = "host-notice"
 // once for a set of messages, and says on the messages that it did.
 func (a *attender) notifyHost(ctx context.Context, w message.Awaited) {
 	t := a.tries[w.Name]
-	if t != nil && subset(w.Messages, t.Messages) {
+	if t != nil && !subset(w.Messages, t.Messages) {
+		t = nil // another message came: shown again
+	}
+	if t != nil && (t.Outcome == "noticed" || a.now().Sub(t.Last) < backoff(t.Tries)) {
 		return
 	}
-	a.tries[w.Name] = &attempt{Tries: 1, Last: a.now(), Outcome: "noticed", Messages: w.Messages}
+	if t == nil {
+		t = &attempt{}
+		a.tries[w.Name] = t
+	}
+	t.Messages, t.Last, t.Outcome = w.Messages, a.now(), "noticed"
+	t.Tries++
 	if len(a.notify) == 0 {
 		return
 	}
@@ -104,7 +112,9 @@ func (a *attender) notifyHost(ctx context.Context, w message.Awaited) {
 	cmd := exec.CommandContext(ctx, a.notify[0], append(append([]string{}, a.notify[1:]...), w.Name, strconv.Itoa(len(w.Messages)))...)
 	cmd.Env = append(os.Environ(), "DISPATCHER_NOTIFY_FIRST="+first, "DISPATCHER_NOTIFY_CWD="+w.Cwd, "DISPATCHER_NOTIFY_SESSION="+w.Session)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		a.logf("%s: the machine's notice command failed: %v: %s", w.Name, err, strings.TrimSpace(string(out)))
+		// Not shown: tried again after a while, as an open is in a pod.
+		t.Outcome = "failed"
+		a.logf("%s: the machine's notice command failed (try %d): %v: %s", w.Name, t.Tries, err, strings.TrimSpace(string(out)))
 		return
 	}
 	a.logf("%s: %d message(s) wait; the machine's notice command was run", w.Name, len(w.Messages))
