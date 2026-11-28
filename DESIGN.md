@@ -235,6 +235,15 @@ minutes) is told to its sender once, with the latest reason
 (`message.waited`); on the owner's machine, where nothing types into a
 terminal, that is what a sender to a session with no listener gets.
 
+A turn cut by an error is not left hanging (ADR
+new-a-turn-cut-by-an-error-is-told-to-go-on, proposed). When the model's
+API fails for longer than the harness tries again (some minutes), the turn
+ends with no `Stop` hook; the harness's `StopFailure` hook runs, and the
+dispatcher's client there says the session is idle and cut, and starts its
+listener. `session.cut` is recorded, and a minute later the dispatcher
+sends the session a message to go on, with a wait that doubles for each
+cut in a row and no more after the fifth.
+
 The plan's usage limit is said to whoever waits (ADR
 0067, proposed). A run started for a message that
 fails with the limit's words is recorded as `message.limited`, and its

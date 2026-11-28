@@ -44,6 +44,7 @@ const (
 
 	TypeSessionStarted = "session.started" // subject the session's id; data a Session
 	TypeSessionEnded   = "session.ended"   // subject the session's id; data a Session and why
+	TypeSessionCut     = "session.cut"     // a turn ended on an error of the model's API; data which, how many running, and what was done
 	TypeWatch          = "session.watch"   // subject the watched session; data who to tell
 	TypeWatched        = "session.watched" // ID session.watched/WATCH: the watch was answered
 
@@ -120,6 +121,12 @@ type Session struct {
 	// it since: if its harness is then found gone, they were handed to
 	// nobody (ADR 0053).
 	Woke []string `json:"woke,omitempty"`
+	// Cuts is how many turns in a row ended on an error of the model's
+	// API (the harness's StopFailure hook said so), CutAt when the latest
+	// did, and Resume that the session is still to be told to go on.
+	Cuts   int       `json:"cuts,omitempty"`
+	CutAt  time.Time `json:"cut_at,omitzero"`
+	Resume bool      `json:"resume,omitempty"`
 }
 
 const (

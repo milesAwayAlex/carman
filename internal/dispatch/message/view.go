@@ -374,6 +374,9 @@ func (r *Router) Run(ctx context.Context) {
 			if err := r.Service.SendAgain(ctx); err != nil && ctx.Err() == nil {
 				r.Logger.Warn("sending again what stopped at the plan's limit", "error", err)
 			}
+			if err := r.Service.Resume(ctx); err != nil && ctx.Err() == nil {
+				r.Logger.Warn("telling sessions whose turn was cut to go on", "error", err)
+			}
 			if err := r.Service.TellWaiting(ctx); err != nil && ctx.Err() == nil {
 				r.Logger.Warn("telling senders of messages that have waited", "error", err)
 			}

@@ -118,7 +118,10 @@ The same way, a session on your own machine can be written to by the
 installation's agents and sessions, and write to them (ADR 0049): the
 dispatcher's hook carries a message into it between tool calls, at the end
 of a turn, or by waking it when idle, as in an agent's pod. The settings are
-in `dispatcher.settings.example.json`, beside the memory's.
+in `dispatcher.settings.example.json`, beside the memory's. Its
+`StopFailure` hook is for a turn that ends on an error of the model's API:
+the session is then known to be idle, listens again, and is told by the
+dispatcher to go on.
 
 What it is to everyone else: a session of the place your machine is called
 (`dispatcher.host.place` in the values, `host` unless changed), named for

@@ -61,6 +61,8 @@ writeText "dispatcher-claude-code-settings.json" (
         UserPromptSubmit = always;
         PostToolBatch = always;
         Stop = andListen;
+        # A turn that ends on an error of the model's API runs this, not Stop.
+        StopFailure = andListen;
         SessionEnd = always;
       };
     }
