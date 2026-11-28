@@ -78,6 +78,14 @@ Built so far:
   credential on the owner's machine; `scripts/deploy.sh CONTEXT
   model-account [NAME]` says or changes which one the proxy holds, and
   usage readings count since the latest change.
+  With `egress.model.accounts.enabled` (ADR
+  new-the-proxy-switches-the-models-account, proposed) the meter holds
+  every account's credential (`model-account --all`) and switches by
+  itself: the account whose week ends soonest while it has room, another
+  at 85% of that one's five-hour window until its reset, at most every
+  half hour; it reads the account not held once an hour, records each
+  switch as `model.account` and the owner is told in a line
+  (`scripts/check-switch.sh CONTEXT`).
   `dispatcher plan` (ADR 0077, proposed)
   says which account the proxy should hold now and over the next seven
   days, by arithmetic on the readings (each account's five-hour, seven-day

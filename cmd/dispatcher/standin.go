@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"carman/internal/dispatch/meter"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -52,6 +54,9 @@ import (
 // From the environment: STAND_IN_LISTEN (:8080); STAND_IN_TOKEN_FILE, the
 // credential it takes (the token alone; read at every request, so that a
 // changed credential is seen at once); without it any credential passes.
+// STAND_IN_ACCOUNTS_DIR, a directory of files account.NAME, each an
+// account's credential: it then takes any of them, and each account has a
+// standing of its own (set with "account": "NAME").
 //
 // Beside the API's own paths it has two of its own, for whoever runs a
 // check:
@@ -60,7 +65,12 @@ import (
 //	GET  /stand-in/seen       what it has been asked: requests, by model, refused for the credential, the last caller's
 type standIn struct {
 	tokenFile string
-	now       func() time.Time
+	// accountsDir holds a credential for each of several accounts, each
+	// with its own standing.
+	accountsDir string
+	accounts    map[string]*standAccount
+	byAccount   map[string]int
+	now         func() time.Time
 
 	mu       sync.Mutex
 	status   string
@@ -72,10 +82,50 @@ type standIn struct {
 	lastUA   string
 }
 
+// standAccount is one account's standing, where there are several.
+type standAccount struct {
+	status  string
+	windows map[string]standWindow
+}
+
+// account is the standing of the account named, made when first named.
+func (s *standIn) account(name string) *standAccount {
+	if s.accounts == nil {
+		s.accounts = map[string]*standAccount{}
+	}
+	a, ok := s.accounts[name]
+	if !ok {
+		a = &standAccount{status: "allowed", windows: map[string]standWindow{"5h": {Utilization: 0.1, ResetIn: 3 * 3600}, "7d": {Utilization: 0.2, ResetIn: 4 * 86400}}}
+		s.accounts[name] = a
+	}
+	return a
+}
+
+// accountOf is the account whose credential this is, by the directory.
+func (s *standIn) accountOf(credential string) (string, bool) {
+	entries, _ := os.ReadDir(s.accountsDir)
+	for _, e := range entries {
+		name, ok := strings.CutPrefix(e.Name(), meter.AccountPrefix)
+		if !ok {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(s.accountsDir, e.Name())); err == nil && credential != "" && strings.TrimSpace(string(b)) == credential {
+			return name, true
+		}
+	}
+	return "", false
+}
+
 type standWindow struct {
 	Utilization float64 `json:"utilization"`
 	ResetIn     int64   `json:"reset_in"` // seconds from now
 	Status      string  `json:"status,omitempty"`
+}
+
+func standInFromEnv() *standIn {
+	s := newStandIn(os.Getenv("STAND_IN_TOKEN_FILE"))
+	s.accountsDir = os.Getenv("STAND_IN_ACCOUNTS_DIR")
+	return s
 }
 
 func newStandIn(tokenFile string) *standIn {
@@ -84,12 +134,17 @@ func newStandIn(tokenFile string) *standIn {
 }
 
 // headers are the plan's standing as the API sends it on every answer.
-func (s *standIn) headers(h http.Header) {
+func (s *standIn) headers(h http.Header, account string) {
 	const p = "anthropic-ratelimit-unified-"
 	now := s.now()
-	h.Set(p+"status", s.status)
+	status, windows := s.status, s.windows
+	if account != "" {
+		a := s.account(account)
+		status, windows = a.status, a.windows
+	}
+	h.Set(p+"status", status)
 	claim, soonest := "", int64(0)
-	for name, w := range s.windows {
+	for name, w := range windows {
 		st := w.Status
 		if st == "" {
 			st = "allowed"
@@ -97,7 +152,7 @@ func (s *standIn) headers(h http.Header) {
 		h.Set(p+name+"-utilization", strconv.FormatFloat(w.Utilization, 'f', -1, 64))
 		h.Set(p+name+"-reset", strconv.FormatInt(now.Unix()+w.ResetIn, 10))
 		h.Set(p+name+"-status", st)
-		if claim == "" || w.Utilization > s.windows[claim].Utilization {
+		if claim == "" || w.Utilization > windows[claim].Utilization {
 			claim, soonest = name, now.Unix()+w.ResetIn
 		}
 	}
@@ -120,6 +175,7 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case r.URL.Path == "/stand-in/standing" && r.Method == http.MethodPost:
 		var set struct {
+			Account string                 `json:"account"`
 			Status  string                 `json:"status"`
 			Windows map[string]standWindow `json:"windows"`
 		}
@@ -128,11 +184,21 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.mu.Lock()
-		if set.Status != "" {
-			s.status = set.Status
-		}
-		for k, v := range set.Windows {
-			s.windows[k] = v
+		if set.Account != "" {
+			a := s.account(set.Account)
+			if set.Status != "" {
+				a.status = set.Status
+			}
+			for k, v := range set.Windows {
+				a.windows[k] = v
+			}
+		} else {
+			if set.Status != "" {
+				s.status = set.Status
+			}
+			for k, v := range set.Windows {
+				s.windows[k] = v
+			}
 		}
 		s.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
@@ -141,11 +207,22 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"requests": s.requests, "by_model": s.byModel, "tokens": s.tokens, "refused_for_the_credential": s.denied, "last_user_agent": s.lastUA})
+		_ = json.NewEncoder(w).Encode(map[string]any{"requests": s.requests, "by_model": s.byModel, "tokens": s.tokens, "refused_for_the_credential": s.denied, "last_user_agent": s.lastUA, "by_account": s.byAccount})
 		return
 	}
 	// The API's own paths take the credential.
-	if s.tokenFile != "" {
+	account := ""
+	if s.accountsDir != "" {
+		name, ok := s.accountOf(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+		if !ok {
+			s.mu.Lock()
+			s.denied++
+			s.mu.Unlock()
+			apiError(w, http.StatusUnauthorized, "authentication_error", "the stand-in does not know this credential")
+			return
+		}
+		account = name
+	} else if s.tokenFile != "" {
 		want, err := os.ReadFile(s.tokenFile)
 		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if err != nil || got == "" || got != strings.TrimSpace(string(want)) {
@@ -182,8 +259,15 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.requests++
 	s.byModel[req.Model]++
 	s.lastUA = r.Header.Get("User-Agent")
-	s.headers(w.Header())
+	s.headers(w.Header(), account)
 	rejected := s.status == "rejected"
+	if account != "" {
+		if s.byAccount == nil {
+			s.byAccount = map[string]int{}
+		}
+		s.byAccount[account]++
+		rejected = s.account(account).status == "rejected"
+	}
 	s.mu.Unlock()
 	if rejected {
 		// The plan's limit, as the API refuses for it: no retry asked for.
@@ -362,7 +446,7 @@ func standInCmd(ctx context.Context, args []string) error {
 		return standInAsk(ctx, flags)
 	}
 	listen := envOr("STAND_IN_LISTEN", ":8080")
-	srv := &http.Server{Addr: listen, Handler: newStandIn(os.Getenv("STAND_IN_TOKEN_FILE")), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: listen, Handler: standInFromEnv(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
 		_ = srv.Close()

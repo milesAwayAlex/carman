@@ -138,10 +138,20 @@ func accountsOf(readings, changes []dispatch.Record) (map[string][]dispatch.Reco
 			}
 		}
 	}
+	said := func(r dispatch.Record) string {
+		var rd reading
+		_ = json.Unmarshal(r.Data, &rd)
+		return rd.Account
+	}
 	out := map[string][]dispatch.Record{}
 	var own time.Time // the weekly reset of the present stretch, before any doubt
 	stretch := -2
 	for _, r := range readings {
+		// A reading that says its account is that account's.
+		if n := said(r); n != "" {
+			out[n] = append(out[n], r)
+			continue
+		}
 		name, i := nameAt(r.Seq)
 		if i != stretch {
 			stretch, own = i, time.Time{}
@@ -421,6 +431,9 @@ type budgetPlan struct {
 	// the proxy does not hold it until then; Lost is what the plan itself
 	// leaves at the resets of the days ahead.
 	IfElsewhere []lost `json:"if_elsewhere"`
+	// Switches are the latest changes of account, the proxy\'s own with
+	// their reasons.
+	Switches []string `json:"switches,omitempty"`
 	// Shares is the room divided between the owner's priorities.
 	Shares []share `json:"shares,omitempty"`
 	Lost   []lost  `json:"lost,omitempty"`
@@ -455,6 +468,20 @@ func planOf(readings, changes []dispatch.Record, now time.Time, c planConfig) bu
 			l.Model, l.Own = a.OwnModel, a.RoomOwn
 		}
 		p.IfElsewhere = append(p.IfElsewhere, l)
+	}
+	for i := max(0, len(changes)-5); i < len(changes); i++ {
+		ch := changes[i]
+		var sw struct {
+			From, Why, By, Rule string
+		}
+		_ = json.Unmarshal(ch.Data, &sw)
+		l := fmt.Sprintf("%s to %s", ch.Time.UTC().Format("01-02 15:04"), label(ch.Subject))
+		if sw.By == "proxy" {
+			l += fmt.Sprintf(", by the proxy (rule: %s): %s", sw.Rule, sw.Why)
+		} else {
+			l += ", by a person (" + ch.Source + ")"
+		}
+		p.Switches = append(p.Switches, l)
 	}
 	p.Blocks, p.Lost = simulate(p.Accounts, p.Advice.Account, now, c)
 	return p
@@ -614,6 +641,12 @@ func planLines(p budgetPlan) []string {
 			s += fmt.Sprintf(", and %s of %s's own", points(l.Own), l.Model)
 		}
 		out = append(out, s)
+	}
+	if len(p.Switches) > 0 {
+		out = append(out, "  the latest changes of account (UTC):")
+		for _, l := range p.Switches {
+			out = append(out, "    "+l)
+		}
 	}
 	out = append(out, shareLines(p)...)
 	out = append(out, fmt.Sprintf("  the next %d days by the rules, work always waiting (UTC):", c.Days))

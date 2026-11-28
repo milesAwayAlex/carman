@@ -679,6 +679,23 @@ egress:
     # is recorded as trial/TRIAL/AGENT. Off unless switched on; needs the
     # credential at the proxy (agent.modelCredential: proxy or both) and a
     # sandbox.
+    # Several accounts for the model at the proxy (ADR
+    # new-the-proxy-switches-the-models-account): the secret holds each
+    # account's credential under the key account.NAME (scripts/deploy.sh
+    # CONTEXT model-account --all), and the meter chooses which one
+    # requests go out on: the account whose week ends soonest while it has
+    # room; at `fiveHourCeiling` of that account's five-hour window another
+    # until the reset; never more often than `hold`. An account not held
+    # is read every `readEvery` with one request to `readModel`, the
+    # smallest model. Each switch is model.account in the dispatcher's log
+    # and a line to the owner. Off: the proxy holds the one credential a
+    # person put there.
+    accounts:
+      enabled: false
+      readModel: ""
+      fiveHourCeiling: 0.85
+      hold: 30m
+      readEvery: 1h
     trials:
       enabled: false
       port: 3131

@@ -250,6 +250,12 @@ func (s *Service) refusedNow(uid string) (Refusal, bool) {
 	return *r, true
 }
 
+// FromDispatcher sends a message from the dispatcher itself, for a part
+// of it outside this package.
+func (s *Service) FromDispatcher(ctx context.Context, to, body string) error {
+	return s.fromDispatcher(ctx, to, body)
+}
+
 // fromDispatcher sends a message from the dispatcher itself.
 func (s *Service) fromDispatcher(ctx context.Context, to, body string) error {
 	m := Message{ID: newID(), From: "dispatcher", Agent: "dispatcher", To: to, Sent: s.now().UTC(), Body: body}

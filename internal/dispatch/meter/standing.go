@@ -25,6 +25,9 @@ type Reading struct {
 	Refused *Refusal  `json:"refused,omitempty"`
 	// The agent whose call it was read from: the proxy's word.
 	Agent string `json:"agent,omitempty"`
+	// Account is the account the answer was of, where the proxy holds
+	// several: a reading of one says nothing of another.
+	Account string `json:"account,omitempty"`
 	// Seen is when the answer passed.
 	Seen time.Time `json:"seen"`
 }
@@ -183,6 +186,28 @@ func (o *Observer) Wake() <-chan struct{} {
 
 // Observe takes one answer's headers. It says whether a reading was kept.
 func (o *Observer) Observe(model, agent string, code int, h http.Header) bool {
+	return o.ObserveOn("", model, agent, code, h)
+}
+
+// Add keeps a reading taken otherwise than from an agent's answer, to go
+// at once.
+func (o *Observer) Add(rd Reading) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.pending = append(o.pending, rd)
+	if o.wake != nil {
+		select {
+		case o.wake <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// ObserveOn is Observe for an answer of one account among several.
+func (o *Observer) ObserveOn(account, model, agent string, code int, h http.Header) bool {
 	if o == nil || model == "" {
 		return false
 	}
@@ -198,13 +223,14 @@ func (o *Observer) Observe(model, agent string, code int, h http.Header) bool {
 	if o.last == nil {
 		o.last = map[string]observed{}
 	}
-	last, seen := o.last[model]
+	key := account + "/" + model
+	last, seen := o.last[key]
 	changed := !seen || last.sig != sig
 	if !changed && now.Sub(last.at) < o.Every {
 		return false
 	}
-	o.last[model] = observed{at: now, sig: sig}
-	rd := Reading{Model: model, Info: li, Agent: agent, Seen: now}
+	o.last[key] = observed{at: now, sig: sig}
+	rd := Reading{Model: model, Info: li, Agent: agent, Account: account, Seen: now}
 	if refused {
 		rd.Refused = &Refusal{Limit: li.RateLimitType, ResetsAt: li.ResetsAt, Message: "refused by the model's API (429), as seen at the egress proxy"}
 		if rd.Refused.Limit == "" {

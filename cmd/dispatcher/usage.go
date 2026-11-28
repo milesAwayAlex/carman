@@ -38,7 +38,10 @@ const (
 // as it came, the model that was asked, how often that model is read, and,
 // when the harness refused the call for a limit, what it said.
 type reading struct {
-	Model      string    `json:"model,omitempty"`
+	Model string `json:"model,omitempty"`
+	// Account is the account it was read on, where the proxy holds
+	// several and says (ADR new-the-proxy-switches-the-models-account).
+	Account    string    `json:"account,omitempty"`
 	EveryHours int       `json:"every_hours,omitempty"`
 	Info       limitInfo `json:"rate_limit_info"`
 	Refused    *refusal  `json:"refused,omitempty"`
@@ -100,17 +103,26 @@ func sortedWindows(ws map[string]window) []string {
 // have more than one, and a reading taken on one says nothing of another.
 const TypeModelAccount = "model.account"
 
-// sinceAccount is the readings taken since the account was last changed.
+// sinceAccount is the readings taken since the account was last changed,
+// less those that say they are of another account: the proxy reads the
+// accounts it does not hold too.
 func sinceAccount(rs, changed []dispatch.Record) []dispatch.Record {
 	if len(changed) == 0 {
 		return rs
 	}
-	at := changed[len(changed)-1].Seq
+	at, held := changed[len(changed)-1].Seq, changed[len(changed)-1].Subject
 	var out []dispatch.Record
 	for _, r := range rs {
-		if r.Seq > at {
-			out = append(out, r)
+		if r.Seq <= at {
+			continue
 		}
+		var rd struct {
+			Account string `json:"account"`
+		}
+		if json.Unmarshal(r.Data, &rd) == nil && rd.Account != "" && rd.Account != held {
+			continue
+		}
+		out = append(out, r)
 	}
 	return out
 }
