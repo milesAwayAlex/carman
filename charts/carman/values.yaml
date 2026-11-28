@@ -152,6 +152,17 @@ dispatcher:
     soon: 1h
     room: false
     roomMin: 0.1
+  # The plan of the model's budget (ADR new-the-plan-of-the-models-budget):
+  # with several accounts for the model (ADR 0055), which one the proxy
+  # should hold so that no account's week ends with room unused. Enabled,
+  # the dispatcher records budget.plan when that account changes; it
+  # switches nothing. `reserve` is the share of each weekly window kept for
+  # the owner's own sessions, `fiveHourCeiling` where the agents stop in a
+  # five-hour window. `dispatcher plan` shows the plan either way.
+  plan:
+    enabled: false
+    reserve: 0.25
+    fiveHourCeiling: 0.85
   # Triggers (ADR 0063): work started by what happens, beside the clock, a
   # command and a message. Nothing unless rules, watches or hooks are
   # written here.

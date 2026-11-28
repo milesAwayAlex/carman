@@ -9,6 +9,7 @@
 //	dispatcher dump > FILE                the database, as SQL that psql restores
 //	HARNESS | dispatcher reading [--model M] [--every HOURS]   record a model's standing from a harness's stream-json
 //	dispatcher reading --due              the models of USAGE_MODELS (MODEL=HOURS,...) to read this hour
+//	dispatcher plan [--json]              the plan of the model's budget: which account the proxy should hold
 //	dispatcher meter                      the egress proxy's meter of model use (ADR 0050; settings in meter.go)
 //
 // The client reads DISPATCHER_URL and DISPATCHER_TOKEN. The service reads
@@ -94,6 +95,8 @@ dispatcher reading --due                  the models of USAGE_MODELS (MODEL=HOUR
 dispatcher limit [AGENT [--day N] [--pod N] | AGENT off | AGENT definition]
                                           the owner's: agents' limits at the proxy, in weighted tokens, and
                                           their standing; set, lift, or go back to the definition's
+dispatcher plan [--json]                  the owner's: the plan of the model's budget: each account's windows, which
+                                          account the proxy should hold now and over the days ahead, what a reset loses
 dispatcher meter                          the egress proxy's meter of model use (ADR 0050)
 dispatcher stand-in                       a stand-in for the model's API, for a trial's proxy and meter: the API's shapes,
                                           no model; "stand-in ask [--model M] [--stream]" sends it one message through the proxy
@@ -238,6 +241,8 @@ func run(ctx context.Context, args []string) error {
 		return observe(ctx, c, flags)
 	case "limit":
 		return limitCmd(ctx, c, pos, flags)
+	case "plan":
+		return planCmd(ctx, c, flags)
 	case "deployed":
 		return deployed(ctx, c, pos, flags, os.Stdin)
 	case "dump":
@@ -268,7 +273,7 @@ func parse(args []string) ([]string, map[string][]string, error) {
 			flags[n] = append(flags[n], v)
 			continue
 		}
-		if name == "read" || name == "all" || name == "once" || name == "body" || name == "from" || name == "print" || name == "stream" || name == "again-after-limit" || name == "failed" { // a switch, not a flag with a value
+		if name == "read" || name == "all" || name == "once" || name == "body" || name == "from" || name == "print" || name == "stream" || name == "again-after-limit" || name == "failed" || name == "json" { // a switch, not a flag with a value
 			flags[name] = append(flags[name], "yes")
 			continue
 		}
@@ -715,6 +720,18 @@ func serve(ctx context.Context) error {
 	if pacing.room {
 		go watchRoom(work, readings, d.Emit, pacing.target, pacing.roomMin, logger)
 		logger.Info("recording usage.room for a window expected to leave room unused", "target", pacing.target, "min", pacing.roomMin)
+	}
+	if os.Getenv("DISPATCHER_PLAN") == "on" {
+		cfg, err := planSettings()
+		if err != nil {
+			return err
+		}
+		go watchPlan(work, func(ctx context.Context) ([]dispatch.Record, error) {
+			return d.Last(ctx, TypeUsageObserved, planReadings)
+		},
+			func(ctx context.Context) ([]dispatch.Record, error) { return d.Last(ctx, TypeModelAccount, 200) },
+			d.Emit, cfg, time.Now, time.Minute, logger)
+		logger.Info("recording budget.plan when the account the plan would hold changes; nothing is switched", "reserve", cfg.Reserve, "ceiling", cfg.Ceiling)
 	}
 	if watcher != nil {
 		watcher.Emit = d.Emit

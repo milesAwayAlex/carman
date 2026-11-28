@@ -77,6 +77,14 @@ Built so far:
   credential on the owner's machine; `scripts/deploy.sh CONTEXT
   model-account [NAME]` says or changes which one the proxy holds, and
   usage readings count since the latest change.
+  `dispatcher plan` (ADR new-the-plan-of-the-models-budget, proposed)
+  says which account the proxy should hold now and over the next seven
+  days, by arithmetic on the readings (each account's five-hour, seven-day
+  and model's own weekly window, what a full five-hour window costs of the
+  weekly ones, a share kept for the owner), and what an account loses at
+  its reset if the proxy is elsewhere; with `dispatcher.plan.enabled` the
+  advice is recorded as `budget.plan`. It switches nothing, and dividing
+  the room between the owner's priorities is designed there and not built.
 
 - The model's credential at the proxy (ADR 0050): with
   `agent.modelCredential: proxy` agent pods hold a placeholder, and a meter

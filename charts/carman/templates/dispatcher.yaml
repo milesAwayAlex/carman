@@ -220,6 +220,16 @@ spec:
             - name: DISPATCHER_PACE_ROOM_MIN
               value: {{ .roomMin | quote }}
             {{- end }}
+            {{- with .Values.dispatcher.plan }}
+            {{- if .enabled }}
+            - name: DISPATCHER_PLAN
+              value: "on"
+            - name: DISPATCHER_PLAN_RESERVE
+              value: {{ .reserve | quote }}
+            - name: DISPATCHER_PLAN_CEILING
+              value: {{ .fiveHourCeiling | quote }}
+            {{- end }}
+            {{- end }}
             # The database, as libpq's variables: the service and pg_dump
             # both read them, and the password is in no address.
             - name: PGHOST
