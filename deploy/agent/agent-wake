@@ -63,5 +63,8 @@ now="$(t capture-pane -p -t "$pane" -S "$y" -E "$y" | LC_ALL=C sed "s/$(printf '
 
 t send-keys -t "$pane" -l "$line"
 sleep 0.3
+# A client that came meanwhile may have typed into the line: it is theirs
+# to send.
+[ -z "$(t list-clients -F '#{window_id}' 2>/dev/null | grep -Fx -- "$window" || true)" ] || { echo "agent-wake: a client came to the window; the line is left unsent" >&2; exit 4; }
 t send-keys -t "$pane" Enter
 echo "agent-wake: typed into $pane"

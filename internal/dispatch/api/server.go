@@ -264,7 +264,9 @@ func (s *Server) authenticate(r *http.Request) (Role, message.Caller, error) {
 			// again, it is recorded once and shown (message.Refused).
 			var rc *message.RefusedCaller
 			if errors.As(err, &rc) && s.Messages != nil {
-				s.Messages.Refused(r.Context(), rc.Pod, rc.PodUID, rc.Why)
+				// Not on the request's own context: a client that hangs up
+				// would leave it recorded and the owner not told.
+				s.Messages.Refused(context.WithoutCancel(r.Context()), rc.Pod, rc.PodUID, rc.Why)
 			}
 			return "", message.Caller{}, fmt.Errorf("%w: %v", errUnauthorized, err)
 		}

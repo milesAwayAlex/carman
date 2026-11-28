@@ -398,10 +398,8 @@ func (s *Service) tellWaited(ctx context.Context, m Message, after time.Duration
 	if m.To == Owner || m.From == "dispatcher" || m.To == "" {
 		return nil
 	}
-	if recs, err := s.Store.Unmarked(ctx, []string{m.To}, "delivered", 200); err != nil {
+	if waits, err := s.undelivered(ctx, m.ID); err != nil || !waits {
 		return err
-	} else if !slices.ContainsFunc(recs, func(r dispatch.Record) bool { return r.Subject == m.ID }) {
-		return nil
 	}
 	why, err := s.whyWaiting(ctx, m)
 	if err != nil {
@@ -479,4 +477,15 @@ func (s *Service) lastWait(ctx context.Context, msg, prefix string) (string, err
 		}
 	}
 	return "", nil
+}
+
+// undelivered says whether one message is not delivered now: never taken,
+// or taken by a wake that reached nobody and not taken again (ADR 0053).
+func (s *Service) undelivered(ctx context.Context, id string) (bool, error) {
+	taken, err := s.Store.OfTypeAbout(ctx, TypeDelivered, id)
+	if err != nil || len(taken) == 0 {
+		return err == nil, err
+	}
+	lost, err := s.Store.OfTypeAbout(ctx, TypeUndelivered, id)
+	return err == nil && len(lost) > 0 && len(taken) < 2, err
 }

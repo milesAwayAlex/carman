@@ -55,8 +55,10 @@ fresh ones.
 While it goes on it is shown where a sender looks:
 
 - `dispatch status` lists the pods whose clients are refused, first;
-- `peers` says of a session of that pod that is not listening that a
-  client of its pod is being refused;
+- `peers` says of every session of that pod, but one that is idle and
+  listening (its listener is plainly not the client refused), that a
+  client of its pod is being refused: a busy one too, since its listener
+  at the end of the turn may be the one;
 - a message for such a session records it as its reason for waiting
   (`message.waiting`, key `refused`), so `dispatcher message ID` says it.
 
@@ -123,10 +125,11 @@ has the event recorded and no message started for it (it would start a
 run to say that something waits). A message to the owner is not counted:
 the owner reads when he reads.
 
-**The owner's machine.** No watcher runs there (ADR 0053, not built), and
-its terminals are not the dispatcher's to type into. A session there that
-is idle with no listener gets the message at its next turn, the reason
-says that nothing starts one, and the sender is told after the wait above.
+**The owner's machine.** Its terminals are a person's, not the
+dispatcher's or a watcher's to type into, so nothing there types a line,
+whether or not a watcher runs on the machine. A session there that is
+idle with no listener gets the message at its next turn, the reason says
+that nothing starts one, and the sender is told after the wait above.
 
 ## Consequences
 

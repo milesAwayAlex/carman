@@ -375,3 +375,68 @@ func TestR2WaitedMessageTellsItsSender(t *testing.T) {
 		t.Errorf("the dispatcher's own message that waits is told of: %v", got)
 	}
 }
+
+// TestR2WaitedMessageIsFoundAmongMany: a sender is told of a message that
+// has waited however many older ones wait for the same addressee.
+func TestR2WaitedMessageIsFoundAmongMany(t *testing.T) {
+	s, cl, _ := messaging(t)
+	now := clocked(s)
+	s.WaitNotice = 10 * time.Minute
+	ctx := context.Background()
+	if err := s.TellWaiting(ctx); err != nil {
+		t.Fatal(err)
+	}
+	d := pod("desk", "pod-m")
+	start(t, s, cl, d, "wm-a", "alpha", message.Busy)
+	start(t, s, cl, d, "wm-b", "beta", message.Busy)
+	owner := message.Caller{Owner: true}
+	for range 205 {
+		if _, err := s.Send(ctx, owner, "", "desk/beta", "one of many", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	last, err := s.Send(ctx, d, "wm-a", "desk/beta", "the newest", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now.add(11 * time.Minute)
+	for range 5 {
+		if err := s.TellWaiting(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if recs, _ := s.Store.OfTypeAbout(ctx, message.TypeWaited, last.ID); len(recs) != 1 {
+		t.Errorf("the newest of many that wait is not told to its sender: %d", len(recs))
+	}
+}
+
+// TestR2RefusedClientIsRecordedThoughItHangsUp: the refusal is recorded,
+// and the owner told, on a request whose client has gone.
+func TestR2RefusedClientIsRecordedThoughItHangsUp(t *testing.T) {
+	s, cl, inst := messaging(t)
+	now := clocked(s)
+	d := pod("desk", "pod-hang")
+	start(t, s, cl, d, "hang-1", "vpn", message.Idle)
+	srv := &api.Server{Store: inst, Messages: s, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Verify: func(context.Context, string) (message.Caller, error) {
+			return message.Caller{}, &message.RefusedCaller{Pod: d.Pod, PodUID: d.PodUID, Why: "expired", Err: message.ErrForbidden}
+		}}
+	call := func(ctx context.Context) {
+		req := httptest.NewRequest(http.MethodGet, "/v1/whoami", nil).WithContext(ctx)
+		req.Header.Set("Authorization", "Bearer old.old.old")
+		srv.Handler().ServeHTTP(httptest.NewRecorder(), req)
+	}
+	for range 5 {
+		call(context.Background())
+	}
+	now.add(message.RefusedFor + time.Second)
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	call(gone)
+	if got := eventsOf(t, s, message.TypeClientRefused); len(got) != 1 {
+		t.Fatalf("recorded %d times on a request whose client had gone", len(got))
+	}
+	if told := fromDispatcherTo(t, s, message.Owner); len(told) != 1 {
+		t.Errorf("the owner was told %d times", len(told))
+	}
+}
