@@ -148,8 +148,8 @@ func (l *Ledger) Due(all bool) []Record {
 	return out
 }
 
-// Sender sends the ledger's closed records, every so often and once more
-// when it stops. A record that cannot be sent is kept and tried again, up
+// Sender sends the ledger's closed records, every so often and, with
+// Final, all of them when it stops. A record that cannot be sent is kept and tried again, up
 // to a limit; each is also a line of the meter's own log, so that what the
 // proxy saw is on record even where the dispatcher is not.
 type Sender struct {
@@ -161,6 +161,8 @@ type Sender struct {
 	Log   *slog.Logger
 	// Keep is how many unsent records are kept for another try.
 	Keep int
+	// Retry is how often Final tries again (2s when zero).
+	Retry time.Duration
 
 	pending []Record
 }
@@ -172,21 +174,39 @@ func (s *Sender) log() *slog.Logger {
 	return slog.Default()
 }
 
-// Run sends until ctx ends, then sends what is left, with a few seconds to
-// do it.
+// Run sends what is due until ctx ends. What is open then is sent by
+// Final, once whatever was still being answered has been counted.
 func (s *Sender) Run(ctx context.Context) {
 	t := time.NewTicker(s.Every)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			last, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-			s.Flush(last, true)
-			cancel()
 			return
 		case <-t.C:
 			s.Flush(ctx, false)
 		}
+	}
+}
+
+// Final closes every tally and sends what is unsent, trying again every
+// retry until all is sent or ctx ends: at the meter's end, when the
+// dispatcher may be restarting too. What is not sent by then is in the
+// meter's log only.
+func (s *Sender) Final(ctx context.Context) {
+	retry := s.Retry
+	if retry <= 0 {
+		retry = 2 * time.Second
+	}
+	s.Flush(ctx, true)
+	for len(s.pending) > 0 && s.Emit != nil {
+		select {
+		case <-ctx.Done():
+			s.log().Error("model use not recorded in the dispatcher's log: the meter is ending", "records", len(s.pending))
+			return
+		case <-time.After(retry):
+		}
+		s.Flush(ctx, true)
 	}
 }
 

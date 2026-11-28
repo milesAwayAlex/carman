@@ -493,7 +493,8 @@ header that claims another address is not believed. What each agent's pod
 used, by model and kind of token, is a line in the meter's log and a
 `model.usage` event in the dispatcher's log, one for each pod and model when
 the pod has been quiet for `egress.model.idle` (2m) or has been asking for
-`egress.model.longest` (15m):
+`egress.model.longest` (5m). Told to end (a deploy), the meter lets the
+answers under way finish and sends everything it holds. To see it:
 
     kubectl --context CONTEXT -n NAMESPACE logs deploy/egress -c meter
     scripts/deploy.sh CONTEXT dispatch status      # by agent, and each run against it
@@ -813,7 +814,17 @@ carman go                    # pick one: those waiting on you first
 carman go --list             # the same list, printed
 carman go desk/paris-vpn     # by name; or a name alone, or the start of an id
 carman go --keep NAME        # attach again after a dropped connection, until it is left
+carman go --new NAME --in desk --dir project --model MODEL   # open a new session there and go to it
 ```
+
+`--new` opens the session with `agent-open` in the standing agent's pod, so
+the pod remembers it and opens it again when it restarts. `--in` is not
+needed with one standing agent; `--dir` is a directory in the pod (`~/work`
+unless given; one that is not absolute is under `~/work`); `--model` is the
+session's model, the pod's own unless given. A name that is taken in that
+pod is refused: `carman go NAME` goes to that one. To end a session for
+good, `/exit` in it and then `exit` in the shell it leaves: its window
+closes and the pod no longer opens it again (its conversation is kept).
 
 In the pod each attach is a view of its own of that one session's window,
 with no status line and no prefix key, so it sits in a window of your own
@@ -965,6 +976,11 @@ the same check before it sends (refuse words that look like a credential
 or match your shapes, and say so to the agent), since the channel carries
 no personal data, internal identifiers or keys (ADR 0048). With `agent.sessionStorage` set, a job's conversation is kept
 after its pod is gone, and a notice can give you its id to carry on.
+The dispatcher's notice of a message to you ends with how to go to the
+session that sent it, `carman go ID` with the start of the session's id
+(above, "Going to a session from the owner's machine"; a job's kept conversation needs
+`CARMAN_CHECKOUT`, or the `agent resume` that `carman go` then names). A
+`notify-owner` of your own can say the same from `DISPATCHER_SESSION`.
 
 ### Resuming an agent's conversation
 

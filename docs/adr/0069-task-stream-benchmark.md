@@ -338,8 +338,52 @@ the harness:
 It says nothing yet about the arms against each other: the two with memory
 ran eight and nine tasks.
 
-Not built yet: nothing the design names. Not done: a whole pass of the
-stream on the cheapest model, which needs the trials' limit raised.
+## The whole pass on the cheapest model (2026-11-27, night)
+
+With the trials' limit at 2,000 requests a day, one run of each of the four
+arms, two at a time: 160 of 160 sessions ran, each arm in 12 to 19 minutes,
+$0.46 in all by the runs' own count (a task $0.002 to $0.004; four nights
+$0.06), about 300 to 370 requests an arm. What it showed about the
+harness:
+
+- Every arm's sessions ran and ended by themselves, and the world scored
+  every task; the built-in arm kept its memory between task pods and the
+  tidied arm's four nights ran.
+- Counting by rule works and tells the arms apart where pass or fail does
+  not: with no memory a rule needed again was run into about 0.8 times
+  each time; in the three arms with memory 0.1 to 0.2 times. First
+  meetings cost the same in every arm (0.73 refusals), as they should.
+- Had-it-in-time works where memory is the memory service: of the rules
+  needed again the sessions had the lesson in time for nine in ten, and
+  followed it for three in four. For the built-in arm there is no such
+  record, and the report says so.
+- Four tasks scored every arm wrongly in the same way, and are changed.
+  They were found on the arm with no memory as on the others, and the
+  changes are to the scoring and one ticket's wording, not to what a
+  lesson is:
+  - *s32* ("deploy nothing") was checked by facts that earlier tasks set,
+    so it failed wherever an earlier deploy had failed; it is now checked
+    by the task having made no deploy.
+  - *s40*: "attach under the name about two lines" was read as "about two
+    lines", and every arm attached under another name or none; the ticket
+    now quotes the name.
+  - *s22*: what the systems say of a service was matched in one order; a
+    sentence saying the same was failed. Either order passes.
+  - *The cap on a rate* is no longer a lesson to follow in s26 and s35:
+    both tickets ask for a rate over the cap, so trying it is what they
+    ask, and every arm did. The "tempting wrong answer" is thereby not
+    measured in this stream; the tasks stay, as neutral ones.
+  Scored again with these, the neutral tasks pass alike in all four arms
+  (nine of ten; the tenth is s40, whose new wording has not been run).
+- On the cheapest model a deploy to prod, which turns on three or four
+  rules at once, failed in every arm at its first meeting, and the things
+  told once were not carried by the notes arm. Those are for the run on
+  the model that can answer, not faults of the harness.
+
+One run of each arm on the cheapest model says nothing that should be
+read as the answer, and is not reported as one.
+
+Not built yet: nothing the design names.
 
 ## Consequences
 

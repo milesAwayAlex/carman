@@ -29,7 +29,9 @@ import (
 // the whole header value if it starts with "Bearer "; read again when it
 // changes), METER_CALLER_HEADER
 // (x-egress-caller), METER_IDLE (2m) and METER_LONGEST (15m), how long a
-// tally stays open; METER_SHAPES (on: log the names of what passes, never
+// tally stays open; METER_DRAIN (10s), how long answers under way at its
+// end are waited for, and METER_FINAL (20s), how long it then tries to
+// send what it holds (within the pod's grace period); METER_SHAPES (on: log the names of what passes, never
 // values); DISPATCHER_URL and DISPATCHER_TOKEN_FILE, where the records go,
 // as this pod. Without a dispatcher the records are only in the log.
 // For trials: METER_TRIAL_LISTEN (none), METER_TRIAL_NAMESPACE (the
@@ -53,9 +55,17 @@ func meterCmd(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("METER_IDLE: %w", err)
 	}
-	longest, err := time.ParseDuration(envOr("METER_LONGEST", "15m"))
+	longest, err := time.ParseDuration(envOr("METER_LONGEST", "5m"))
 	if err != nil {
 		return fmt.Errorf("METER_LONGEST: %w", err)
+	}
+	drain, err := time.ParseDuration(envOr("METER_DRAIN", "10s"))
+	if err != nil {
+		return fmt.Errorf("METER_DRAIN: %w", err)
+	}
+	final, err := time.ParseDuration(envOr("METER_FINAL", "20s"))
+	if err != nil {
+		return fmt.Errorf("METER_FINAL: %w", err)
 	}
 
 	kc, err := kube.InCluster(os.Getenv("METER_NAMESPACE"))
@@ -104,9 +114,6 @@ func meterCmd(ctx context.Context) error {
 		log.Warn("no dispatcher: what agents use of the model is recorded in this log only, the account's standing is not recorded, and no agent is held to a budget")
 		observer = nil
 	}
-	done := make(chan struct{})
-	go func() { sender.Run(ctx); close(done) }()
-
 	// Read again when the cluster swaps the mounted secret: a change of
 	// account needs no restart (ADR 0055).
 	cred := &meter.CredentialFile{Path: credFile, Log: log}
@@ -144,25 +151,29 @@ func meterCmd(ctx context.Context) error {
 	// Nothing here may stop the meter: every agent's way to the model is
 	// through it. What is wrong with the trials' settings is said, and the
 	// trials' listener is then not there.
+	// It answers at once: a request before the pods are listed lists them.
+	ln, err := net.Listen("tcp", listen)
+	if err != nil {
+		return err
+	}
+	servers := []meter.Listener{{Server: &http.Server{Handler: proxy, ReadHeaderTimeout: 30 * time.Second}, Listener: ln}}
 	if tl := os.Getenv("METER_TRIAL_LISTEN"); tl != "" {
-		if err := serveTrials(ctx, tl, proxy, cred.Get, ledger, log); err != nil {
+		var trialDispatcher func() (*api.Client, error)
+		if du != "" && tf != "" {
+			trialDispatcher = dispatcher
+		}
+		trial, err := serveTrials(ctx, tl, proxy, cred.Get, ledger, trialDispatcher, host, started, log)
+		if err != nil {
 			log.Error("no listener for trials", "error", err)
+		} else {
+			servers = append(servers, trial)
 		}
 	}
-	// It answers at once: a request before the pods are listed lists them.
-	srv := &http.Server{Addr: listen, Handler: proxy, ReadHeaderTimeout: 30 * time.Second}
-	go func() {
-		<-ctx.Done()
-		shut, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shut)
-	}()
 	log.Info("meter listening", "listen", listen, "upstream", up.Host)
-	err = srv.ListenAndServe()
-	if errors.Is(err, http.ErrServerClosed) {
-		err = nil
-	}
-	<-done
+	// Told to end, it lets the answers under way finish and sends all it
+	// holds before it goes.
+	err = meter.Serve(ctx, sender, drain, final, servers...)
+	log.Info("meter ended")
 	return err
 }
 
@@ -254,15 +265,16 @@ func standingLoop(ctx context.Context, b *meter.Budget, dispatcher func() (*api.
 }
 
 // serveTrials is the meter's listener for agents of trial installations.
-func serveTrials(ctx context.Context, tl string, proxy *meter.Proxy, credential func() (string, error), ledger *meter.Ledger, log *slog.Logger) error {
+func serveTrials(ctx context.Context, tl string, proxy *meter.Proxy, credential func() (string, error), ledger *meter.Ledger,
+	dispatcher func() (*api.Client, error), name string, started time.Time, log *slog.Logger) (meter.Listener, error) {
 	up := proxy.Upstream
 	ns := os.Getenv("METER_TRIAL_NAMESPACE")
 	if ns == "" {
-		return errors.New("METER_TRIAL_LISTEN needs METER_TRIAL_NAMESPACE, where trials stand")
+		return meter.Listener{}, errors.New("METER_TRIAL_LISTEN needs METER_TRIAL_NAMESPACE, where trials stand")
 	}
 	tkc, err := kube.InCluster(ns)
 	if err != nil {
-		return err
+		return meter.Listener{}, err
 	}
 	taddrs := &kube.Addresses{Client: tkc, Log: log, Trials: true}
 	go taddrs.Run(ctx)
@@ -273,22 +285,48 @@ func serveTrials(ctx context.Context, tl string, proxy *meter.Proxy, credential 
 		}
 	}
 	if _, err := fmt.Sscan(envOr("METER_TRIAL_REQUESTS", "0"), &limits.Requests); err != nil || limits.Requests < 0 {
-		return errors.New("METER_TRIAL_REQUESTS is how many requests trials may make in a day, a whole number")
+		return meter.Listener{}, errors.New("METER_TRIAL_REQUESTS is how many requests trials may make in a day, a whole number")
 	}
 	trials := &meter.Proxy{Upstream: up, Transport: proxy.Transport, Credential: credential, Identify: taddrs.Lookup,
 		CallerHeader: proxy.CallerHeader, Direct: true, Admit: limits.Admit, Ledger: ledger, Log: log, Shapes: proxy.Shapes}
-	tsrv := &http.Server{Addr: tl, Handler: trials, ReadHeaderTimeout: 30 * time.Second}
-	go func() {
-		<-ctx.Done()
-		shut, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
-		defer cancel()
-		_ = tsrv.Shutdown(shut)
-	}()
-	go func() {
-		if err := tsrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("the trials' listener stopped", "error", err)
-		}
-	}()
+	ln, err := net.Listen("tcp", tl)
+	if err != nil {
+		return meter.Listener{}, err
+	}
+	if dispatcher != nil {
+		go trialsLoop(ctx, limits, dispatcher, name, started, log)
+	}
 	log.Info("meter listening for trials", "listen", tl, "namespace", ns, "models", limits.Models, "requests_a_day", limits.Requests)
-	return nil
+	return meter.Listener{Server: &http.Server{Handler: trials, ReadHeaderTimeout: 30 * time.Second}, Listener: ln}, nil
+}
+
+// trialsLoop asks the dispatcher what trials used of the model in the last
+// day by the log, leaving out what this meter counted since it started: at
+// once, then every minute. A meter that restarts so keeps the trials' cap
+// it had; one that cannot ask keeps what it read before.
+func trialsLoop(ctx context.Context, l *meter.TrialLimits, dispatcher func() (*api.Client, error), name string, started time.Time, log *slog.Logger) {
+	q := url.Values{"meter": {name}, "since": {started.UTC().Format(time.RFC3339Nano)}}
+	failing := false
+	for {
+		var u meter.TrialsUsed
+		c, err := dispatcher()
+		if err == nil {
+			cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			err = c.Do(cctx, http.MethodGet, "/v1/meter/trials", q, nil, &u)
+			cancel()
+		}
+		switch {
+		case err == nil:
+			l.SetLogged(u)
+			failing = false
+		case !failing && ctx.Err() == nil:
+			log.Warn("what trials used before cannot be read from the dispatcher; counting what this meter passed", "error", err)
+			failing = true
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Minute):
+		}
+	}
 }
