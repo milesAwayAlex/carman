@@ -150,7 +150,10 @@ Built so far:
   calls, at the end of a turn, or waking an idle one), and a message for a
   session that is not running starts it again as its agent. Who may write
   to an agent (ADR 0047): the owner, its own sessions, an
-  answer, and the agents its `writtenBy` lists.
+  answer, and the agents its `writtenBy` lists. `scripts/check-trial-messages.sh
+  CONTEXT` tries it between a trial's agents with a real harness and no
+  model. A message for a conversation that was not kept is read in a new
+  one, told so.
 - Sessions on the owner's own machine (ADR 0049): a place
   (`dispatcher.host.place`) with the dispatcher's `host` token, its
   sessions `PLACE/NAME` named for their directory. They write as the owner
@@ -215,7 +218,9 @@ Built so far:
   model; a conversation may script the tools it asks for) or, with `TRIAL_MODEL`, chained to the installation's meter for
   trials. `scripts/check-trial-proxy.sh CONTEXT` tries metering, the
   standing read from headers, a limit at the proxy and a credential's
-  reload there.
+  reload there. `scripts/check-stand-in.sh CONTEXT` sets the stand-in's
+  answers beside the API's, a real harness asking both, and fails where
+  the stand-in says what the API does not.
 
 - Triggers (ADR 0063, proposed): `dispatcher.rules` start a task of a
   class when an event of a kind is in the log (`internal/dispatch/trigger`):

@@ -115,7 +115,12 @@ leaves (its window was closed), it says so on the same channel, and the
 view is ended at once (without that word a closed window's view lasted
 the ninety seconds: seen from the owner's machine, 2026-11-27). Its client ends as a
 drop does, so a program that is still there and keeps (`--keep`) attaches
-again. A view attached by hand, with no beat, lives until its client goes.
+again. The beat's process is in a process group of its own, and an
+attach that a signal ended just before a signal reached the program is a
+leave too: a terminal that goes hangs up its whole foreground group at
+once when the program is not the session's leader (run under a shell,
+seen from the owner's machine, 2026-11-28: the view stayed until the
+silence ended it), and the bye has to outlive that. A view attached by hand, with no beat, lives until its client goes.
 
 **A new session** (added 2026-11-27, when the owner retired the one
 long-lived terminal he opened sessions from). `carman go --new NAME [--in

@@ -337,6 +337,11 @@ func run(argv []string, dir string, left <-chan os.Signal) (code int, gone bool)
 	bye := func() {}
 	if b := beat(argv); b != nil {
 		hb := exec.Command(b[0], b[1:]...)
+		// In a process group of its own: when the terminal goes, its
+		// foreground group is hung up all at once (under a shell, the
+		// shell is the session's leader and this program is only one of
+		// the group), and the beat has to outlive that to carry the bye.
+		hb.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		if in, err := hb.StdinPipe(); err == nil && hb.Start() == nil {
 			// Waited for at once: one that ends early (a pod from before
 			// the beat) is not left as a dead child for the attach's length.
@@ -394,6 +399,19 @@ func run(argv []string, dir string, left <-chan os.Signal) (code int, gone bool)
 			case errors.As(err, &ee) && ee.ExitCode() >= 0:
 				return ee.ExitCode(), false
 			}
+			// Killed by a signal. A terminal that goes hangs up this program
+			// and what it runs together, and the child's end may be seen
+			// first: that is this end leaving, not a drop.
+			if hadTerminal && !terminalThere() {
+				bye()
+				return 0, true
+			}
+			select {
+			case <-left:
+				bye()
+				return 0, true
+			case <-time.After(killedWait):
+			}
 			return 255, false
 		case <-left:
 			bye()
@@ -408,6 +426,10 @@ func run(argv []string, dir string, left <-chan os.Signal) (code int, gone bool)
 		}
 	}
 }
+
+// killedWait is how long a signal to this program is waited for after
+// what it ran was killed by one.
+var killedWait = 250 * time.Millisecond
 
 // terminalLook is how often it is checked that the terminal is still there.
 var terminalLook = 3 * time.Second

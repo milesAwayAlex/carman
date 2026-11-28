@@ -67,7 +67,9 @@
 #
 # Images are built with BuildKit (buildctl, BUILDKIT_HOST) and pushed to
 # TRIAL_REGISTRY (localhost:5050), as TRIAL_NAME-memory and
-# TRIAL_NAME-dispatcher; the registry keeps them after `down`.
+# TRIAL_NAME-dispatcher, each under the one tag `trial`, which moves with
+# every build; the trial runs them by digest. The registry keeps the latest
+# after `down`, and the builds before it untagged, for its own clean-up.
 # The trial's owner token is in .local/trial/NAME/dispatcher-owner.token,
 # with what the builds made; `down` removes that directory.
 set -euo pipefail
@@ -125,19 +127,29 @@ deploy_sh() {
 # Builds an image of a binary of this checkout with its own Dockerfile, and
 # prints its name: a trial runs the images an installation would.
 build_image() {  # NAME CMD DOCKERFILE
-    local dir="$work/build/$1" arch tag ref log
+    local dir="$work/build/$1" arch
     rm -rf "$dir" && mkdir -p "$dir"
     arch="$(kubectl --context "$context" get --raw /version 2>/dev/null | sed -n 's/.*"platform": *"linux\/\([a-z0-9]*\)".*/\1/p')"
     [ -n "$arch" ] || arch="$(uname -m | sed 's/aarch64/arm64/; s/x86_64/amd64/')"
     (cd "$src" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -buildvcs=false -trimpath -o "$OLDPWD/$dir/$2-$arch" "./cmd/$2")
     cp "$3" "$dir/Dockerfile"
-    tag="$(cat "$dir"/* | shasum -a 256 | cut -c1-12)"
-    ref="$registry/$name-$1:$tag"
-    log="$dir/build.log"
-    buildctl build --progress plain --frontend dockerfile.v0 --local context="$dir" --local dockerfile="$dir" \
-        --opt platform="linux/$arch" --output "type=image,name=$ref,push=true" > "$log" 2>&1 ||
-        { tail -20 "$log" >&2; die "$1's image did not build; the whole build is in $log"; }
-    echo "$ref"
+    push_image "$1" "$dir" "$arch" || die "$1's image did not build; the whole build is in $dir/build.log"
+}
+
+# Builds the image in a directory, pushes it under the one tag a trial's
+# image of that name has, and prints its name by digest. The tag moves with
+# each build, so the registry holds one tagged image for a trial's name and
+# the ones before it are untagged there: what a registry's own clean-up
+# removes (ADR 0054; deploy/README.md). The trial runs the digest, so a
+# node never takes an older build for this one.
+push_image() {  # NAME DIR ARCH
+    local ref="$registry/$name-$1" log="$2/build.log" digest
+    buildctl build --progress plain --frontend dockerfile.v0 --local context="$2" --local dockerfile="$2" \
+        --opt platform="linux/$3" --output "type=image,name=$ref:trial,push=true" --metadata-file "$2/built.json" > "$log" 2>&1 ||
+        { tail -20 "$log" >&2; return 1; }
+    digest="$(sed -n 's/.*"containerimage.digest": *"\(sha256:[0-9a-f]*\)".*/\1/p' "$2/built.json" | head -1)"
+    [ -n "$digest" ] || { echo "trial: the build of $ref did not say its digest ($2/built.json)" >&2; return 1; }
+    echo "$ref@$digest"
 }
 
 # What a proxy of the trial's own needs before it starts: an authority and a
@@ -168,7 +180,7 @@ proxy_secrets() {
 # and routines laid over it, so that a trial's agents run what the checkout
 # has. Nothing is installed in the build: files are copied.
 build_agent_image() {
-    local dir="$work/build/agent" arch tag ref log f
+    local dir="$work/build/agent" arch f
     rm -rf "$dir" && mkdir -p "$dir/bin" "$dir/lib"
     arch="$(kubectl --context "$context" get --raw /version 2>/dev/null | sed -n 's/.*"platform": *"linux\/\([a-z0-9]*\)".*/\1/p')"
     [ -n "$arch" ] || arch="$(uname -m | sed 's/aarch64/arm64/; s/x86_64/amd64/')"
@@ -184,13 +196,7 @@ build_agent_image() {
     cp "$src/deploy/agent/settings.json" "$dir/lib/agent-settings.json"
     cp -R "$src/routines" "$dir/routines"
     printf 'FROM %s\nCOPY bin/ /usr/local/bin/\nCOPY lib/ /usr/local/lib/\nCOPY routines/ /routines/\n' "$TRIAL_AGENT_BASE" > "$dir/Dockerfile"
-    tag="$( (cd "$dir" && find . -type f | sort | xargs shasum -a 256) | shasum -a 256 | cut -c1-12)"
-    ref="$registry/$name-agent:$tag"
-    log="$dir/build.log"
-    buildctl build --progress plain --frontend dockerfile.v0 --local context="$dir" --local dockerfile="$dir" \
-        --opt platform="linux/$arch" --output "type=image,name=$ref,push=true" > "$log" 2>&1 ||
-        { tail -20 "$log" >&2; die "the agent's image did not build on $TRIAL_AGENT_BASE; the whole build is in $log"; }
-    echo "$ref"
+    push_image agent "$dir" "$arch" || die "the agent's image did not build on $TRIAL_AGENT_BASE; the whole build is in $dir/build.log"
 }
 
 # The chart, rendered for the trial and made fit for the namespace: without
@@ -594,7 +600,7 @@ down)
     left="$("${kube[@]}" get "$kinds" -l "$label" -o name 2>/dev/null)"
     [ -z "$left" ] || die "still there: $(echo $left)"
     rm -rf "$work"
-    echo "took the trial down in $(( $(date +%s) - started ))s, and removed $work; its images stay in $registry"
+    echo "took the trial down in $(( $(date +%s) - started ))s, and removed $work; its latest images stay in $registry, as $name-NAME:trial"
     ;;
 *)
     die "say: up [--old-secret], check, deploy ..., down [NAME], list or name"
