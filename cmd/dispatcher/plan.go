@@ -16,6 +16,7 @@ import (
 
 	"carman/internal/dispatch"
 	"carman/internal/dispatch/api"
+	"carman/internal/dispatch/budget"
 )
 
 // The plan of the model's budget (ADR new-the-plan-of-the-models-budget):
@@ -419,10 +420,12 @@ type budgetPlan struct {
 	// IfElsewhere is what each account loses at its next weekly reset if
 	// the proxy does not hold it until then; Lost is what the plan itself
 	// leaves at the resets of the days ahead.
-	IfElsewhere []lost  `json:"if_elsewhere"`
-	Lost        []lost  `json:"lost,omitempty"`
-	Blocks      []block `json:"blocks"`
-	Config      planConfig
+	IfElsewhere []lost `json:"if_elsewhere"`
+	// Shares is the room divided between the owner's priorities.
+	Shares []share `json:"shares,omitempty"`
+	Lost   []lost  `json:"lost,omitempty"`
+	Blocks []block `json:"blocks"`
+	Config planConfig
 }
 
 // planOf computes the plan from the readings and the changes of account.
@@ -612,6 +615,7 @@ func planLines(p budgetPlan) []string {
 		}
 		out = append(out, s)
 	}
+	out = append(out, shareLines(p)...)
 	out = append(out, fmt.Sprintf("  the next %d days by the rules, work always waiting (UTC):", c.Days))
 	for _, b := range p.Blocks {
 		var parts []string
@@ -637,6 +641,77 @@ func planLines(p budgetPlan) []string {
 			s += fmt.Sprintf(", %s of %s's own", points(l.Own), l.Model)
 		}
 		out = append(out, s)
+	}
+	return out
+}
+
+// share is one priority's part of each account's room: until that
+// account's weekly reset, so many full five-hour windows, so many of them
+// on the model whose own week is tightest.
+type share struct {
+	Priority string             `json:"priority"`
+	Part     float64            `json:"part"`
+	Windows  map[string]float64 `json:"windows"`
+	WindowsO map[string]float64 `json:"windows_own"`
+	Next     []string           `json:"next,omitempty"` // what waits under it, first first
+	Waiting  int                `json:"waiting"`
+}
+
+// divide splits each account's room by the priorities' parts.
+func (p *budgetPlan) divide(v budget.View) {
+	p.Shares = nil
+	for _, st := range v.Streams {
+		sh := share{Priority: st.Name, Part: st.Part, Windows: map[string]float64{}, WindowsO: map[string]float64{}, Waiting: len(st.Items)}
+		for _, a := range p.Accounts {
+			if a.Known {
+				sh.Windows[a.Name], sh.WindowsO[a.Name] = st.Part*a.Windows, st.Part*a.WindowsO
+			}
+		}
+		for i, it := range st.Items {
+			if i == 3 {
+				break
+			}
+			t := it.ID + ": " + it.Title
+			if len(t) > 90 {
+				t = t[:87] + "..."
+			}
+			switch {
+			case it.Model != "":
+				t += " (on " + it.Model + ")"
+			case it.Hard:
+				t += " (hard: the strongest model)"
+			}
+			if it.State == budget.Started {
+				t += " [started]"
+			}
+			sh.Next = append(sh.Next, t)
+		}
+		p.Shares = append(p.Shares, sh)
+	}
+}
+
+// shareLines says the division as a person reads it.
+func shareLines(p budgetPlan) []string {
+	if len(p.Shares) == 0 {
+		return []string{"  no priorities are set: the room is not divided (dispatcher priority set NAME --share N)"}
+	}
+	out := []string{"  the room divided between the priorities, in full five-hour windows until each account's weekly reset:"}
+	for _, sh := range p.Shares {
+		var parts []string
+		for _, a := range p.Accounts {
+			if !a.Known {
+				continue
+			}
+			s := fmt.Sprintf("%.1f on %s", sh.Windows[a.Name], label(a.Name))
+			if a.OwnModel != "" {
+				s += fmt.Sprintf(" (%.1f on %s)", sh.WindowsO[a.Name], a.OwnModel)
+			}
+			parts = append(parts, s)
+		}
+		out = append(out, fmt.Sprintf("    %s, %s: %s; %d waiting", sh.Priority, pct(sh.Part), strings.Join(parts, ", "), sh.Waiting))
+		for _, n := range sh.Next {
+			out = append(out, "      next: "+n)
+		}
 	}
 	return out
 }
@@ -671,6 +746,10 @@ func planCmd(ctx context.Context, c *api.Client, flags map[string][]string) erro
 		return err
 	}
 	p := planOf(rs, changes, time.Now(), cfg)
+	var v budget.View
+	if err := c.Do(ctx, http.MethodGet, "/v1/budget/priorities", nil, nil, &v); err == nil {
+		p.divide(v)
+	}
 	if _, ok := flags["json"]; ok {
 		b, _ := json.MarshalIndent(p, "", "  ")
 		fmt.Println(string(b))

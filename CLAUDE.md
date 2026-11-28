@@ -83,8 +83,12 @@ Built so far:
   and model's own weekly window, what a full five-hour window costs of the
   weekly ones, a share kept for the owner), and what an account loses at
   its reset if the proxy is elsewhere; with `dispatcher.plan.enabled` the
-  advice is recorded as `budget.plan`. It switches nothing, and dividing
-  the room between the owner's priorities is designed there and not built.
+  advice is recorded as `budget.plan`. It switches nothing. What the
+  usage is for is the owner's priorities (`dispatcher priority`,
+  `internal/dispatch/budget`): each a share and a list of what is to be
+  done under it, set by the owner or his machine, and the plan divides
+  each account's room by them. Not built: work carrying its priority to
+  the meter, what a priority spent, picking the next item and its model.
 
 - The model's credential at the proxy (ADR 0050): with
   `agent.modelCredential: proxy` agent pods hold a placeholder, and a meter

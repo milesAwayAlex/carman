@@ -106,21 +106,33 @@ Candidates not chosen for which account is held:
 - *A model decides.* The question has one answer given the readings, and
   a person has to be able to check it by hand.
 
-### The room is divided between priorities (designed here, not built)
+### The room is divided between priorities
 
 The windows are the easy half. What the owner asked for is to say what
-the usage is for.
+the usage is for. Of the six points below, the first two are built: the
+priorities, their shares and their lists are kept (`dispatcher priority`,
+`internal/dispatch/budget`), and `dispatcher plan` divides each account's
+room by them. Nothing yet carries a priority to the meter, picks an item
+or chooses a model.
 
 1. **Priorities are the owner's.** A priority is a name, a share of the
    usage, and under it what he wants done, in order, or "you choose". He
-   says them in plain words to an agent, at any time; the agent writes
-   them down as events (`budget.priority`: name, share, list), as the
-   list of improvements is kept (ADR 0058). Only the owner changes a
-   share. One priority is the default.
+   says them in plain words to a session on his own machine, at any
+   time; it writes them down as events (`budget.priority`: a name, a
+   share, his words on it; `budget.item`: something to be done under
+   one, marked hard or with the model it must run on), as the list of
+   improvements is kept (ADR 0058). A priority's part is its share of
+   the sum of all, so shares need not add up to anything. Only the owner
+   and his machine set a priority, add, move or drop an item; an agent in
+   its pod reads them and may say that it started or finished an item.
+   One priority is the default.
 2. **Shares divide the room.** The plan's room, per account and
    separately on a model with a week of its own, after the owner's
-   reserve, is split by the shares. A priority's standing is its share of
-   the week so far against what it spent.
+   reserve, is split by the shares: `dispatcher plan` says for each
+   priority how many windows it has on each account until that account's
+   weekly reset, how many of them on the model whose own week is
+   tightest, and the next items under it. A priority's standing, its
+   share of the week so far against what it spent, needs point 3.
 3. **Work carries its priority.** From the ask (a task's class, a
    message, a session opened) to the meter's record, so that what a
    priority spent is measured. What exists: a task has a class and a
@@ -180,4 +192,7 @@ costs, rule 3's choice and what leaving the other account loses, rule 4
 and the margins, the days ahead (the week that ends first is spent before
 it ends, nothing above three points is left at a reset, the long week is
 not spent in its first days), and that the advice is recorded once and
-again when it changes.
+again when it changes; and the room divided by the priorities' parts.
+`internal/dispatch/budget`: shares and parts, the default, items in order,
+and who may do what; `internal/dispatch/api`: the same through the API as
+the owner, his machine and a caller that is no agent's pod.

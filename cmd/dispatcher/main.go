@@ -64,6 +64,7 @@ import (
 
 	"carman/internal/dispatch"
 	"carman/internal/dispatch/api"
+	"carman/internal/dispatch/budget"
 	"carman/internal/dispatch/improve"
 	"carman/internal/dispatch/kube"
 	"carman/internal/dispatch/message"
@@ -97,6 +98,17 @@ dispatcher limit [AGENT [--day N] [--pod N] | AGENT off | AGENT definition]
                                           their standing; set, lift, or go back to the definition's
 dispatcher plan [--json]                  the owner's: the plan of the model's budget: each account's windows, which
                                           account the proxy should hold now and over the days ahead, what a reset loses
+
+What the model's usage is for: the owner's priorities, each a share of the usage and what is to be done under it:
+dispatcher priority [list]                    the priorities, their parts of the usage, and what waits under each, in order
+dispatcher priority set NAME --share N [--default] [--note 'WORDS']
+                                              the owner's or his machine's: make or change one; a part is a share of the sum
+dispatcher priority remove NAME               the same: remove one with nothing waiting under it
+dispatcher priority add NAME 'WHAT' [--hard] [--model M] [--first]
+                                              the same: something to be done under it; --hard: for the strongest model
+dispatcher priority start|done ID ['NOTE']    an item is begun or finished (an agent may say this of its own work)
+dispatcher priority drop|first ID             the owner's: not to be done; or before the others of its priority
+
 dispatcher meter                          the egress proxy's meter of model use (ADR 0050)
 dispatcher stand-in                       a stand-in for the model's API, for a trial's proxy and meter: the API's shapes,
                                           no model; "stand-in ask [--model M] [--stream]" sends it one message through the proxy
@@ -210,6 +222,17 @@ func run(ctx context.Context, args []string) error {
 		}
 		return improveCmd(ctx, mc, pos, flags)
 	}
+	if args[0] == "priority" {
+		pos, flags, err := parse(args[1:])
+		if err != nil {
+			return err
+		}
+		mc, err := client()
+		if err != nil {
+			return err
+		}
+		return priorityCmd(ctx, mc, pos, flags)
+	}
 	// What is deployed is read by whoever may write messages: an agent's pod
 	// shows the token the cluster gave it, as for a message. (Recording a
 	// deploy is the owner's, below.)
@@ -273,7 +296,7 @@ func parse(args []string) ([]string, map[string][]string, error) {
 			flags[n] = append(flags[n], v)
 			continue
 		}
-		if name == "read" || name == "all" || name == "once" || name == "body" || name == "from" || name == "print" || name == "stream" || name == "again-after-limit" || name == "failed" || name == "json" { // a switch, not a flag with a value
+		if name == "read" || name == "all" || name == "once" || name == "body" || name == "from" || name == "print" || name == "stream" || name == "again-after-limit" || name == "failed" || name == "json" || name == "default" || name == "hard" || name == "first" { // a switch, not a flag with a value
 			flags[name] = append(flags[name], "yes")
 			continue
 		}
@@ -801,7 +824,7 @@ func serve(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	srv := &api.Server{Store: d, Tokens: tokens, OwnerSHA256: ownerSHA256, Check: check, Log: logger, Messages: messages, Verify: verify, Improve: list, Outside: outside, ProxyLimits: proxyLimits,
+	srv := &api.Server{Store: d, Tokens: tokens, OwnerSHA256: ownerSHA256, Check: check, Log: logger, Messages: messages, Verify: verify, Improve: list, Budget: &budget.Service{Store: d}, Outside: outside, ProxyLimits: proxyLimits,
 		Dump: func(ctx context.Context, f *os.File) error {
 			args := []string{"--no-owner", "--no-privileges", "--format=plain"}
 			if dbURL != "" {

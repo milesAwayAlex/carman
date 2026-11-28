@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"carman/internal/dispatch"
+	"carman/internal/dispatch/budget"
 )
 
 // Two accounts as they were read over a day: "two" worked through a
@@ -254,5 +255,34 @@ func TestPlanIsRecordedWhenItsAdviceChanges(t *testing.T) {
 	e = <-got
 	if e.Subject != "two" || !strings.Contains(string(e.Data), `"switch":false`) {
 		t.Fatalf("after the switch: %s %s", e.Subject, e.Data)
+	}
+}
+
+// The room is divided between the owner's priorities by their parts, on
+// each account and on the model whose own week is tightest.
+func TestPlanDividesTheRoomBetweenPriorities(t *testing.T) {
+	l := twoAccounts()
+	p := planOf(l.readings, l.changes, planTime, defaultPlan())
+	out := strings.Join(planLines(p), "\n")
+	if !strings.Contains(out, "no priorities are set") {
+		t.Errorf("with no priorities:\n%s", out)
+	}
+	hard := budget.Item{ID: "platform-1", Title: "the planner", Hard: true, State: budget.Started}
+	p.divide(budget.View{Streams: []budget.Stream{
+		{Priority: budget.Priority{Name: "platform", Share: 3}, Part: 0.75, Items: []budget.Item{hard, {ID: "platform-2", Title: "next", Model: "cheap"}}},
+		{Priority: budget.Priority{Name: "errands", Share: 1}, Part: 0.25},
+	}})
+	one, two := account(t, p, "one"), account(t, p, "two")
+	if len(p.Shares) != 2 {
+		t.Fatalf("shares: %+v", p.Shares)
+	}
+	near(t, "platform on two", p.Shares[0].Windows["two"], 0.75*two.Windows, 0.001)
+	near(t, "platform on two's own model", p.Shares[0].WindowsO["two"], 0.75*two.WindowsO, 0.001)
+	near(t, "errands on one", p.Shares[1].Windows["one"], 0.25*one.Windows, 0.001)
+	out = strings.Join(planLines(p), "\n")
+	for _, want := range []string{"platform, 75%:", "errands, 25%:", "next: platform-1: the planner (hard: the strongest model) [started]", "next: platform-2: next (on cheap)", "2 waiting"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the plan does not say %q:\n%s", want, out)
+		}
 	}
 }

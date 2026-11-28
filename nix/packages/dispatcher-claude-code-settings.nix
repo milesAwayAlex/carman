@@ -74,6 +74,7 @@ writeText "dispatcher-claude-code-settings.json" (
         "dispatcher message *"
         "dispatcher watch *"
         "dispatcher timed*"
+        "dispatcher priority*"
         "dispatcher whoami*"
       ];
     }
