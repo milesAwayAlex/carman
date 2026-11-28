@@ -318,6 +318,33 @@ type hookInput struct {
 	SessionID string `json:"session_id"`
 	Event     string `json:"hook_event_name"`
 	Cwd       string `json:"cwd"`
+	// What a StopFailure hook is told of the error, by whichever name.
+	Error        any `json:"error"`
+	ErrorMessage any `json:"error_message"`
+	ErrorDetails any `json:"error_details"`
+	Reason       any `json:"reason"`
+}
+
+// failure is what a StopFailure hook was told ended the turn, in words.
+func (in hookInput) failure() string {
+	var parts []string
+	for _, v := range []any{in.Error, in.ErrorMessage, in.ErrorDetails, in.Reason} {
+		switch t := v.(type) {
+		case nil:
+		case string:
+			if t != "" {
+				parts = append(parts, t)
+			}
+		default:
+			if b, err := json.Marshal(t); err == nil {
+				parts = append(parts, string(b))
+			}
+		}
+	}
+	if len(parts) == 0 {
+		return "an error of the model's API"
+	}
+	return strings.Join(parts, ": ")
 }
 
 const intro = "You can be written to, and can write to other sessions, to agents by name and to the owner, through the dispatcher's client in your shell: " +
@@ -516,6 +543,12 @@ func hook(ctx context.Context, flags map[string][]string) error {
 			return nil
 		}
 		_ = present(message.Idle)
+	case "StopFailure":
+		// The turn ended on an error of the model's API, not by itself: no
+		// Stop hook runs then. The session is idle; the dispatcher is
+		// told why, and tells it to go on.
+		_ = c.Do(ctx, http.MethodPost, "/v1/sessions", nil, message.Presence{Session: in.SessionID, State: message.Idle,
+			Name: name, Kind: kind, Cwd: in.Cwd, Cut: in.failure()}, nil)
 	case "SessionEnd":
 		_ = present(message.Ended)
 	}

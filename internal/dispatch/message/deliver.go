@@ -263,6 +263,9 @@ type Presence struct {
 	Kind    string `json:"kind,omitempty"`
 	State   string `json:"state"` // started, busy, idle, ended
 	Cwd     string `json:"cwd,omitempty"`
+	// Cut, with idle: the turn did not end, it was cut by this error of
+	// the model's API.
+	Cut string `json:"cut,omitempty"`
 }
 
 // Present records what a session says it is doing, and does what follows
@@ -287,6 +290,14 @@ func (s *Service) Present(ctx context.Context, c Caller, p Presence) error {
 	if found {
 		x.Name, x.Kind, x.Cwd = or(p.Name, known.Name), or(p.Kind, known.Kind), or(p.Cwd, known.Cwd)
 	}
+	switch {
+	case state == Idle && p.Cut != "":
+		// A turn cut by an error: the session is told to go on, after a
+		// wait that doubles with each cut in a row (Resume, below).
+		x.Cuts, x.CutAt, x.Resume = known.Cuts+1, s.now().UTC(), true
+	case state == Busy:
+		x.Cuts, x.CutAt = known.Cuts, known.CutAt // a turn began: it may be cut again
+	}
 	prev, had, err := s.Store.PutSession(ctx, x)
 	if err != nil {
 		return err
@@ -298,6 +309,13 @@ func (s *Service) Present(ctx context.Context, c Caller, p Presence) error {
 			return err
 		}
 	}
+	if x.Resume {
+		data, _ := json.Marshal(map[string]any{"session": x.ID, "name": x.Name, "agent": x.Agent, "pod": x.Pod, "error": cutWords(p.Cut), "cuts": x.Cuts})
+		if err := s.Store.Emit(ctx, dispatch.Event{ID: TypeSessionCut + "/" + x.ID + "/" + x.CutAt.Format(time.RFC3339Nano),
+			Type: TypeSessionCut, Source: Source, Subject: x.ID, Data: data}); err != nil {
+			return err
+		}
+	}
 	switch state {
 	case Busy:
 		listening.tell(x.ID, Busy)
@@ -305,6 +323,63 @@ func (s *Service) Present(ctx context.Context, c Caller, p Presence) error {
 		return s.ended(ctx, x, "it said so")
 	case Idle:
 		return s.watched(ctx, x)
+	}
+	return nil
+}
+
+// MaxCuts is how many cut turns in a row a session is told to go on
+// after; ResumeAfter how long after the first, doubled with each.
+const (
+	MaxCuts     = 5
+	ResumeAfter = time.Minute
+)
+
+func cutWords(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > 300 {
+		s = s[:300] + "..."
+	}
+	return s
+}
+
+// Resume tells each interactive session whose turn was cut by an error of
+// the model's API to go on: a message from the dispatcher, which its
+// listener takes as any other and which starts a turn. After a minute
+// the first time, twice as long after each further cut in a row (the
+// error may last), and not after the fifth: that is recorded, and whoever
+// writes to it is told by the message's own standing.
+func (s *Service) Resume(ctx context.Context) error {
+	all, err := s.Store.Sessions(ctx, "", s.now().Add(-s.keep()))
+	if err != nil {
+		return err
+	}
+	for _, x := range all {
+		if !x.Resume || x.State != Idle || x.Kind != "interactive" {
+			continue
+		}
+		if x.Cuts > MaxCuts {
+			x.Resume = false
+			if _, _, err := s.Store.PutSession(ctx, x); err != nil {
+				return err
+			}
+			data, _ := json.Marshal(map[string]any{"session": x.ID, "name": x.Name, "agent": x.Agent, "cuts": x.Cuts, "gave_up": true})
+			_ = s.Store.Emit(ctx, dispatch.Event{ID: TypeSessionCut + "/" + x.ID + "/gave-up/" + x.CutAt.Format(time.RFC3339Nano), Type: TypeSessionCut, Source: Source, Subject: x.ID, Data: data})
+			continue
+		}
+		if s.now().Sub(x.CutAt) < ResumeAfter<<(x.Cuts-1) {
+			continue
+		}
+		x.Resume = false
+		if _, _, err := s.Store.PutSession(ctx, x); err != nil {
+			return err
+		}
+		body := fmt.Sprintf("Your last turn did not end by itself: it was cut by an error of the model's API at %s (%d in a row). Nobody stopped you. "+
+			"Go on with what you were doing; if you were in the middle of a step, look at what it left before doing it again. "+
+			"This message is from the dispatcher, which tells a session whose turn was cut to go on, at most %d times in a row.",
+			x.CutAt.Format("15:04 UTC"), x.Cuts, MaxCuts)
+		if err := s.fromDispatcher(ctx, SessionAddress(x.ID), body); err != nil {
+			return err
+		}
 	}
 	return nil
 }

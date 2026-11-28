@@ -41,7 +41,13 @@ import (
 //	stand-in: slow SECONDS
 //
 // makes a streamed answer take that long (at most 120), for a check of
-// what happens to an answer under way.
+// what happens to an answer under way. And
+//
+//	stand-in: cut N
+//
+// drops the connection in the middle of the first N answers the stand-in
+// gives to conversations with that line, after a part of the answer has
+// gone out, as a proxy that restarts does.
 //
 //	dispatcher stand-in                     the service
 //	dispatcher stand-in compare --api URL --stand-in URL
@@ -71,6 +77,7 @@ type standIn struct {
 	accounts       map[string]*standAccount
 	byAccount      map[string]int
 	byAccountModel map[string]int
+	cuts           int // answers cut or that would have been, of conversations that ask for it
 	refuseReadings bool
 	bare           int
 	now            func() time.Time
@@ -230,7 +237,7 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"requests": s.requests, "by_model": s.byModel, "tokens": s.tokens, "refused_for_the_credential": s.denied, "last_user_agent": s.lastUA, "by_account": s.byAccount, "by_account_and_model": s.byAccountModel, "readings_refused": s.bare})
+		_ = json.NewEncoder(w).Encode(map[string]any{"requests": s.requests, "by_model": s.byModel, "tokens": s.tokens, "refused_for_the_credential": s.denied, "last_user_agent": s.lastUA, "by_account": s.byAccount, "by_account_and_model": s.byAccountModel, "readings_refused": s.bare, "cut": s.cuts})
 		return
 	}
 	// The API's own paths take the credential.
@@ -359,6 +366,18 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		stop = "tool_use"
 	}
 	const usage = `{"input_tokens":%d,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":%d,"service_tier":"standard"}`
+	if m := standInCut.FindStringSubmatch(first); m != nil && !req.Stream {
+		// A whole answer is cut too: the harness asks for one when its
+		// streams keep failing.
+		n, _ := strconv.Atoi(m[1])
+		s.mu.Lock()
+		s.cuts++
+		cut := s.cuts <= n
+		s.mu.Unlock()
+		if cut {
+			panic(http.ErrAbortHandler)
+		}
+	}
 	if !req.Stream {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"id":%q,"type":"message","role":"assistant","model":%q,"content":[%s],"stop_reason":%q,"stop_sequence":null,"usage":`+usage+"}\n", id, req.Model, block, stop, in, 5)
@@ -391,10 +410,24 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	event("content_block_delta", `{"type":"content_block_delta","index":0,"delta":`+blockDelta+`}`)
+	if m := standInCut.FindStringSubmatch(first); m != nil {
+		// The connection is dropped with the answer under way, as a proxy
+		// that restarts drops it: the first N answers of the conversation.
+		n, _ := strconv.Atoi(m[1])
+		s.mu.Lock()
+		s.cuts++
+		cut := s.cuts <= n
+		s.mu.Unlock()
+		if cut {
+			panic(http.ErrAbortHandler)
+		}
+	}
 	event("content_block_stop", `{"type":"content_block_stop","index":0}`)
 	event("message_delta", fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":%q,"stop_sequence":null},"usage":{"input_tokens":%d,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5}}`, stop, in))
 	event("message_stop", `{"type":"message_stop"}`)
 }
+
+var standInCut = regexp.MustCompile(`(?m)^stand-in: cut ([0-9]+)$`)
 
 var standInSlow = regexp.MustCompile(`(?m)^stand-in: slow ([0-9]+)$`)
 

@@ -214,7 +214,13 @@ Built so far:
   given a turn by a line the watcher types into its window when nobody
   is at it (`agent-wake`), and a message that has waited ten minutes is
   told to its sender (ADR 0075,
-  proposed; `scripts/check-unheard.sh CONTEXT`).
+  proposed; `scripts/check-unheard.sh CONTEXT`). A turn that ends on an
+  error of the model's API runs the harness's `StopFailure` hook, not
+  `Stop`: the session is then idle and listening, `session.cut` is
+  recorded, and the dispatcher tells it to go on after a minute, with a
+  wait that doubles, five times at most (ADR
+  new-a-turn-cut-by-an-error-is-told-to-go-on, proposed;
+  `scripts/check-cut.sh CONTEXT`).
 - `carman go` (ADR 0057, proposed): `cmd/carman`, the owner's way to a
   session from any directory. It lists the dispatcher's sessions, those
   waiting on him first, and goes to one: `kubectl exec` into a standing
