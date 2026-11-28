@@ -19,7 +19,7 @@ import (
 	"carman/internal/dispatch/message"
 )
 
-// A message at a time (ADR new-a-message-at-a-time).
+// A message at a time (ADR 0074).
 
 // hands is a clock a test moves.
 type hands struct {

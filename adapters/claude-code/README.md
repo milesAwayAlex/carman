@@ -154,7 +154,7 @@ name to start there is handed it.
    file.
 
 5. Optionally, keep the watcher running (ADR
-   new-the-owners-machine-attends-to-its-sessions): `dispatcher attend`,
+   0076): `dispatcher attend`,
    in the same environment as the hooks (`DISPATCHER_URL`,
    `DISPATCHER_TOKEN`, `DISPATCHER_PLACE`), as a user service of your
    machine's (a launchd agent, a systemd user unit) that starts it again

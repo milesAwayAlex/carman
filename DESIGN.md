@@ -126,7 +126,7 @@ only the owner and those cases. A message that is not allowed is refused
 at sending, with who may, and recorded as `message.refused`; `peers` marks
 what the caller may not write to.
 
-A message at a time (ADR new-a-message-at-a-time, proposed): `dispatcher
+A message at a time (ADR 0074, proposed): `dispatcher
 send --at TIME TO 'TEXT'` asks for a message later, to the sender itself
 or to anyone it may write to; TIME is a UTC clock time, a date and time,
 or how long from now, at most seven days ahead. What was asked is an
@@ -173,7 +173,7 @@ handed it. The dispatcher's Service may be a LoadBalancer
 `scripts/deploy.sh CONTEXT env` writes `.local/dispatcher.env`.
 
 The machine may run the watcher too (ADR
-new-the-owners-machine-attends-to-its-sessions, proposed): `dispatcher
+0076, proposed): `dispatcher
 attend` with the place's token says a session there ended when the
 harness process its `SessionStart` hook recorded has gone (asked of `ps`
 where there is no `/proc`), instead of after a day. It opens no session
@@ -220,7 +220,7 @@ from the session in between, is recorded as not delivered and delivered
 once more, marked as a second time: at least once, never silently lost.
 
 A session that does not hear is noticed (ADR
-new-a-session-that-does-not-hear-is-noticed, proposed). A pod's client
+0075, proposed). A pod's client
 whose expired token the dispatcher refuses again and again (five in a
 minute) is recorded once as `client.refused`, told to the owner, and shown
 by `dispatch status`, by `peers` and in the reason a message for a session
@@ -879,7 +879,7 @@ Decisions are recorded one per file in `docs/adr/`. The index,
    token of its own, through the same hooks. Then (ADR 0051, proposed): the
    owner's token off the cluster, which holds only its hash. Then
    (ADR 0053, proposed): a standing pod's watcher of its own sessions.
-   Then (ADR new-a-session-that-does-not-hear-is-noticed, proposed): a
+   Then (ADR 0075, proposed): a
    refused client recorded, a session with no listener woken, a sender
    told of a long wait.
    Then (ADR 0058, proposed): the list of improvements to the platform,

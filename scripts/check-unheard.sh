@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # A session that does not hear is noticed (ADR
-# new-a-session-that-does-not-hear-is-noticed), end to end in a trial with a
+# 0075), end to end in a trial with a
 # real harness and no model: a standing agent's pod with one session, in
 # front of the stand-in for the model's API (ADR 0068).
 #

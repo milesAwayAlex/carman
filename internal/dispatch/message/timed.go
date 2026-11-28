@@ -13,7 +13,7 @@ import (
 	"carman/internal/dispatch"
 )
 
-// A message at a time (ADR new-a-message-at-a-time): a sender asks the
+// A message at a time (ADR 0074): a sender asks the
 // dispatcher for a message to be sent later, to itself or to anyone it may
 // write to. What was asked is an event, so it outlasts the dispatcher; at
 // its time it is sent as the sender would send it then.

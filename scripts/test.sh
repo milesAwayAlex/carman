@@ -397,7 +397,7 @@ if command -v tmux >/dev/null; then
 else
     skip "agent-view: no tmux"
 fi
-# agent-wake (ADR new-a-session-that-does-not-hear-is-noticed), where there
+# agent-wake (ADR 0075), where there
 # is a tmux, in servers of its own: a line is typed into the window of the
 # process named, found from a child of what the window runs, where the
 # window is at an empty prompt and nobody looks at it; a line a person left

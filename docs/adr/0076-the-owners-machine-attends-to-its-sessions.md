@@ -1,4 +1,4 @@
-# new-the-owners-machine-attends-to-its-sessions: The watcher on the owner's machine says when a session's harness has gone, and shows a notice for a message that waits; it opens nothing
+# 0076: The watcher on the owner's machine says when a session's harness has gone, and shows a notice for a message that waits; it opens nothing
 
 Status: Proposed (2026-11-28). Builds the section "The owner's machine
 (not built)" of ADR 0053, for the place of ADR 0049.
@@ -84,7 +84,7 @@ script it runs (`osascript -e "..."` or `sh -c` with the words inside). What the
 of the desktop's, for one) is the machine's. With no command the watcher
 does nothing more: the message already says that it waits for the next
 session of its name, and its sender is told after the wait that ADR
-new-a-session-that-does-not-hear-is-noticed sets.
+0075 sets.
 
 The stop at the plan's limit that the pod's watcher reads from transcripts
 (ADR 0067) is not read on the machine: the person is at the terminal that

@@ -38,7 +38,10 @@ for _ in 1 2 3 4 5 6 7 8; do
         pane="${found% *}" window="${found#* }"
         break
     fi
-    p="$(awk '/^PPid:/ {print $2}' "/proc/$p/status" 2>/dev/null || true)"
+    q="$(awk '/^PPid:/ {print $2}' "/proc/$p/status" 2>/dev/null || true)"
+    # Where there is no /proc, ps says a process's parent.
+    [ -n "$q" ] || q="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ' || true)"
+    p="$q"
 done
 [ -n "$pane" ] || { echo "agent-wake: process $pid runs in no pane of the pod's tmux" >&2; exit 3; }
 

@@ -1,4 +1,4 @@
-# new-a-session-that-does-not-hear-is-noticed: A client refused again and again is recorded once, a pod's watcher gives a session with no listener a turn, and a sender is told of a message that has waited long
+# 0075: A client refused again and again is recorded once, a pod's watcher gives a session with no listener a turn, and a sender is told of a message that has waited long
 
 Status: Proposed (2026-11-28). Adds to ADR 0053 (the pod's watcher) and
 ADR 0045 (what a sender is told of a message).

@@ -12,8 +12,7 @@ import (
 	"carman/internal/dispatch"
 )
 
-// A session that does not hear is noticed (ADR new-a-session-that-does-not-
-// hear-is-noticed). Three things leave a message waiting where its sender
+// A session that does not hear is noticed (ADR 0075). Three things leave a message waiting where its sender
 // believes it arrives: a pod whose client the dispatcher refuses again and
 // again, an open, idle session with no listener, and anything else that
 // lasts. Each is recorded once, shown where a person or an agent looks, and

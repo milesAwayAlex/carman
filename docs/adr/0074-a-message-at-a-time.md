@@ -1,4 +1,4 @@
-# new-a-message-at-a-time: A sender asks the dispatcher for a message at a time, which is kept as an event and sent then as an ordinary message
+# 0074: A sender asks the dispatcher for a message at a time, which is kept as an event and sent then as an ordinary message
 
 Status: Proposed (2026-11-28). Adds to ADR 0045.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A message at a time (ADR new-a-message-at-a-time), end to end in a trial
+# A message at a time (ADR 0074), end to end in a trial
 # with a real harness and no model: a standing agent's pod with one session,
 # in front of the stand-in for the model's API (ADR 0068).
 #

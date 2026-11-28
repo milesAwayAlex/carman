@@ -155,7 +155,7 @@ Built so far:
   model. A message for a conversation that was not kept is read in a new
   one, told so. A message can be asked
   for at a time (`dispatcher send --at TIME TO 'TEXT'`, `dispatcher
-  timed`; ADR new-a-message-at-a-time, proposed): kept as an event and
+  timed`; ADR 0074, proposed): kept as an event and
   sent then as an ordinary message, which is how a session keeps a
   promise to do something at a time.
 - Sessions on the owner's own machine (ADR 0049): a place
@@ -168,7 +168,7 @@ Built so far:
   local cluster's port 8379. `dispatcher attend` run there says
   when a session's harness has gone and runs the machine's notice command
   for a message that waits; it opens nothing (ADR
-  new-the-owners-machine-attends-to-its-sessions, proposed).
+  0076, proposed).
 - A standing agent's sessions (ADR 0053, proposed): `dispatcher attend`
   in its pod says when a session's harness process has gone (recorded by
   its `SessionStart` hook), and opens again with `agent-open --reopen` a
@@ -180,7 +180,7 @@ Built so far:
   again is recorded once and shown, a session idle with no listener is
   given a turn by a line the watcher types into its window when nobody
   is at it (`agent-wake`), and a message that has waited ten minutes is
-  told to its sender (ADR new-a-session-that-does-not-hear-is-noticed,
+  told to its sender (ADR 0075,
   proposed; `scripts/check-unheard.sh CONTEXT`).
 - `carman go` (ADR 0057, proposed): `cmd/carman`, the owner's way to a
   session from any directory. It lists the dispatcher's sessions, those

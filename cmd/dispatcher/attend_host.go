@@ -17,8 +17,7 @@ import (
 	"carman/internal/dispatch/message"
 )
 
-// The watcher on the owner's own machine (ADR new-the-owners-machine-attends-
-// to-its-sessions): `dispatcher attend` with the place's token. It says when
+// The watcher on the owner's own machine (ADR 0076): `dispatcher attend` with the place's token. It says when
 // a session's harness has gone; it opens no terminal and types nothing. For
 // a message that waits for a session that is not running there, it runs the
 // machine's own command, if one is set, so that a person is shown.

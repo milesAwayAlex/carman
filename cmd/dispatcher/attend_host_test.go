@@ -12,8 +12,7 @@ import (
 	"carman/internal/dispatch/message"
 )
 
-// The watcher on the owner's own machine (ADR new-the-owners-machine-
-// attends-to-its-sessions): no /proc, no pod, no window to open.
+// The watcher on the owner's own machine (ADR 0076): no /proc, no pod, no window to open.
 
 // aHarness is a real process whose command is the harness's, and how to
 // end it.

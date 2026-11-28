@@ -17,8 +17,7 @@ import (
 	"carman/internal/dispatch/message"
 )
 
-// A session that does not hear is noticed (ADR new-a-session-that-does-not-
-// hear-is-noticed).
+// A session that does not hear is noticed (ADR 0075).
 
 // clock is a time a test moves.
 type clock struct {
