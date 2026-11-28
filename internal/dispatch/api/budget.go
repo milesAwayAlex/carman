@@ -126,3 +126,37 @@ func (s *Server) usageLatest(_ http.ResponseWriter, r *http.Request, _ Role) (an
 	}
 	return out, nil
 }
+
+// trialsUsed is what trials used of the model in the last day by the log,
+// for the meter's cap on trials: a restarted meter takes it up. As with
+// standing, what the asking meter counted itself since it started is left
+// out.
+func (s *Server) trialsUsed(_ http.ResponseWriter, r *http.Request, _ Role) (any, error) {
+	var since time.Time
+	if v := r.URL.Query().Get("since"); v != "" {
+		t, err := time.Parse(time.RFC3339Nano, v)
+		if err != nil {
+			return nil, fmt.Errorf("%w: since is a time (RFC 3339): %v", errBadRequest, err)
+		}
+		since = t
+	}
+	name := r.URL.Query().Get("meter")
+	now := time.Now()
+	if s.Now != nil {
+		now = s.Now()
+	}
+	evs, err := s.Store.Last(r.Context(), meter.TypeModelUsage, usageKept)
+	if err != nil {
+		return nil, err
+	}
+	var recs []meter.Record
+	for _, e := range evs {
+		var rec meter.Record
+		if json.Unmarshal(e.Data, &rec) == nil {
+			recs = append(recs, rec)
+		}
+	}
+	return meter.TrialsTally(recs, now, 24*time.Hour, func(rec meter.Record) bool {
+		return name != "" && rec.Meter == name && !rec.From.Before(since)
+	}), nil
+}

@@ -396,3 +396,67 @@ func TestR10MeterRefusalWords(t *testing.T) {
 		t.Errorf("%d %s", rec.Code, rec.Body)
 	}
 }
+
+// lateEnd holds the meter's read of the end of a request's body, after all
+// of it was read, until it is let go: the meter's sender, slow under load.
+type lateEnd struct {
+	io.ReadCloser
+	gate  <-chan struct{}
+	ended bool
+}
+
+func (l *lateEnd) Read(b []byte) (int, error) {
+	if l.ended {
+		<-l.gate
+	}
+	n, err := l.ReadCloser.Read(b)
+	l.ended = l.ended || err == io.EOF
+	return n, err
+}
+
+type lateEndTransport struct {
+	http.RoundTripper
+	gate <-chan struct{}
+}
+
+func (g lateEndTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.Body != nil && r.Body != http.NoBody {
+		r.Body = &lateEnd{ReadCloser: r.Body, gate: g.gate}
+	}
+	return g.RoundTripper.RoundTrip(r)
+}
+
+// TestR10MeterAnswerBeforeBodyEnd: an answer that starts before the meter
+// has read the end of the request's body is passed on whole. Writing the
+// answer's start once closed the body, the meter's last read of it failed,
+// and the answer was cut (seen as a flaky TestR10MeterCredentialChanges).
+func TestR10MeterAnswerBeforeBodyEnd(t *testing.T) {
+	got, more, gate := make(chan seen, 4), make(chan struct{}), make(chan struct{})
+	srv := model(t, got, more)
+	up, _ := url.Parse(srv.URL)
+	tr := srv.Client().Transport.(*http.Transport).Clone()
+	tr.DisableCompression = true
+	p := &Proxy{Upstream: up, Transport: lateEndTransport{tr, gate}, CallerHeader: "X-Egress-Caller",
+		Ledger:     &Ledger{Idle: time.Minute, Longest: time.Hour},
+		Credential: func() (string, error) { return "Bearer the-real-one", nil },
+		Identify: func(context.Context, string) (message.Caller, bool) {
+			return message.Caller{Agent: "dreamer", Pod: "dreamer-1"}, true
+		}}
+	front := httptest.NewServer(p)
+	t.Cleanup(front.Close)
+
+	resp := post(t, front, "/v1/messages", "10.0.0.1", "Bearer placeholder")
+	defer resp.Body.Close()
+	<-got
+	first := make([]byte, len(stream))
+	if _, err := io.ReadFull(resp.Body, first); err != nil {
+		t.Fatalf("the answer's start: %v", err)
+	}
+	close(gate)
+	time.Sleep(50 * time.Millisecond) // the meter reads the body's end
+	close(more)
+	rest, err := io.ReadAll(resp.Body)
+	if err != nil || string(rest) != streamRest {
+		t.Fatalf("the answer was cut: %v %q", err, rest)
+	}
+}

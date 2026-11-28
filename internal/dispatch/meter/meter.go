@@ -150,6 +150,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rq.sniff = &sniffer{body: r.Body}
 		r.Body = rq.sniff
 	}
+	// The answer may start before the request is all sent on (its body's
+	// last read, for its end, comes after the API has it): writing the
+	// answer must not close the body under the meter, which cut the answer.
+	_ = http.NewResponseController(w).EnableFullDuplex()
 	p.rp.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, rq)))
 }
 
@@ -501,9 +505,9 @@ func askedModel(r *http.Request) (string, error) {
 }
 
 // TrialLimits is what trials may use of the model: which models, and how
-// many messages in a period, all trials together. A simple cap, kept in
-// this process (a restart forgets the count), until the proxy keeps
-// budgets.
+// many messages in a period, all trials together. The count is this
+// process's own, and what the log says trials used before it (SetLogged):
+// a restarted meter does not give trials their day again.
 type TrialLimits struct {
 	// Models may be asked for; none listed, none may.
 	Models []string
@@ -514,6 +518,40 @@ type TrialLimits struct {
 
 	mu     sync.Mutex
 	passed []time.Time
+	logged []TrialPass
+}
+
+// TrialPass is what trials asked of the model in one record of the log:
+// the answers that said what they used, at the record's end.
+type TrialPass struct {
+	At       time.Time `json:"at"`
+	Requests int64     `json:"requests"`
+}
+
+// TrialsUsed is what the log says trials used in the last day, leaving out
+// what the meter that asks counted itself.
+type TrialsUsed struct {
+	Passed []TrialPass `json:"passed"`
+}
+
+// TrialsTally is TrialsUsed from the log's records: a trial's agent's, of
+// a model, that ended within per of now, and not skipped.
+func TrialsTally(records []Record, now time.Time, per time.Duration, skip func(Record) bool) TrialsUsed {
+	out := TrialsUsed{Passed: []TrialPass{}}
+	for _, r := range records {
+		if !strings.HasPrefix(r.Agent, "trial/") || r.Model == "" || r.Requests <= 0 || now.Sub(r.To) >= per || skip(r) {
+			continue
+		}
+		out.Passed = append(out.Passed, TrialPass{At: r.To, Requests: r.Requests})
+	}
+	return out
+}
+
+// SetLogged takes what the log says trials used before this meter counted.
+func (l *TrialLimits) SetLogged(u TrialsUsed) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.logged = u.Passed
 }
 
 // Admit is a Proxy's Admit.
@@ -545,8 +583,23 @@ func (l *TrialLimits) Admit(who message.Caller, model string, metered bool) erro
 		}
 	}
 	l.passed = keep
-	if len(l.passed) >= l.Requests {
-		return fmt.Errorf("trials have had their %d requests to the model in %s (egress.model.trials.requests); the oldest was at %s", l.Requests, per, l.passed[0].UTC().Format("15:04 UTC"))
+	count, oldest := int64(len(l.passed)), time.Time{}
+	if len(l.passed) > 0 {
+		oldest = l.passed[0]
+	}
+	for _, p := range l.logged {
+		if now.Sub(p.At) < per {
+			count += p.Requests
+			if oldest.IsZero() || p.At.Before(oldest) {
+				oldest = p.At
+			}
+		}
+	}
+	if count >= int64(l.Requests) {
+		if oldest.IsZero() {
+			return fmt.Errorf("trials may make no requests to the model (egress.model.trials.requests)")
+		}
+		return fmt.Errorf("trials have had their %d requests to the model in %s (egress.model.trials.requests); the oldest was at %s", l.Requests, per, oldest.UTC().Format("15:04 UTC"))
 	}
 	l.passed = append(l.passed, now)
 	return nil

@@ -100,7 +100,9 @@ harness would otherwise call it a hook's blocking error. A message for a session
 running becomes a task that resumes it as its agent, headless, under
 ADR 0040's one-writer lock, and its last words go back as the answer; one
 for an agent by name starts a new conversation; one for the owner is a
-notice. A sender's new messages (not answers; not the owner's) start at
+notice, which carries its first line, how to read and answer it, and how
+to go to the session it came from: `carman go` and the start of the
+session's id. A sender's new messages (not answers; not the owner's) start at
 most `dispatcher.messages.runsPerSender` runs in `runsPeriod` (24 in three
 hours by default); past it a message is held, the sender told why, until
 the owner lifts it (`dispatch lift SENDER`), which starts what was held.
@@ -167,6 +169,15 @@ prefix, and ends with the window. How the attach ended tells a
 leave (status 0) from a dropped connection, after which `--keep` attaches
 again. A job's kept conversation is still gone to by the checkout's
 `agent resume`.
+
+`carman go --new NAME` opens a session in a standing agent's pod and goes
+to it: `kubectl exec` runs `agent-open` there, in `--dir` (the pod's
+`~/work` unless given), on `--model`, so the pod remembers the session and
+opens it again when it starts. The agent is the one `--in` names, the only
+standing one, or the one picked on a terminal; the dispatcher's peers say
+which agents are standing. A name that is taken in that pod (a running
+session, a remembered one, a window) is refused and nothing is opened.
+The dispatcher lists the session once its harness has started.
 
 A standing agent's pod attends to its own sessions (ADR 0053, proposed).
 `dispatcher attend`, started by `agent-session`, holds a session the
@@ -636,6 +647,10 @@ which are the weakest parts. Three things are meant to keep that manageable:
   (`proxyLimit`, the owner's `dispatcher limit`), a call over it refused
   with a 402 the harness shows as it is (ADR
   0064, proposed).
+  A restart of the meter loses no tally: told to end, it lets its answers
+  finish and sends what it holds, a long session's use is written every
+  five minutes, and the trials' day is read back from the log (ADR
+  0072, proposed).
 - Beside the proxy and the memory, agents reach the namespaces the
   installation names for its own services, and have one namespace where
   they may run what a task needs, bounded by a quota and closed to the

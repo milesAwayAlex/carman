@@ -173,7 +173,10 @@ Built so far:
   agent's pod, at a view of its own (`agent-view`: a tmux session that
   holds that one window, with no status line and no prefix; ADR
   0071), attached again after a
-  dropped connection with `--keep`.
+  dropped connection with `--keep`. `carman go --new NAME [--in AGENT]
+  [--dir DIR] [--model MODEL]` opens a session in a standing agent's pod
+  (`agent-open` there, so the pod remembers it) and goes to it; a name
+  taken there is refused.
 - The definition from within (ADR 0056, proposed): an agent with
   `definition: true` reads the installation's definition in its pod
   (`agent-definition clone|update|propose`), and its proposal, a message

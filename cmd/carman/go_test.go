@@ -75,6 +75,10 @@ func TestR2GoResolve(t *testing.T) {
 	for word, want := range map[string]string{
 		"desk/vpn": "desk/vpn", "prices": "desk/prices", "cccc": "platform/build", "session/dddd4444-0000": "platform/vpn",
 		"aaaa7": "session/aaaa7777-0000", "notes": "desk/notes", "eeee5555-0000": "session/eeee5555-0000",
+		// What a notice names (the first eight characters of the id): a
+		// session that runs, a standing agent's that does not, a job's
+		// kept conversation.
+		"cccc3333": "platform/build", "9999aaaa": "desk/notes", "aaaa7777": "session/aaaa7777-0000",
 	} {
 		s, err := resolve(all, word)
 		if err != nil || s.By() != want {

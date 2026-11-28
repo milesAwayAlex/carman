@@ -631,7 +631,9 @@ egress:
   # and adds up what each agent's pod used, by model and kind of token, as
   # a model.usage event in the dispatcher's log for each pod and model: one
   # when the pod has asked nothing for `idle`, or has been asking for
-  # `longest`. It reads which pod has which address from the cluster's API
+  # `longest` (a part of a long session's use; a meter killed outright
+  # loses at most that much). Told to end, it waits for answers under way
+  # and sends all it holds before it goes. It reads which pod has which address from the cluster's API
   # (agent.sandbox.api names that API's addresses where egress.closedTo
   # would close them).
   model:
@@ -644,7 +646,7 @@ egress:
     port: 3130
     image: ""            # dispatcher.image unless set
     idle: 2m
-    longest: 15m
+    longest: 5m
     # Log the names of what passes (headers, events, fields of usage),
     # never their values.
     shapes: false

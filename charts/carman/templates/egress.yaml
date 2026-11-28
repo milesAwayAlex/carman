@@ -203,6 +203,12 @@ spec:
         checksum/config: {{ include "egress.envoy" . | sha256sum | trunc 16 }}
     spec:
       serviceAccountName: egress
+      {{- if $model }}
+      # Time for the meter, told to end, to wait for answers under way and
+      # send what it holds (METER_DRAIN and METER_FINAL), while the
+      # dispatcher may be restarting too.
+      terminationGracePeriodSeconds: 40
+      {{- end }}
       automountServiceAccountToken: false
       {{- with (include "pod.placement" .) }}{{ . | trim | nindent 6 }}{{- end }}
       securityContext:

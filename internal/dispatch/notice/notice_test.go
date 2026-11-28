@@ -142,17 +142,27 @@ func TestR10AMessageToTheOwnerSaysWhatItIsAbout(t *testing.T) {
 	if strings.Contains(no.Text, "4112-88") || strings.Contains(no.Title, "4112-88") {
 		t.Errorf("the notice carries more than the first line: %q / %q", no.Title, no.Text)
 	}
-	for _, want := range []string{"The weekly review is done and one pool needs a decision.", "dispatch message m1", "dispatch reply m1", "builder", "agent resume s1"} {
+	for _, want := range []string{"The weekly review is done and one pool needs a decision.", "dispatch message m1", "dispatch reply m1", "builder", "To go to its session: carman go s1 (", "CARMAN_CHECKOUT"} {
 		if !strings.Contains(no.Title+" "+no.Text, want) {
 			t.Errorf("the notice lacks %q: %q / %q", want, no.Title, no.Text)
 		}
+	}
+	// The owner's way to a session is carman go (ADR 0057), by the start of
+	// the id and no more of it; the checkout's script is no longer named.
+	if strings.Contains(no.Text, "agent resume") {
+		t.Errorf("the notice names the checkout's script: %q", no.Text)
+	}
+	data, _ = json.Marshal(map[string]string{"id": "m3", "from": "session/0123456789abcdef", "agent": "desk", "name": "vpn", "to": "owner", "body": "Done."})
+	no, _ = n.Compose(context.Background(), dispatch.Record{Event: dispatch.Event{Type: TypeMessage, Subject: "m3", Data: data}})
+	if !strings.Contains(no.Text, "carman go 01234567 (") {
+		t.Errorf("a long id is not cut to its start: %q", no.Text)
 	}
 	// A session on the owner's own machine is in a terminal of theirs:
 	// there is nowhere to be taken.
 	n.Place = "host"
 	data, _ = json.Marshal(map[string]string{"id": "m2", "from": "session/0123456789abcdef", "agent": "host", "name": "proj", "to": "owner", "body": "Done."})
 	no, _ = n.Compose(context.Background(), dispatch.Record{Event: dispatch.Event{Type: TypeMessage, Subject: "m2", Data: data}})
-	if strings.Contains(no.Text, "agent resume") {
+	if strings.Contains(no.Text, "carman go") {
 		t.Errorf("a notice from the owner's machine offers to go to its session: %q", no.Text)
 	}
 }

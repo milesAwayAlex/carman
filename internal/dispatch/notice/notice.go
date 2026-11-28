@@ -368,13 +368,16 @@ func (n *Notifier) Compose(ctx context.Context, r dispatch.Record) (Notice, bool
 		no.Title = "A message from " + who
 		no.Text = fmt.Sprintf("%s\n\nAll of it: %s. To answer: %s.", about,
 			n.deploy("dispatch message "+m.ID), n.deploy("dispatch reply "+m.ID+" 'YOUR ANSWER'"))
-		// The session it came from, by the one command that goes to any
-		// session: a job's conversation, or a window of a standing agent.
+		// The session it came from, by the owner's one command that goes to
+		// any session (carman go, ADR 0057), which takes the start of an
+		// id. Not by name: a job's runs share one, and the name reaches only
+		// the latest. A window of a standing agent is gone to as it is; a
+		// job's kept conversation still goes through a checkout.
 		if id, ok := strings.CutPrefix(m.From, "session/"); ok && (n.Place == "" || m.Agent != n.Place) {
 			if len(id) > 8 {
 				id = id[:8]
 			}
-			no.Text += fmt.Sprintf(" To go to its session: %s.", n.deploy("agent resume "+id))
+			no.Text += fmt.Sprintf(" To go to its session: carman go %s (a job's kept conversation: with CARMAN_CHECKOUT set to a checkout, or as it then says).", id)
 		}
 		no.Text += fmt.Sprintf(" (%s, message %s.)", m.From, m.ID)
 	default:
