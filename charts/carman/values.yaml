@@ -688,6 +688,11 @@ egress:
   #       every: 120                      # seconds
   #       command: [sh, -c, "printf 'Bearer %s' \"$(example-tool token)\""]
   #       env: {EXAMPLE_STORE: file}
+  # One sign-in may give more than one credential (a host with two, see
+  # credentials above): the renewal names the other keys it also writes
+  # (also: [KEY]), and its command hands each to the proxy itself with
+  # `renew-credential --write KEY VALUE` before printing its own.
+  #       also: [example-front]
   renewals: []
   # The image renewals run in: the agent image unless said. A deploy that
   # changes it restarts the proxy, so it is worth changing only when what

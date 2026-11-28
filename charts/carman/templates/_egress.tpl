@@ -24,7 +24,7 @@ under the key of its first entry, and every entry of it is added there. */}}
 {{- end }}
 {{- $model := include "egress.model" . }}
 {{- $modelHost := .Values.egress.model.host }}
-{{- $renewed := list }}{{- range .Values.egress.renewals }}{{- $renewed = append $renewed .key }}{{- end }}
+{{- $renewed := list }}{{- range .Values.egress.renewals }}{{- $renewed = append $renewed .key }}{{- range (.also | default list) }}{{- $renewed = append $renewed . }}{{- end }}{{- end }}
 {{- if $renewed }}
 # A credential that is read again when its file changes is fetched as a
 # discovered secret, and the proxy has to have a name to ask for one.

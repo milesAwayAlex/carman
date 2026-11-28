@@ -1,7 +1,7 @@
 {{- if .Values.egress.enabled }}
 {{- $creds := .Values.egress.credentials }}
 {{- $renewals := .Values.egress.renewals }}
-{{- $renewed := list }}{{- range $renewals }}{{- $renewed = append $renewed .key }}{{- end }}
+{{- $renewed := list }}{{- range $renewals }}{{- $renewed = append $renewed .key }}{{- range (.also | default list) }}{{- $renewed = append $renewed . }}{{- end }}{{- end }}
 {{- $hosts := list }}{{- $keys := list }}
 {{- range $creds }}{{- if not (has .host $hosts) }}{{- $hosts = append $hosts .host }}{{- end }}{{- if not (has .key $renewed) }}{{- $keys = append $keys .key }}{{- end }}{{- end }}
 {{- $model := include "egress.model" . }}
