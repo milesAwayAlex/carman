@@ -38,6 +38,22 @@ reading of the account that is not held.
   passed since it was read is empty. With no account that has room, the
   meter stays where it is. Two weekly resets within half an hour of each
   other are the same, and the name decides.
+- **A model with a limit of its own may go out on another account.** The
+  two rules choose one account for everything. The strongest model has a
+  weekly limit of its own, which is spent well before the seven-day
+  window: rule 1 would keep the account while every request of that
+  model is refused and the other account holds room for it. So the meter
+  chooses for each request by its model (named in the request's first
+  bytes). Where the held account's own limit for that model is refused or
+  at 97%, as that model's answers said, its requests go out on another
+  account that has room for it, in both shared windows and in its own
+  limit for the model as far as known; the other models stay on the
+  account held. It comes back when the limit's reset has passed, or when
+  no other account has room. Each change of this is recorded once
+  (`model.account.for`, its subject the model) and told to the owner in
+  one line, not each request; the account held, and so the readings'
+  account, does not change. A request whose model is not in its first
+  bytes goes out on the account held.
 - **It begins on the account a person had put there**: the one whose
   credential is the secret's `token`. The rules take over at once. A
   meter that restarts begins there again; which account is held is not
@@ -92,10 +108,14 @@ Candidates not chosen:
 
 `internal/dispatch/meter/accounts_test.go`: the two rules, the least time
 between switches, the reading of the account not held, and the files.
+One model sent elsewhere at 97% and at a refusal, the others staying,
+told once, and back after the reset, are in the same tests.
 `scripts/check-switch.sh CONTEXT`: a trial with its own proxy and meter,
 two made-up accounts on the stand-in each with a standing of its own; the
 meter goes to the account whose week is made to end sooner, the owner is
 told, the next call goes out on that credential; at 90% of its five-hour
 window it goes to the other, and returns when the window is empty; no
-two switches closer than the least time; readings say their account, and
+two switches closer than the least time; with one model's own limit at
+98% on the held account that model's requests go out on the other and
+another model's stay, recorded and told once; readings say their account, and
 `dispatch plan` shows what the proxy did and why.

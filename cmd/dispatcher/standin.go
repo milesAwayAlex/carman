@@ -67,10 +67,11 @@ type standIn struct {
 	tokenFile string
 	// accountsDir holds a credential for each of several accounts, each
 	// with its own standing.
-	accountsDir string
-	accounts    map[string]*standAccount
-	byAccount   map[string]int
-	now         func() time.Time
+	accountsDir    string
+	accounts       map[string]*standAccount
+	byAccount      map[string]int
+	byAccountModel map[string]int
+	now            func() time.Time
 
 	mu       sync.Mutex
 	status   string
@@ -134,7 +135,10 @@ func newStandIn(tokenFile string) *standIn {
 }
 
 // headers are the plan's standing as the API sends it on every answer.
-func (s *standIn) headers(h http.Header, account string) {
+// A window named 7d_WORD is the own weekly limit of the models whose name
+// has WORD in it: it is sent on their answers only, and where its status
+// is rejected their requests are refused. headers says whether this one is.
+func (s *standIn) headers(h http.Header, account, model string) bool {
 	const p = "anthropic-ratelimit-unified-"
 	now := s.now()
 	status, windows := s.status, s.windows
@@ -142,9 +146,19 @@ func (s *standIn) headers(h http.Header, account string) {
 		a := s.account(account)
 		status, windows = a.status, a.windows
 	}
-	h.Set(p+"status", status)
 	claim, soonest := "", int64(0)
+	refused := status == "rejected"
 	for name, w := range windows {
+		if word, own := strings.CutPrefix(name, "7d_"); own {
+			if !strings.Contains(model, word) {
+				continue
+			}
+			if w.Status == "rejected" {
+				refused, status = true, "rejected"
+				h.Set(p+"representative-claim", "seven_day_"+word)
+				h.Set(p+"reset", strconv.FormatInt(now.Unix()+w.ResetIn, 10))
+			}
+		}
 		st := w.Status
 		if st == "" {
 			st = "allowed"
@@ -156,10 +170,12 @@ func (s *standIn) headers(h http.Header, account string) {
 			claim, soonest = name, now.Unix()+w.ResetIn
 		}
 	}
-	if claim != "" {
-		h.Set(p+"representative-claim", map[string]string{"5h": "five_hour", "7d": "seven_day"}[claim])
+	h.Set(p+"status", status)
+	if c, ok := map[string]string{"5h": "five_hour", "7d": "seven_day"}[claim]; ok && h.Get(p+"representative-claim") == "" {
+		h.Set(p+"representative-claim", c)
 		h.Set(p+"reset", strconv.FormatInt(soonest, 10))
 	}
+	return refused
 }
 
 func apiError(w http.ResponseWriter, code int, kind, msg string) {
@@ -207,7 +223,7 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"requests": s.requests, "by_model": s.byModel, "tokens": s.tokens, "refused_for_the_credential": s.denied, "last_user_agent": s.lastUA, "by_account": s.byAccount})
+		_ = json.NewEncoder(w).Encode(map[string]any{"requests": s.requests, "by_model": s.byModel, "tokens": s.tokens, "refused_for_the_credential": s.denied, "last_user_agent": s.lastUA, "by_account": s.byAccount, "by_account_and_model": s.byAccountModel})
 		return
 	}
 	// The API's own paths take the credential.
@@ -259,14 +275,16 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.requests++
 	s.byModel[req.Model]++
 	s.lastUA = r.Header.Get("User-Agent")
-	s.headers(w.Header(), account)
-	rejected := s.status == "rejected"
+	rejected := s.headers(w.Header(), account, req.Model)
 	if account != "" {
 		if s.byAccount == nil {
 			s.byAccount = map[string]int{}
 		}
 		s.byAccount[account]++
-		rejected = s.account(account).status == "rejected"
+		if s.byAccountModel == nil {
+			s.byAccountModel = map[string]int{}
+		}
+		s.byAccountModel[account+"/"+req.Model]++
 	}
 	s.mu.Unlock()
 	if rejected {

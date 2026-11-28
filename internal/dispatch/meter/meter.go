@@ -141,7 +141,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	account, cred, err := "", "", error(nil)
 	if p.Accounts != nil {
-		account, cred, err = p.Accounts.Use()
+		// By the request's model: one whose own limit is spent on the
+		// account held goes out on another.
+		account, cred, err = p.Accounts.UseFor(peekModel(r))
 	} else {
 		cred, err = p.Credential()
 	}
@@ -251,7 +253,7 @@ func (p *Proxy) build() {
 			}
 			if rq.metered && p.Accounts != nil {
 				if li, ok := ReadHeaders(resp.Header); ok {
-					p.Accounts.Saw(rq.account, li)
+					p.Accounts.SawFor(rq.account, asked, li)
 				}
 			}
 			if !rq.metered || resp.StatusCode/100 != 2 {
@@ -521,6 +523,23 @@ func keys(m map[string]bool) string {
 
 // askedModel reads which model a message asks for, and puts the body back.
 // Other requests name none.
+// peekModel is the model a request names in its first bytes, with the
+// body left whole for what reads it next; nothing when it is not there.
+func peekModel(r *http.Request) string {
+	if !metered(r) || r.Body == nil || r.Body == http.NoBody {
+		return ""
+	}
+	buf := make([]byte, mostSniffed)
+	n, _ := io.ReadFull(r.Body, buf)
+	buf = buf[:n]
+	body := r.Body
+	r.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(bytes.NewReader(buf), body), body}
+	return modelIn(buf)
+}
+
 func askedModel(r *http.Request) (string, error) {
 	if !metered(r) || r.Body == nil {
 		return "", nil

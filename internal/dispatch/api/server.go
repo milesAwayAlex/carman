@@ -348,6 +348,20 @@ func (s *Server) emit(_ http.ResponseWriter, r *http.Request, role Role) (any, e
 	if err := s.Store.Emit(r.Context(), e); err != nil {
 		return nil, err
 	}
+	if role == RoleMeter && e.Type == meter.TypeModelAccountFor && s.Messages != nil {
+		var sw meter.Switch
+		_ = json.Unmarshal(e.Data, &sw)
+		line := fmt.Sprintf("The proxy now sends requests of %s on the model's account %s", e.Subject, sw.To)
+		if sw.To == sw.Held {
+			line = fmt.Sprintf("The proxy sends requests of %s on the account it holds again (%s)", e.Subject, sw.To)
+		}
+		if sw.Why != "" {
+			line += ": " + sw.Why
+		}
+		if err := s.Messages.FromDispatcher(r.Context(), message.Owner, line+"."); err != nil && s.Log != nil {
+			s.Log.Warn("the owner was not told of a change of a model's account", "error", err)
+		}
+	}
 	if role == RoleMeter && e.Type == meter.TypeModelAccount && s.Messages != nil {
 		// The proxy changed the model's account by itself: the owner is
 		// told, in one line.
