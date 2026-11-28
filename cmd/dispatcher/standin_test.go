@@ -113,6 +113,12 @@ func TestR10_TheStandInFollowsAScript(t *testing.T) {
 	if got := ask(false, first+","+both); !strings.Contains(got, `"text":"ok"`) || !strings.Contains(got, `"stop_reason":"end_turn"`) {
 		t.Errorf("the script used up, the answer is not ok: %s", got)
 	}
+	// Asked to tell the results, its last answer is what the tools gave back.
+	telling := strings.Replace(first, `"Do it.\n`, `"Do it.\nstand-in: tell results\n`, 1)
+	denied := strings.Replace(both, `"content":"ok"`, `"is_error":true,"content":[{"type":"text","text":"not\nallowed"}]`, 1)
+	if got := ask(false, telling+","+denied); !strings.Contains(got, `result 1: one\nresult 2: ERROR not allowed`) {
+		t.Errorf("the results are not told: %s", got)
+	}
 	// No script, as a string or as blocks: ok, as before.
 	if got := ask(false, `{"role":"user","content":"say ok"}`); !strings.Contains(got, `"text":"ok"`) {
 		t.Errorf("a conversation with no script: %s", got)
@@ -121,7 +127,7 @@ func TestR10_TheStandInFollowsAScript(t *testing.T) {
 	resp, _ := http.Get(model.URL + "/stand-in/seen")
 	seen, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if !strings.Contains(string(seen), `"tokens":{"m":{"input_tokens":`) || !strings.Contains(string(seen), `"output_tokens":20`) {
+	if !strings.Contains(string(seen), `"tokens":{"m":{"input_tokens":`) || !strings.Contains(string(seen), `"output_tokens":25`) {
 		t.Errorf("what the stand-in answered is not kept: %s", seen)
 	}
 }

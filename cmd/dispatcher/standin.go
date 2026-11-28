@@ -27,7 +27,12 @@ import (
 // is a tool for it to ask for: the first such line in its first answer, the
 // next once that tool's result is back, and "ok" when the lines are used
 // up. It is how a check makes a real harness do what a run does (start a
-// subagent, leave a command running behind it) with no model.
+// subagent, leave a command running behind it) with no model. With a line
+//
+//	stand-in: tell results
+//
+// its last answer is, in place of "ok", what each tool gave back, a line
+// for each, so that a check reads what the harness let the tools do.
 //
 //	dispatcher stand-in                     the service
 //	dispatcher stand-in ask [--model M] [--stream] [--url URL]
@@ -193,6 +198,7 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// The script, if the conversation has one: the tool to ask for now.
 	var first string
 	asked := 0
+	var results []string
 	for i, m := range req.Messages {
 		text, uses := standInContent(m.Content)
 		if i == 0 {
@@ -201,8 +207,16 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if m.Role == "assistant" {
 			asked += uses
 		}
+		for _, r := range standInResults(m.Content) {
+			results = append(results, fmt.Sprintf("result %d: %s", len(results)+1, r))
+		}
 	}
-	block, blockStart, blockDelta, stop := `{"type":"text","text":"ok"}`, `{"type":"text","text":""}`, `{"type":"text_delta","text":"ok"}`, "end_turn"
+	said := "ok"
+	if strings.Contains(first, "\nstand-in: tell results") && len(results) > 0 {
+		said = strings.Join(results, "\n")
+	}
+	quoted, _ := json.Marshal(said)
+	block, blockStart, blockDelta, stop := `{"type":"text","text":`+string(quoted)+`}`, `{"type":"text","text":""}`, `{"type":"text_delta","text":`+string(quoted)+`}`, "end_turn"
 	if script := standInScript(first); asked < len(script) {
 		use := script[asked]
 		toolID := "toolu_standin_" + strconv.FormatInt(s.now().UnixNano(), 36)
@@ -276,6 +290,35 @@ func standInContent(raw json.RawMessage) (text string, uses int) {
 		}
 	}
 	return text, uses
+}
+
+// standInResults are what the tools of a message gave back, each on one
+// line of at most 300 characters, an error marked as one.
+func standInResults(raw json.RawMessage) []string {
+	var blocks []struct {
+		Type    string          `json:"type"`
+		IsError bool            `json:"is_error"`
+		Content json.RawMessage `json:"content"`
+	}
+	if json.Unmarshal(raw, &blocks) != nil {
+		return nil
+	}
+	var out []string
+	for _, b := range blocks {
+		if b.Type != "tool_result" {
+			continue
+		}
+		text, _ := standInContent(b.Content)
+		text = strings.Join(strings.Fields(text), " ")
+		if len(text) > 300 {
+			text = text[:300]
+		}
+		if b.IsError {
+			text = "ERROR " + text
+		}
+		out = append(out, text)
+	}
+	return out
 }
 
 func standInCmd(ctx context.Context, args []string) error {
