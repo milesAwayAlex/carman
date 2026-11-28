@@ -204,7 +204,7 @@ EOF
             # agent.sessionStorage, a trial): the message is still the
             # session's, and is read in a new conversation under its id,
             # told that what went before is not here.
-            # (ADR new-a-message-for-a-conversation-that-is-not-there.)
+            # (ADR 0073.)
             # Where conversations are kept and this one is missing, it was
             # lost: the answer says so, for the sender and the owner.
             unkept="this installation keeps no conversations of its jobs"
