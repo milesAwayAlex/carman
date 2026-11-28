@@ -94,7 +94,8 @@ func attach(c config, s session) (argv []string, dir string, err error) {
 	return []string{filepath.Join(c.Checkout, "scripts", "deploy.sh"), c.Context, "agent", "resume", s.ID}, c.Checkout, nil
 }
 
-func fetch(ctx context.Context, c config) ([]session, error) {
+// fetchPeers asks the dispatcher who there is.
+func fetchPeers(ctx context.Context, c config) ([]message.Peer, error) {
 	if c.URL == "" || c.Token == "" {
 		return nil, errors.New("the dispatcher's address and token are not set: CARMAN_DISPATCHER_URL and CARMAN_DISPATCHER_TOKEN, or DISPATCHER_URL and DISPATCHER_TOKEN")
 	}
@@ -102,6 +103,14 @@ func fetch(ctx context.Context, c config) ([]session, error) {
 	var peers []message.Peer
 	if err := cl.Do(ctx, http.MethodGet, "/v1/peers", nil, nil, &peers); err != nil {
 		return nil, fmt.Errorf("the dispatcher at %s: %w", c.URL, err)
+	}
+	return peers, nil
+}
+
+func fetch(ctx context.Context, c config) ([]session, error) {
+	peers, err := fetchPeers(ctx, c)
+	if err != nil {
+		return nil, err
 	}
 	return sessions(peers), nil
 }
@@ -145,9 +154,21 @@ func isTerminal(f *os.File) bool {
 }
 
 func goCmd(args []string) int {
-	var keep, list, names, print bool
+	var keep, list, names, print, fresh bool
 	var word string
-	for _, a := range args {
+	var o opening
+	valued := map[string]*string{"--new": &o.Name, "--in": &o.In, "--dir": &o.Dir, "--model": &o.Model}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if into, ok := valued[a]; ok {
+			if i+1 >= len(args) || args[i+1] == "" || strings.HasPrefix(args[i+1], "-") {
+				fmt.Fprintf(os.Stderr, "carman go: %s needs a value\n%s\n", a, usage)
+				return exitNoMatch
+			}
+			i++
+			*into, fresh = args[i], true
+			continue
+		}
 		switch a {
 		case "--keep":
 			keep = true
@@ -169,6 +190,12 @@ func goCmd(args []string) int {
 	fail := func(code int, err error) int {
 		fmt.Fprintln(os.Stderr, "carman go:", err)
 		return code
+	}
+	if fresh {
+		if o.Name == "" || word != "" || list || names || print {
+			return fail(exitNoMatch, errors.New("a new session is opened with --new NAME [--in AGENT] [--dir DIR] [--model MODEL] [--keep], and nothing else"))
+		}
+		return goNew(context.Background(), c, o, keep)
 	}
 	ctx := context.Background()
 	all, err := fetch(ctx, c)

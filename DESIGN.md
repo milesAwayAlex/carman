@@ -168,6 +168,15 @@ leave (status 0) from a dropped connection, after which `--keep` attaches
 again. A job's kept conversation is still gone to by the checkout's
 `agent resume`.
 
+`carman go --new NAME` opens a session in a standing agent's pod and goes
+to it: `kubectl exec` runs `agent-open` there, in `--dir` (the pod's
+`~/work` unless given), on `--model`, so the pod remembers the session and
+opens it again when it starts. The agent is the one `--in` names, the only
+standing one, or the one picked on a terminal; the dispatcher's peers say
+which agents are standing. A name that is taken in that pod (a running
+session, a remembered one, a window) is refused and nothing is opened.
+The dispatcher lists the session once its harness has started.
+
 A standing agent's pod attends to its own sessions (ADR 0053, proposed).
 `dispatcher attend`, started by `agent-session`, holds a session the
 dispatcher believes runs in the pod to have ended when the harness process

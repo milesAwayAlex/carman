@@ -109,6 +109,11 @@ func TestR2PeersAgentsGone(t *testing.T) {
 			t.Errorf("%s is not listed", a)
 		}
 	}
+	// A standing agent says so, with or without a session: a session can
+	// be opened in its pod (ADR 0057). An agent of jobs does not.
+	if !got["agent/desk"].Standing || got["agent/trial"].Standing || got["agent/trial-e"].Standing {
+		t.Errorf("which agents are standing: desk %v, trial %v, trial-e %v", got["agent/desk"].Standing, got["agent/trial"].Standing, got["agent/trial-e"].Standing)
+	}
 }
 
 // TestR2PeersPlaceIsNoAgent: the owner's machine is a place, not an agent

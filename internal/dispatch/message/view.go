@@ -190,7 +190,8 @@ type Peer struct {
 	// For going to a session (ADR 0057): the pod it is or was last in, how
 	// it runs (interactive or headless), whether its agent is a standing
 	// one, and, for the owner and the owner's machine only, how many
-	// messages it sent the owner that the owner has not read.
+	// messages it sent the owner that the owner has not read. An agent
+	// says Standing too: a session can be opened in its pod.
 	Pod      string `json:"pod,omitempty"`
 	Mode     string `json:"mode,omitempty"`
 	Standing bool   `json:"standing,omitempty"`
@@ -303,7 +304,8 @@ func (s *Service) Peers(ctx context.Context, c Caller, since time.Duration, all 
 		if names[n].Class == "" {
 			state = "no job to start: a message waits for one of its sessions"
 		}
-		out = append(out, Peer{Address: AgentAddress(n), Kind: "agent", Agent: n, State: state, NotWritable: s.notWritable(c, n)})
+		out = append(out, Peer{Address: AgentAddress(n), Kind: "agent", Agent: n, State: state, NotWritable: s.notWritable(c, n),
+			Standing: defined[n].Interactive})
 	}
 	out = append(out, running...)
 	return append(out, stopped...), nil
