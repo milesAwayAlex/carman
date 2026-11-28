@@ -19,7 +19,7 @@ import (
 	"carman/internal/dispatch/budget"
 )
 
-// The plan of the model's budget (ADR new-the-plan-of-the-models-budget):
+// The plan of the model's budget (ADR 0077):
 // with several accounts, each with a five-hour window, a seven-day one and
 // a model's own weekly one, which account the proxy should hold now and
 // over the days ahead so that no week ends with room unused. No model

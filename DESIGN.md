@@ -675,7 +675,7 @@ which are the weakest parts. Three things are meant to keep that manageable:
   only since the latest change (ADR 0055, proposed).
   Which account it should hold is computed by the dispatcher from the
   readings, with no model (`dispatcher plan`; ADR
-  new-the-plan-of-the-models-budget, proposed): each account's room after
+  0077, proposed): each account's room after
   a share kept for the owner, counted in full five-hour windows by what
   one has cost of the weekly windows, and the account with the most room
   for the time to its weekly reset is the one to hold; recorded as

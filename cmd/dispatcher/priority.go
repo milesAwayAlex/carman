@@ -13,7 +13,7 @@ import (
 )
 
 // priorityCmd is `dispatcher priority ...`: what the model's usage is for
-// (ADR new-the-plan-of-the-models-budget).
+// (ADR 0077).
 func priorityCmd(ctx context.Context, c *api.Client, pos []string, flags map[string][]string) error {
 	cmd := "list"
 	if len(pos) > 0 {

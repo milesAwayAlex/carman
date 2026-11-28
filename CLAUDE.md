@@ -78,7 +78,7 @@ Built so far:
   credential on the owner's machine; `scripts/deploy.sh CONTEXT
   model-account [NAME]` says or changes which one the proxy holds, and
   usage readings count since the latest change.
-  `dispatcher plan` (ADR new-the-plan-of-the-models-budget, proposed)
+  `dispatcher plan` (ADR 0077, proposed)
   says which account the proxy should hold now and over the next seven
   days, by arithmetic on the readings (each account's five-hour, seven-day
   and model's own weekly window, what a full five-hour window costs of the
