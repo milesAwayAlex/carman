@@ -40,7 +40,7 @@ const (
 type reading struct {
 	Model string `json:"model,omitempty"`
 	// Account is the account it was read on, where the proxy holds
-	// several and says (ADR new-the-proxy-switches-the-models-account).
+	// several and says (ADR 0078).
 	Account    string    `json:"account,omitempty"`
 	EveryHours int       `json:"every_hours,omitempty"`
 	Info       limitInfo `json:"rate_limit_info"`

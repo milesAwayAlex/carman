@@ -677,7 +677,7 @@ which are the weakest parts. Three things are meant to keep that manageable:
   changes the account itself by two rules (the week that ends soonest
   with room; another at the ceiling of a five-hour window, until its
   reset), reading the account it does not hold once an hour (ADR
-  new-the-proxy-switches-the-models-account, proposed).
+  0078, proposed).
   Which account it should hold is computed by the dispatcher from the
   readings, with no model (`dispatcher plan`; ADR
   0077, proposed): each account's room after

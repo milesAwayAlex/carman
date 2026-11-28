@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The proxy switches the model's account by itself (ADR
-# new-the-proxy-switches-the-models-account), end to end in a trial with
+# 0078), end to end in a trial with
 # its own proxy and meter in front of the stand-in for the model's API, and
 # two made-up accounts there, each with a standing of its own:
 #

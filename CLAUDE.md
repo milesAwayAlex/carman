@@ -79,7 +79,7 @@ Built so far:
   model-account [NAME]` says or changes which one the proxy holds, and
   usage readings count since the latest change.
   With `egress.model.accounts.enabled` (ADR
-  new-the-proxy-switches-the-models-account, proposed) the meter holds
+  0078, proposed) the meter holds
   every account's credential (`model-account --all`) and switches by
   itself: the account whose week ends soonest while it has room, another
   at 85% of that one's five-hour window until its reset, at most every

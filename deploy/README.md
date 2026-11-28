@@ -471,7 +471,7 @@ proxy holds another account than the definition chooses, and changes
 nothing. `deploy/RECOVERY.md` has the same by hand.
 
 **The proxy switches the account itself** (ADR
-new-the-proxy-switches-the-models-account). Put every listed account's
+0078). Put every listed account's
 credential at the proxy, each from its command to the cluster and nowhere
 else: `scripts/deploy.sh CONTEXT model-account --all` (again whenever a
 credential changes; the meter takes it within a minute or two). Then, in

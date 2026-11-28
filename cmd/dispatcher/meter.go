@@ -126,7 +126,7 @@ func meterCmd(ctx context.Context) error {
 	}
 	go cred.Run(ctx)
 
-	// Several accounts (ADR new-the-proxy-switches-the-models-account): the
+	// Several accounts (ADR 0078): the
 	// credentials are the files account.NAME beside the one credential, and
 	// the meter chooses among them. It begins on the one the installation
 	// had put there.

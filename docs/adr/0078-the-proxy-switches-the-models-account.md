@@ -1,4 +1,4 @@
-# new-the-proxy-switches-the-models-account: The proxy's meter holds every account's credential and switches between them by two rules
+# 0078: The proxy's meter holds every account's credential and switches between them by two rules
 
 Status: Proposed (2026-11-28). The owner, on where the credentials are:
 both are needed at the proxy, so they go there; and on the switch: done

@@ -680,7 +680,7 @@ egress:
     # credential at the proxy (agent.modelCredential: proxy or both) and a
     # sandbox.
     # Several accounts for the model at the proxy (ADR
-    # new-the-proxy-switches-the-models-account): the secret holds each
+    # 0078): the secret holds each
     # account's credential under the key account.NAME (scripts/deploy.sh
     # CONTEXT model-account --all), and the meter chooses which one
     # requests go out on: the account whose week ends soonest while it has
