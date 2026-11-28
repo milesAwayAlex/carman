@@ -53,6 +53,8 @@
 #   scripts/deploy.sh CONTEXT dispatch log [--type T] [--after N] [--last N]   its log
 #   scripts/deploy.sh CONTEXT dispatch submit CLASS [ID] [--priority N] ...   start a run of the CronJob CLASS
 #                                       through the dispatcher (ADR 0042)
+#   scripts/deploy.sh CONTEXT dispatch plan [--json]   the plan of the model's budget: which account the proxy should hold
+#   scripts/deploy.sh CONTEXT dispatch priority [set NAME --share N | add NAME 'WHAT' | ...]   what the usage is for
 #   scripts/deploy.sh CONTEXT dispatch peers|send|reply|inbox|read|message|watch|timed ...   messages,
 #                                       as the owner (ADR 0045): who can be written to, a message
 #                                       to a session, an agent or the owner, the owner's inbox
@@ -1199,7 +1201,7 @@ dreamer)
     ;;
 dispatch)
     case "${3:-}" in
-    status | log | submit | emit | deployed | peers | send | reply | inbox | read | message | watch | improve | lift | limit | timed)
+    status | log | submit | emit | deployed | peers | send | reply | inbox | read | message | watch | improve | lift | limit | timed | plan | priority)
         # Messages (ADR 0045) are sent and read as the owner; and the list
         # of improvements to the platform (ADR 0058).
         dispatch_client "${@:3}"

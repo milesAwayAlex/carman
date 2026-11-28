@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"carman/internal/dispatch"
+	"carman/internal/dispatch/budget"
 	"carman/internal/dispatch/improve"
 	"carman/internal/dispatch/message"
 	"carman/internal/dispatch/meter"
@@ -107,6 +108,8 @@ type Server struct {
 	Now func() time.Time
 	// Improve is the list of improvements to the platform (ADR 0058).
 	Improve *improve.Service
+	// Budget is the owner's priorities for the model's usage.
+	Budget *budget.Service
 	// Outside takes what watches saw and what hooks were told (ADR 0063).
 	Outside *trigger.Outside
 	Log     *slog.Logger
@@ -159,6 +162,9 @@ func (s *Server) routes() []route {
 		{http.MethodPost, "/v1/attend/hold", []Role{RoleAgent, RoleHost}, s.hold},
 		{http.MethodPost, "/v1/attend/limited", []Role{RoleAgent}, s.limited},
 		{http.MethodPost, "/v1/watches/{name}", []Role{RoleOwner, RoleAgent}, s.observed},
+		{http.MethodGet, "/v1/budget/priorities", messengers, s.priorities},
+		{http.MethodPost, "/v1/budget/priorities", messengers, s.prioritySet},
+		{http.MethodPost, "/v1/budget/items", messengers, s.priorityItem},
 		{http.MethodGet, "/v1/improvements", messengers, s.improvements},
 		{http.MethodPost, "/v1/improvements", messengers, s.improvementAdd},
 		{http.MethodGet, "/v1/improvements/evidence", messengers, s.evidence},

@@ -673,6 +673,17 @@ which are the weakest parts. Three things are meant to keep that manageable:
   credentials on the owner's machine; one is at the proxy, changed with
   `scripts/deploy.sh CONTEXT model-account NAME`, and usage readings count
   only since the latest change (ADR 0055, proposed).
+  Which account it should hold is computed by the dispatcher from the
+  readings, with no model (`dispatcher plan`; ADR
+  new-the-plan-of-the-models-budget, proposed): each account's room after
+  a share kept for the owner, counted in full five-hour windows by what
+  one has cost of the weekly windows, and the account with the most room
+  for the time to its weekly reset is the one to hold; recorded as
+  `budget.plan` where switched on. It switches nothing yet. The owner's
+  priorities, each a share of the usage and a list of what is to be done
+  under it, are events too (`dispatcher priority`), and the plan divides
+  each account's room by them; nothing yet measures what a priority
+  spent or starts its work.
   The model's credential is held by a meter beside the proxy (ADR 0050):
   the proxy hands it every request to the model's API with the
   caller's address, the meter refuses an address that is no agent's pod of
