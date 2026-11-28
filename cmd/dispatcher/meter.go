@@ -155,6 +155,9 @@ func meterCmd(ctx context.Context) error {
 			// The account held last and each one's standing, by the log;
 			// without the log, the account a person put there.
 			if du != "" && tf != "" {
+				// Before anything is decided: a switch made at the start,
+				// on what the log holds, is recorded as any other.
+				accounts.Switched = func(sw meter.Switch) { go sendSwitch(ctx, dispatcher, sw, log) }
 				if err := seedAccounts(ctx, accounts, dispatcher); err != nil {
 					log.Warn("the accounts' standings could not be read from the dispatcher's log; nothing is switched on what is not known", "error", err)
 				}
@@ -199,9 +202,6 @@ func meterCmd(ctx context.Context) error {
 			}
 		} else {
 			log.Warn("METER_ACCOUNT_READ_MODEL is not set: an account not held is not read, and is known only as it was when last held")
-		}
-		if du != "" && tf != "" {
-			accounts.Switched = func(sw meter.Switch) { go sendSwitch(ctx, dispatcher, sw, log) }
 		}
 		if du != "" && tf != "" {
 			go func() {
@@ -315,7 +315,8 @@ func probeAccount(ctx context.Context, p *meter.Proxy, model, credential string)
 // counted from it.
 func sendSwitch(ctx context.Context, dispatcher func() (*api.Client, error), sw meter.Switch, log *slog.Logger) {
 	data, _ := json.Marshal(sw)
-	for try := 0; try < 20; try++ {
+	// Until it is recorded: the readings that follow are sorted by it.
+	for try := 0; ; try++ {
 		c, err := dispatcher()
 		if err == nil {
 			cctx, cancel := context.WithTimeout(ctx, 10*time.Second)

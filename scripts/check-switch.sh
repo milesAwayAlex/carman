@@ -13,6 +13,9 @@
 #   2. the other account's week is made to end sooner: the meter goes to
 #      it, the change is in the trial's log with its readings, the owner
 #      is told in one line, and the next call goes out on its credential;
+#  2b. the meter is started again where the log names the other account:
+#      the switch it makes as it starts is recorded, and a reading that
+#      does not say its account is given the one whose week it shows;
 #   3. that account's five-hour window is filled: the meter goes back to
 #      the first until the reset, not before the least time between
 #      switches;
@@ -157,6 +160,33 @@ inbox=""
 for _ in $(seq 20); do inbox="$(owner inbox 2>/dev/null || true)"; grep -qF "now holds the model's account second" <<<"$inbox" && break; sleep 2; done
 has "$inbox" "The proxy now holds the model's account second (it held first): the week of account second ends soonest"
 step "with the second account's week ending sooner the meter went to it by itself: recorded with its readings, the owner told in one line, and the next call went out on the second's credential"
+
+# 2b. A switch the meter makes as it starts is in the log too, and a reading
+# that does not say its account (the reading job's) is given the account
+# whose week it shows. The log is told a person put the first account
+# there; the meter is started again at once, begins on the first by the
+# log, and by the standings there goes to the second.
+n="$(events model.account | grep -F '"by":"proxy"' | grep -c '"to":"second"' || true)"
+owner emit model.account --subject first --source deploy >/dev/null
+"${kube[@]}" delete pod -l "app=egress,trial=$name" --wait=false >/dev/null
+"${kube[@]}" rollout status "deployment/${pre}egress" --timeout=180s >/dev/null
+for _ in $(seq 45); do
+    [ "$(events model.account | grep -F '"by":"proxy"' | grep -c '"to":"second"' || true)" -gt "$n" ] && break
+    sleep 2
+done
+last="$(events model.account | tail -1)"
+has "$last" '"to":"second"'
+has "$last" '"from":"first"'
+has "$last" '"by":"proxy"'
+has "$(owner status)" "model account: second"
+now="$(date +%s)"
+job() { owner emit usage.observed --subject "$1" --source usage-reading --data "{\"model\":\"$1\",\"rate_limit_info\":{\"status\":\"allowed\",\"unifiedWindows\":{\"five_hour\":{\"utilization\":0.3,\"resetsAt\":$((now + 7200))},\"seven_day\":{\"utilization\":0.41,\"resetsAt\":$2}}}}" >/dev/null; }
+job job-on-second "$((now + 86400))"
+job job-on-first "$((now + 345600))"
+has "$(events usage.observed | grep -F 'job-on-second')" '"account":"second"'
+has "$(events usage.observed | grep -F 'job-on-first')" '"account":"first"'
+sleep 20   # the least time between switches, counted anew from the start
+step "a switch the meter made as it started is in the log (dispatch status names the account the proxy holds), and a reading that does not say its account was given the one whose week it shows"
 
 # 3. Its five-hour window fills: to the first, until the reset.
 standing '{"account":"second","windows":{"5h":{"utilization":0.9,"reset_in":3000}}}'

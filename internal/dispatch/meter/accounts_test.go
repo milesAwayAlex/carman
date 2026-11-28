@@ -248,3 +248,44 @@ func TestAccountsUnknownIsNoReasonToSwitch(t *testing.T) {
 		t.Fatalf("with the held one full: %q %+v", d.Held(), *tried)
 	}
 }
+
+// When the log names another account as held than the one requests go out
+// on, the meter does not take the log's standings, and seen twice running
+// it says again which account it holds.
+func TestAccountsSayAgainWhatIsHeld(t *testing.T) {
+	a, now, switches := twoAccounts(t)
+	soon, late := now.Add(36*time.Hour), now.Add(6*24*time.Hour)
+	logged := func(held string) Logged {
+		return Logged{Held: held, Accounts: map[string]LoggedAccount{
+			"one": {Stood: Stood{SevenDay: Window{Utilization: 0.14, ResetsAt: late.Unix()}, At: a.now()}},
+			"two": {Stood: Stood{SevenDay: Window{Utilization: 0.49, ResetsAt: soon.Unix()}, At: a.now()}},
+		}}
+	}
+	// At its start: the log says one was held; by the standings it goes
+	// to two, and that switch is told as any other.
+	a.Seed(logged("one"))
+	if a.Held() != "two" || len(*switches) != 1 || (*switches)[0].From != "one" || (*switches)[0].Rule != "week" {
+		t.Fatalf("at the start: held %q, %+v", a.Held(), *switches)
+	}
+	// The record did not arrive: the log still says one. Its standings
+	// (here saying one's week now ends soonest) are not taken; the second
+	// time the meter says again that it holds two.
+	*now = now.Add(time.Minute)
+	wrong := logged("one")
+	wrong.Accounts["one"] = LoggedAccount{Stood: Stood{SevenDay: Window{Utilization: 0.44, ResetsAt: soon.Add(-time.Hour).Unix()}, At: a.now()}}
+	a.Seed(wrong)
+	if a.Held() != "two" || len(*switches) != 1 {
+		t.Fatalf("on a log that names another account: held %q, %+v", a.Held(), *switches)
+	}
+	*now = now.Add(time.Minute)
+	a.Seed(wrong)
+	if a.Held() != "two" || len(*switches) != 2 || (*switches)[1].Rule != "held" || (*switches)[1].To != "two" || (*switches)[1].From != "one" {
+		t.Fatalf("the second time: held %q, %+v", a.Held(), *switches)
+	}
+	// Once the log agrees, its standings count again.
+	*now = now.Add(time.Minute)
+	a.Seed(logged("two"))
+	if a.Held() != "two" || len(*switches) != 2 {
+		t.Fatalf("with the log agreeing: held %q, %d", a.Held(), len(*switches))
+	}
+}

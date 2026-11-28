@@ -867,7 +867,14 @@ func serve(ctx context.Context) error {
 		logger.Info("working through the owner's queue", "agent", qc.Agent, "running", qc.Running, "model", qc.Model, "strongest", qc.Strongest)
 		go q.Run(work)
 	}
-	srv := &api.Server{ModelAccounts: modelAccounts, Store: d, Tokens: tokens, OwnerSHA256: ownerSHA256, Check: check, Log: logger, Messages: messages, Verify: verify, Improve: list, Budget: priorities, Outside: outside, ProxyLimits: proxyLimits,
+	stamp := func(ctx context.Context, data json.RawMessage) json.RawMessage {
+		rs, err := d.Last(ctx, TypeUsageObserved, 500)
+		if err != nil {
+			return data
+		}
+		return stampAccount(rs, data)
+	}
+	srv := &api.Server{ModelAccounts: modelAccounts, StampReading: stamp, Store: d, Tokens: tokens, OwnerSHA256: ownerSHA256, Check: check, Log: logger, Messages: messages, Verify: verify, Improve: list, Budget: priorities, Outside: outside, ProxyLimits: proxyLimits,
 		Dump: func(ctx context.Context, f *os.File) error {
 			args := []string{"--no-owner", "--no-privileges", "--format=plain"}
 			if dbURL != "" {

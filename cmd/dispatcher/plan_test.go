@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"math"
@@ -284,5 +285,50 @@ func TestPlanDividesTheRoomBetweenPriorities(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("the plan does not say %q:\n%s", want, out)
 		}
+	}
+}
+
+// A reading that does not say its account (the reading job's) is of the
+// account whose week it shows, by the proxy's own readings, though the
+// log believes another was held: a switch that was not recorded does not
+// put one account's figures under the other's name.
+func TestPlanReadingsOfTheJobAreOfTheAccountTheirWeekShows(t *testing.T) {
+	l := &planLog{}
+	at := func(h, m int) time.Time {
+		return planDay.Add(time.Duration(h)*time.Hour + time.Duration(m)*time.Minute)
+	}
+	labelled := func(when time.Time, account string, five, wk float64, weekR time.Time) {
+		l.read(when, "cheap", five, when.Add(3*time.Hour), wk, weekR, -1)
+		r := &l.readings[len(l.readings)-1]
+		var m map[string]json.RawMessage
+		_ = json.Unmarshal(r.Data, &m)
+		m["account"], _ = json.Marshal(account)
+		r.Data, _ = json.Marshal(m)
+	}
+	l.change(at(6, 31), "one") // recorded
+	labelled(at(6, 35), "one", 0.05, 0.14, oneWeek)
+	labelled(at(6, 50), "two", 0.40, 0.42, twoWeek) // the proxy went to two; that was not recorded
+	// The job's reading at 07:07, on two, under the log's belief of one.
+	l.read(at(7, 7), "cheap", 0.47, at(10, 0), 0.44, twoWeek, -1)
+	p := planOf(l.readings, l.changes, at(7, 10), defaultPlan())
+	one, two := account(t, p, "one"), account(t, p, "two")
+	near(t, "one's week", one.Week.Used, 0.14, 0.001)
+	near(t, "two's week", two.Week.Used, 0.44, 0.001)
+	if !one.Week.Reset.Equal(oneWeek) || !two.Week.Reset.Equal(twoWeek) {
+		t.Errorf("weeks: one %s, two %s", one.Week.Reset, two.Week.Reset)
+	}
+	// At the door the same reading is given its account.
+	job := l.readings[len(l.readings)-1].Data
+	if got := readingAccount(stampAccount(l.readings[:len(l.readings)-1], job)); got != "two" {
+		t.Errorf("the job's reading is stamped %q", got)
+	}
+	// One that shows a week no account's readings show is left as it is,
+	// and one that says its account is not touched.
+	odd := rec(99, at(7, 8), "cheap", map[string]win{"seven_day": {0.3, twoWeek.Add(50 * time.Hour)}}).Data
+	if got := readingAccount(stampAccount(l.readings, odd)); got != "" {
+		t.Errorf("a reading of an unknown week is stamped %q", got)
+	}
+	if got := readingAccount(stampAccount(l.readings, l.readings[0].Data)); got != "one" {
+		t.Errorf("a reading that says one is stamped %q", got)
 	}
 }

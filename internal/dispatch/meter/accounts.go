@@ -54,9 +54,10 @@ type Accounts struct {
 	// model, as that model's answers gave it; aside is the account a
 	// model's requests go out on while the held one's limit for it is
 	// spent.
-	own    map[string]map[string]Window
-	aside  map[string]string
-	seeded bool
+	own     map[string]map[string]Window
+	aside   map[string]string
+	seeded  bool
+	differs int
 }
 
 // TypeModelAccountFor is recorded when the requests of one model begin or
@@ -475,6 +476,29 @@ func (a *Accounts) Seed(l Logged) {
 	if _, ok := a.creds[l.Held]; ok && !a.seeded {
 		a.held = l.Held
 	}
+	if a.seeded && a.held != "" && l.Held != a.held {
+		// The log names another account as held than the one requests go
+		// out on: a switch of the meter's that was not recorded, or a
+		// person's word. Its standings were sorted by that belief, so
+		// they are not taken; seen twice running (a switch just made is
+		// in the log a moment later), the meter says again what it holds.
+		a.differs++
+		var sw *Switch
+		if a.differs >= 2 {
+			a.differs = 0
+			sw = &Switch{From: l.Held, To: a.held, Rule: "held", At: a.now(), By: "proxy",
+				Why: fmt.Sprintf("the log named account %s as held and requests go out on account %s; said again", orNone(l.Held), a.held)}
+		}
+		a.mu.Unlock()
+		if sw != nil {
+			a.log().Warn("the log names another account as held; saying again which one is", "log", l.Held, "held", sw.To)
+			if a.Switched != nil {
+				a.Switched(*sw)
+			}
+		}
+		return
+	}
+	a.differs = 0
 	a.seeded = true
 	for n, s := range l.Accounts {
 		if _, ok := a.creds[n]; !ok || s.At.IsZero() || !s.At.After(a.stand[n].At) {

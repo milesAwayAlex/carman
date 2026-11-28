@@ -111,6 +111,9 @@ type Server struct {
 	// ModelAccounts is what the log holds of the model's accounts, for a
 	// meter that switches between them (ADR 0078).
 	ModelAccounts func(ctx context.Context) (meter.Logged, error)
+	// StampReading gives a usage reading that does not say its account
+	// the account it is of, where that can be told.
+	StampReading func(ctx context.Context, data json.RawMessage) json.RawMessage
 	// Budget is the owner's priorities for the model's usage.
 	Budget *budget.Service
 	// Outside takes what watches saw and what hooks were told (ADR 0063).
@@ -348,6 +351,9 @@ func (s *Server) emit(_ http.ResponseWriter, r *http.Request, role Role) (any, e
 		e.Source = strings.TrimSuffix(prefix+"/"+e.Source, "/")
 	} else if e.Source == "" {
 		e.Source = string(RoleOwner)
+	}
+	if e.Type == meter.TypeUsageObserved && s.StampReading != nil {
+		e.Data = s.StampReading(r.Context(), e.Data)
 	}
 	if err := s.Store.Emit(r.Context(), e); err != nil {
 		return nil, err

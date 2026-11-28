@@ -130,9 +130,13 @@ func accountsOf(readings, changes []dispatch.Record) (map[string][]dispatch.Reco
 		w, ok := rd.Info.Windows["seven_day"]
 		return w.resets(), ok && w.ResetsAt != 0
 	}
+	weeks := weeksOf(readings)
 	// The first weekly reset read after each change.
 	first := make([]time.Time, len(changes))
 	for _, r := range readings {
+		if readingAccount(r.Data) != "" {
+			continue
+		}
 		if _, i := nameAt(r.Seq); i >= 0 && first[i].IsZero() {
 			if t, ok := weekly(r); ok {
 				first[i] = t
@@ -157,6 +161,16 @@ func accountsOf(readings, changes []dispatch.Record) (map[string][]dispatch.Reco
 		if i != stretch {
 			stretch, own = i, time.Time{}
 		}
+		// One that does not say (the reading job's) is of the account
+		// whose week it shows, where the proxy's own readings tell the
+		// accounts' weeks apart; the log's belief of which was held
+		// may be wrong.
+		if t, ok := weekly(r); ok {
+			if n, ok := accountByWeek(weeks, t); ok {
+				out[n] = append(out[n], r)
+				continue
+			}
+		}
 		if t, ok := weekly(r); ok {
 			next := i + 1
 			if next < len(changes) && !first[next].IsZero() && sameReset(t, first[next]) && !own.IsZero() && !sameWeekly(t, own) {
@@ -172,6 +186,72 @@ func accountsOf(readings, changes []dispatch.Record) (map[string][]dispatch.Reco
 		held = changes[len(changes)-1].Subject
 	}
 	return out, held
+}
+
+func readingAccount(data []byte) string {
+	var rd struct {
+		Account string `json:"account"`
+	}
+	_ = json.Unmarshal(data, &rd)
+	return rd.Account
+}
+
+// weeksOf is each account's latest weekly reset, by the readings that say
+// which account they are of.
+func weeksOf(readings []dispatch.Record) map[string]time.Time {
+	weeks := map[string]time.Time{}
+	for _, r := range readings {
+		var rd reading
+		if json.Unmarshal(r.Data, &rd) != nil || rd.Account == "" {
+			continue
+		}
+		if w, ok := rd.Info.Windows["seven_day"]; ok && w.ResetsAt != 0 {
+			weeks[rd.Account] = w.resets()
+		}
+	}
+	return weeks
+}
+
+// accountByWeek is the one account whose week resets when t does, whole
+// weeks apart or none; not said when none or more than one does.
+func accountByWeek(weeks map[string]time.Time, t time.Time) (string, bool) {
+	found := ""
+	for n, w := range weeks {
+		if sameWeekly(t, w) {
+			if found != "" {
+				return "", false
+			}
+			found = n
+		}
+	}
+	return found, found != ""
+}
+
+// stampAccount gives a reading that does not say its account the account
+// whose week it shows, by the readings that do say; unchanged otherwise.
+func stampAccount(readings []dispatch.Record, data json.RawMessage) json.RawMessage {
+	var rd reading
+	if json.Unmarshal(data, &rd) != nil || rd.Account != "" {
+		return data
+	}
+	w, ok := rd.Info.Windows["seven_day"]
+	if !ok || w.ResetsAt == 0 {
+		return data
+	}
+	name, ok := accountByWeek(weeksOf(readings), w.resets())
+	if !ok {
+		return data
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(data, &m) != nil {
+		return data
+	}
+	m["account"], _ = json.Marshal(name)
+	out, err := json.Marshal(m)
+	if err != nil {
+		return data
+	}
+	return out
 }
 
 // sameWeekly says two weekly resets are one account's: the same, or whole
