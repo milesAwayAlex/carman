@@ -248,3 +248,46 @@ func TestAccountsUnknownIsNoReasonToSwitch(t *testing.T) {
 		t.Fatalf("with the held one full: %q %+v", d.Held(), *tried)
 	}
 }
+
+// In the manual mode no rule runs: the meter holds the account the log
+// names, changes when the log names another it has a credential for, and
+// one model's requests are not sent elsewhere.
+func TestAccountsChangeOnlyWhenTold(t *testing.T) {
+	a, now, switches := twoAccounts(t)
+	a.Manual = true
+	soon, late := now.Add(36*time.Hour), now.Add(6*24*time.Hour)
+	a.Seed(Logged{Held: "one"})
+	a.StartWith("Bearer cred-two") // the secret's own: not taken over the log's word
+	if a.Held() != "one" {
+		t.Fatalf("at its start it holds %q, the log names one", a.Held())
+	}
+	// By the rules two would be held (its week ends soonest, with room),
+	// and one's own limit for a model is spent: nothing moves.
+	a.Saw("one", stood(0.95, now.Add(time.Hour), 0.99, late))
+	a.SawFor("one", "strong-1", LimitInfo{Status: "rejected", RateLimitType: "seven_day_strong", ResetsAt: late.Unix(),
+		Windows: map[string]Window{"five_hour": {Utilization: 0.95, ResetsAt: now.Add(time.Hour).Unix()}, "seven_day": {Utilization: 0.99, ResetsAt: late.Unix()}}})
+	a.Saw("two", stood(0.1, now.Add(time.Hour), 0.2, soon))
+	*now = now.Add(time.Hour)
+	if a.Decide() || a.Held() != "one" || len(*switches) != 0 {
+		t.Fatalf("a rule ran: held %q, %+v", a.Held(), *switches)
+	}
+	if n, _, _ := a.UseFor("strong-1"); n != "one" {
+		t.Fatalf("a model's requests went out on %q", n)
+	}
+	asked := 0
+	a.Probe = func(context.Context, string) (LimitInfo, error) { asked++; return LimitInfo{}, nil }
+	a.ReadDue(context.Background())
+	if asked != 0 {
+		t.Fatalf("the account not held was read")
+	}
+	// Told: the log names two.
+	a.Seed(Logged{Held: "two"})
+	if n, cred, _ := a.Use(); n != "two" || cred != "Bearer cred-two" {
+		t.Fatalf("told to hold two, it holds %q", n)
+	}
+	// A name it has no credential for is not followed.
+	a.Seed(Logged{Held: "three"})
+	if a.Held() != "two" || len(*switches) != 0 {
+		t.Fatalf("on a name it has not: %q", a.Held())
+	}
+}

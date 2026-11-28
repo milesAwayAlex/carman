@@ -131,8 +131,8 @@ func meterCmd(ctx context.Context) error {
 	// the meter chooses among them. It begins on the one the installation
 	// had put there.
 	var accounts *meter.Accounts
-	if os.Getenv("METER_ACCOUNTS") == "on" {
-		accounts = &meter.Accounts{Dir: filepath.Dir(credFile), Log: log}
+	if mode := os.Getenv("METER_ACCOUNTS"); mode == "on" || mode == "manual" {
+		accounts = &meter.Accounts{Dir: filepath.Dir(credFile), Log: log, Manual: mode == "manual"}
 		for _, f := range []struct {
 			env string
 			v   *time.Duration
@@ -155,7 +155,19 @@ func meterCmd(ctx context.Context) error {
 			// The account held last and each one's standing, by the log;
 			// without the log, the account a person put there.
 			if du != "" && tf != "" {
-				if err := seedAccounts(ctx, accounts, dispatcher); err != nil {
+				// Before anything is decided: a switch made at the start
+				// is recorded as any other.
+				accounts.Switched = func(sw meter.Switch) { go sendSwitch(ctx, dispatcher, sw, log) }
+				err := seedAccounts(ctx, accounts, dispatcher)
+				// Told which account to hold, it does not begin on another:
+				// the network knows a new pod a moment after it starts, so
+				// the log is asked for a little while before any call is
+				// passed on the account the secret names.
+				for try := 0; err != nil && accounts.Manual && try < 15 && ctx.Err() == nil; try++ {
+					time.Sleep(2 * time.Second)
+					err = seedAccounts(ctx, accounts, dispatcher)
+				}
+				if err != nil {
 					log.Warn("the accounts' standings could not be read from the dispatcher's log; nothing is switched on what is not known", "error", err)
 				}
 			}
@@ -197,15 +209,15 @@ func meterCmd(ctx context.Context) error {
 			accounts.Seen = func(account string, li meter.LimitInfo, at time.Time) {
 				observer.Add(meter.Reading{Model: model, Info: li, Account: account, Agent: "proxy", Seen: at})
 			}
-		} else {
+		} else if !accounts.Manual {
 			log.Warn("METER_ACCOUNT_READ_MODEL is not set: an account not held is not read, and is known only as it was when last held")
-		}
-		if du != "" && tf != "" {
-			accounts.Switched = func(sw meter.Switch) { go sendSwitch(ctx, dispatcher, sw, log) }
 		}
 		if du != "" && tf != "" {
 			go func() {
 				every := time.Minute
+				if accounts.Manual {
+					every = 15 * time.Second // told to hold another: followed soon
+				}
 				if accounts.Read > 0 && accounts.Read < every {
 					every = accounts.Read
 				}
@@ -220,7 +232,11 @@ func meterCmd(ctx context.Context) error {
 			}()
 		}
 		go accounts.Run(ctx)
-		log.Info("the meter holds several accounts for the model and switches between them", "held", accounts.Held())
+		if accounts.Manual {
+			log.Info("the meter holds several accounts for the model and changes account only when told", "held", accounts.Held())
+		} else {
+			log.Info("the meter holds several accounts for the model and switches between them", "held", accounts.Held())
+		}
 	}
 	// Trials (ADR 0065): a second listener,
 	// reached with no proxy in front by agents of trial installations in
@@ -266,7 +282,10 @@ func seedAccounts(ctx context.Context, a *meter.Accounts, dispatcher func() (*ap
 	var l meter.Logged
 	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := c.Do(cctx, http.MethodGet, "/v1/meter/accounts", nil, nil, &l); err != nil {
+	// It says which accounts it has and which it holds, so that the
+	// dispatcher refuses a name it has not and shows what is so.
+	q := url.Values{"have": {strings.Join(a.Names(), ",")}, "holding": {a.Held()}}
+	if err := c.Do(cctx, http.MethodGet, "/v1/meter/accounts", q, nil, &l); err != nil {
 		return err
 	}
 	a.Seed(l)

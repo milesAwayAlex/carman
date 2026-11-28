@@ -105,6 +105,40 @@ Candidates not chosen:
   in a pod behind the same proxy; it would have to be told which
   credential to go out on, and the meter can ask in one request.
 
+## A mode in which the account changes only when told (2026-11-28)
+
+The rules were switched off on the installation the day they went on:
+their own moves at a start were not in the log, readings were then put
+under the wrong account, and the proxy went back and forth. Each change
+of account also loses the prompt cache of every live conversation, which
+the rules did not weigh. Until the owner says what he wants of them,
+`egress.model.accounts.mode: manual` keeps what is sound in this record
+(every account's credential at the meter, readings that say their
+account) and drops the rest:
+
+- No rule runs, nothing is read of the account not held, and no model's
+  requests go elsewhere. The meter holds the account the dispatcher's log
+  names as held (the latest `model.account`), asks the log every quarter
+  of a minute, and at its start asks for up to half a minute before it
+  passes any call, so that it does not begin on another account. Where
+  the log names none, it holds the one whose credential is the secret's
+  `token`.
+- `dispatcher account hold NAME 'WHY'` records `model.account` with who
+  asked and why; the meter follows. It is the owner's, a session's on the
+  owner's machine, and the agents' the installation names
+  (`egress.model.accounts.agents`): a pod needs no right over the secret,
+  since no credential moves. A name the meter has no credential for is
+  refused (the meter says which it has each time it asks the log), and so
+  is a change before the meter has said so.
+- The command says that every live conversation loses its prompt cache
+  and names the sessions in the middle of a turn; with any, it goes
+  ahead only with `--now`. `dispatcher account` says which account the
+  log names, since when, who said so and why, and which one the meter
+  holds.
+
+`scripts/check-account.sh CONTEXT` tries it in a trial with two made-up
+accounts and two agents, one of them named.
+
 ## Consequences
 
 - A second credential is in the cluster's secret, readable by whoever can

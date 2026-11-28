@@ -28,7 +28,11 @@ const TypeModelAccount = "model.account"
 // while it has room; and at the ceiling of that account's five-hour
 // window, another until the reset. Never more often than Hold.
 type Accounts struct {
-	Dir     string
+	Dir string
+	// Manual: no rule runs and no account is read; the account held is
+	// the one the dispatcher's log names (Seed), changed only when a
+	// person or a session allowed to says so there.
+	Manual  bool
 	Ceiling float64       // of a five-hour window (default 0.85)
 	Full    float64       // of a seven-day window: no room at or above it (default 0.98)
 	Hold    time.Duration // the least time between switches (default 30m)
@@ -54,9 +58,10 @@ type Accounts struct {
 	// model, as that model's answers gave it; aside is the account a
 	// model's requests go out on while the held one's limit for it is
 	// spent.
-	own    map[string]map[string]Window
-	aside  map[string]string
-	seeded bool
+	own     map[string]map[string]Window
+	aside   map[string]string
+	seeded  bool
+	refused string // the account the log last named that the meter has not
 }
 
 // TypeModelAccountFor is recorded when the requests of one model begin or
@@ -234,7 +239,7 @@ func (a *Accounts) spent(account, model string, now time.Time) (Window, bool) {
 // Each change of this is told once, not each request.
 func (a *Accounts) UseFor(model string) (string, string, error) {
 	held, cred, err := a.Use()
-	if err != nil || model == "" {
+	if err != nil || model == "" || a.Manual {
 		return held, cred, err
 	}
 	a.mu.Lock()
@@ -292,6 +297,13 @@ func (a *Accounts) UseFor(model string) (string, string, error) {
 		}
 	}
 	return name, cred, nil
+}
+
+// Names are the accounts the meter has a credential for.
+func (a *Accounts) Names() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.namesLocked()
 }
 
 // Held is the account requests go out on now.
@@ -468,6 +480,28 @@ type LoggedAccount struct {
 // held last. A meter that starts knows by this what the one before it
 // knew; an account it cannot read is known as the log has it.
 func (a *Accounts) Seed(l Logged) {
+	if a.Manual {
+		// The log's word is the order: the account it names is held, if
+		// the meter has its credential.
+		a.mu.Lock()
+		_, ok := a.creds[l.Held]
+		was := a.held
+		if ok && l.Held != a.held {
+			a.held, a.since = l.Held, a.now()
+		}
+		a.seeded = true
+		a.mu.Unlock()
+		switch {
+		case ok && l.Held != was:
+			a.log().Info("the model's account at the proxy changed", "from", was, "to", l.Held, "rule", "told", "why", "the dispatcher's log names it as held")
+		case !ok && l.Held != "" && l.Held != a.refused:
+			a.log().Warn("the dispatcher's log names an account the meter has no credential for; holding the one it held", "named", l.Held, "held", was)
+		}
+		if !ok {
+			a.refused = l.Held
+		}
+		return
+	}
 	a.mu.Lock()
 	if a.stand == nil {
 		a.stand = map[string]Stood{}
@@ -500,6 +534,9 @@ func (a *Accounts) Seed(l Logged) {
 // Decide applies the rules now and switches if they say so and the last
 // switch is long enough ago. It says whether it switched.
 func (a *Accounts) Decide() bool {
+	if a.Manual {
+		return false
+	}
 	a.mu.Lock()
 	now := a.now()
 	if len(a.creds) < 2 {
@@ -549,7 +586,7 @@ func (a *Accounts) due(now time.Time) map[string]string {
 
 // ReadDue reads the accounts that are due, one request each.
 func (a *Accounts) ReadDue(ctx context.Context) {
-	if a.Probe == nil {
+	if a.Probe == nil || a.Manual {
 		return
 	}
 	now := a.now()

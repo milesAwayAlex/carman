@@ -33,6 +33,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"carman/internal/dispatch"
@@ -108,6 +109,15 @@ type Server struct {
 	Now func() time.Time
 	// Improve is the list of improvements to the platform (ADR 0058).
 	Improve *improve.Service
+	// AccountAgents are the agents that may say which of the model's
+	// accounts the proxy holds, beside the owner and the owner's machine.
+	AccountAgents []string
+	// What the proxy's meter last said of itself: the accounts it has a
+	// credential for, and the one it holds.
+	metered    sync.Mutex
+	meterHas   []string
+	meterHolds string
+	meterSaid  time.Time
 	// ModelAccounts is what the log holds of the model's accounts, for a
 	// meter that switches between them (ADR 0078).
 	ModelAccounts func(ctx context.Context) (meter.Logged, error)
@@ -146,6 +156,8 @@ func (s *Server) routes() []route {
 		{http.MethodGet, "/v1/meter/standing", []Role{RoleOwner, RoleMeter}, s.standing},
 		{http.MethodGet, "/v1/meter/trials", []Role{RoleOwner, RoleMeter}, s.trialsUsed},
 		{http.MethodGet, "/v1/meter/accounts", []Role{RoleOwner, RoleMeter}, s.modelAccounts},
+		{http.MethodGet, "/v1/model/account", messengers, s.accountHeld},
+		{http.MethodPost, "/v1/model/account", messengers, s.accountHold},
 		{http.MethodGet, "/v1/usage/latest", []Role{RoleOwner, RoleAgent}, s.usageLatest},
 		{http.MethodGet, "/v1/deployed", messengers, s.deployed},
 		{http.MethodGet, "/v1/whoami", messengers, s.whoami},
@@ -385,7 +397,17 @@ func (s *Server) emit(_ http.ResponseWriter, r *http.Request, role Role) (any, e
 	return map[string]string{"id": e.ID}, nil
 }
 
-func (s *Server) modelAccounts(_ http.ResponseWriter, r *http.Request, _ Role) (any, error) {
+func (s *Server) modelAccounts(_ http.ResponseWriter, r *http.Request, role Role) (any, error) {
+	if q := r.URL.Query(); role == RoleMeter && q.Has("have") {
+		s.metered.Lock()
+		s.meterHas, s.meterHolds, s.meterSaid = nil, q.Get("holding"), time.Now()
+		for _, n := range strings.Split(q.Get("have"), ",") {
+			if n != "" {
+				s.meterHas = append(s.meterHas, n)
+			}
+		}
+		s.metered.Unlock()
+	}
 	if s.ModelAccounts == nil {
 		return meter.Logged{Accounts: map[string]meter.LoggedAccount{}}, nil
 	}

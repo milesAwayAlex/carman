@@ -708,8 +708,14 @@ egress:
     # smallest model. Each switch is model.account in the dispatcher's log
     # and a line to the owner. Off: the proxy holds the one credential a
     # person put there.
+    # With `mode: manual` no rule runs and no account is read: the meter
+    # holds the account the dispatcher's log names, and changes only when
+    # told with `dispatcher account hold NAME 'WHY'`, by the owner, a
+    # session on the owner's machine, or an agent listed in `agents`.
     accounts:
       enabled: false
+      mode: rules
+      agents: []
       readModel: ""
       fiveHourCeiling: 0.85
       hold: 30m

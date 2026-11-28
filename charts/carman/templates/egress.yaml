@@ -295,7 +295,7 @@ spec:
             # Several accounts: the secret's keys account.NAME beside the
             # one credential, and the meter switches between them.
             - name: METER_ACCOUNTS
-              value: "on"
+              value: {{ ternary "manual" "on" (eq (.mode | default "rules") "manual") | quote }}
             - name: METER_ACCOUNT_READ_MODEL
               value: {{ .readModel | quote }}
             - name: METER_ACCOUNT_CEILING

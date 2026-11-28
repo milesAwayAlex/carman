@@ -494,6 +494,25 @@ lists them with their reasons. To hold one account by hand again, set
 `enabled: false`, deploy, and use `model-account NAME`.
 `scripts/check-switch.sh CONTEXT` tries it in a trial.
 
+**The account changed from inside, by hand.** With
+
+```yaml
+egress:
+  model:
+    accounts:
+      enabled: true
+      mode: manual
+      agents: [NAME]   # the agents that may change it, beside the owner and his machine
+```
+
+no rule runs. The meter holds the account the dispatcher's log names, and
+`dispatcher account hold NAME 'WHY'` (in an agent's pod; the owner:
+`scripts/deploy.sh CONTEXT dispatch account hold NAME 'WHY'`) changes it;
+`dispatcher account` says which is held. The credentials are put at the
+proxy once, as above (`model-account --all`). A change loses the prompt
+cache of every live conversation: the command says so, names the
+sessions in the middle of a turn, and needs `--now` then.
+
 The model's credential can be held at the proxy too (ADR 0050), by one
 switch in the values:
 

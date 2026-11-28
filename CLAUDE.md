@@ -88,6 +88,12 @@ Built so far:
   reads the account not held once an hour, records each
   switch as `model.account` and the owner is told in a line
   (`scripts/check-switch.sh CONTEXT`).
+  With `mode: manual` there no rule runs: the meter holds the account
+  the log names, and `dispatcher account hold NAME 'WHY'` changes it,
+  for the owner, his machine and the agents listed in
+  `egress.model.accounts.agents`; it says that every conversation loses
+  its prompt cache and needs `--now` while a session is in a turn
+  (`scripts/check-account.sh CONTEXT`).
   `dispatcher plan` (ADR 0077, proposed)
   says which account the proxy should hold now and over the next seven
   days, by arithmetic on the readings (each account's five-hour, seven-day

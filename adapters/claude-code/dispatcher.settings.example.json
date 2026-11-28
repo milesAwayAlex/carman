@@ -14,6 +14,7 @@
       "Bash(dispatcher watch *)",
       "Bash(dispatcher timed*)",
       "Bash(dispatcher priority*)",
+      "Bash(dispatcher account)",
       "Bash(dispatcher whoami*)"
     ]
   },

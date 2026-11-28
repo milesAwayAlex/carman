@@ -90,3 +90,23 @@ func (s *Service) keep() time.Duration {
 	}
 	return 30 * 24 * time.Hour
 }
+
+// InTurn are the sessions that run and are in the middle of a turn.
+func (s *Service) InTurn(ctx context.Context) ([]Session, error) {
+	all, err := s.Store.Sessions(ctx, "", s.now().Add(-s.keep()))
+	if err != nil {
+		return nil, err
+	}
+	var out []Session
+	for _, x := range all {
+		if x.State != Busy {
+			continue
+		}
+		if on, err := s.Running(ctx, x); err != nil {
+			return nil, err
+		} else if on {
+			out = append(out, x)
+		}
+	}
+	return out, nil
+}

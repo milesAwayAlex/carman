@@ -230,6 +230,10 @@ spec:
             - name: DISPATCHER_PACE_ROOM_MIN
               value: {{ .roomMin | quote }}
             {{- end }}
+            {{- with .Values.egress.model.accounts.agents }}
+            - name: DISPATCHER_ACCOUNT_AGENTS
+              value: {{ join "," . | quote }}
+            {{- end }}
             {{- with .Values.dispatcher.plan }}
             {{- if .enabled }}
             - name: DISPATCHER_PLAN
