@@ -41,7 +41,8 @@ const streamHelp = `ops: the delivery systems.
   ops change open SERVICE                  open a change for a service
   ops change list                          the changes that are open
   ops registry tags SERVICE                the versions the registry has
-  ops registry push SERVICE VERSION [options]   put a version in the registry
+  ops registry push SERVICE VERSION [options]   put a version in the registry; whoever
+                                           deploys a version pushes it first, if it is not there
   ops deploy SERVICE VERSION [options]     put a version of a service out
   ops config get KEY                       a setting
   ops config set KEY VALUE [options]       change a setting

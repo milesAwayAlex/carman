@@ -399,6 +399,43 @@ result. `scripts/stream.sh CONTEXT all` runs every arm so many times, two
 at a time, and starts nothing more once the runs' own count of cost passes
 a budget.
 
+## A pilot on Sonnet, and what it changed in the stream (2026-11-28)
+
+The run on Sonnet was started and, after its first round, stopped by the
+owner for a change of model account. That round, one run of each arm on
+the stream as it then was, is kept as a pilot and is not counted:
+
+| | none | built-in | notes | tidied |
+|---|---|---|---|---|
+| Tasks passed, of 40 | 17 | 33 | 32 | 36 |
+| A lesson needed again followed, of 52 | 21 | 45 | 50 | 48 |
+| Refusals each time it was needed | 0.52 | 0.13 | 0.04 | 0.08 |
+| Cost, the runs' own count | $0.60 | $1.16 | $1.05 | $1.30 |
+
+It showed two things wrong with the stream, and both are changed before
+the run that counts:
+
+- **Whose it is to push a version.** A deploy needs the version in the
+  registry, and the tickets do not say who puts it there. The cheapest
+  model pushed it; Sonnet, with no memory, stopped and reported that no
+  build had been supplied (six of that arm's failed deploys, and two of
+  the tidied arm's on its first day). A session with memory learned from
+  an earlier one that pushing was its to do. So part of the arms'
+  difference was whether a session took a step to be its job, which is an
+  ambiguity of the tickets and not a rule forgotten. The world's help now
+  says that whoever deploys a version pushes it first if it is not there.
+  The rule stays (a deploy without the image is refused); what it costs to
+  meet is a refusal, not the task.
+- **A command given with `--help` was carried out.** `ops registry push
+  ledger 1.0.0 --help` pushed the image. It happened twice, in the arm
+  with none. A command with `--help` or `-h` now prints the usage and
+  does nothing, in every world.
+
+Both were seen on Sonnet's first pass and not on the cheapest model's,
+which is the fitting the design warned of in the other direction: the
+tasks were tried on one model and run on another. The tasks' tickets and
+checks are unchanged; the run that counts is three rounds on this stream.
+
 Not built yet: nothing the design names.
 
 ## Consequences
