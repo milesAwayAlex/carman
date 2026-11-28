@@ -1,4 +1,4 @@
-# new-the-meter-keeps-its-count-across-a-restart: The meter sends what it holds when told to end, writes a long session's use in parts, and takes the trials' day back from the log
+# 0072: The meter sends what it holds when told to end, writes a long session's use in parts, and takes the trials' day back from the log
 
 Status: Proposed (2026-11-28). Changes how ADR 0050's tallies close and
 ADR 0065's count of trials' requests.
