@@ -814,7 +814,17 @@ carman go                    # pick one: those waiting on you first
 carman go --list             # the same list, printed
 carman go desk/paris-vpn     # by name; or a name alone, or the start of an id
 carman go --keep NAME        # attach again after a dropped connection, until it is left
+carman go --new NAME --in desk --dir project --model MODEL   # open a new session there and go to it
 ```
+
+`--new` opens the session with `agent-open` in the standing agent's pod, so
+the pod remembers it and opens it again when it restarts. `--in` is not
+needed with one standing agent; `--dir` is a directory in the pod (`~/work`
+unless given; one that is not absolute is under `~/work`); `--model` is the
+session's model, the pod's own unless given. A name that is taken in that
+pod is refused: `carman go NAME` goes to that one. To end a session for
+good, `/exit` in it and then `exit` in the shell it leaves: its window
+closes and the pod no longer opens it again (its conversation is kept).
 
 In the pod each attach is a view of its own of that one session's window,
 with no status line and no prefix key, so it sits in a window of your own

@@ -117,6 +117,58 @@ the ninety seconds: seen from the owner's machine, 2026-11-27). Its client ends 
 drop does, so a program that is still there and keeps (`--keep`) attaches
 again. A view attached by hand, with no beat, lives until its client goes.
 
+**A new session** (added 2026-11-27, when the owner retired the one
+long-lived terminal he opened sessions from). `carman go --new NAME [--in
+AGENT] [--dir DIR] [--model MODEL] [--keep]` opens a named session in a
+standing agent's pod and goes to it.
+
+- Which agent: the one `--in` names; with one standing agent, that one;
+  with several and none named, the owner is asked on a terminal, and with
+  no terminal it is refused with their names. The program knows them from
+  the dispatcher's peers: an agent now says whether it is a standing one
+  (`standing`, as its sessions already did), so that one with no session
+  yet can be opened in. Its pod is the one its sessions were last seen in,
+  or else the one pod of its StatefulSet (`agent-NAME-0`), as the chart
+  names it and as `agent attach` has it.
+- Where: `--dir` is a directory in the pod. With none it is the pod's
+  `~/work`, where the pod's own tmux and its sessions start (`agent-open`
+  with no directory means where it is run, and `kubectl exec` runs it
+  nowhere in particular); one that is not absolute is under `~/work`. A
+  directory that is not there is an error: nothing is made. `--model` is
+  `agent-open --model`.
+- How: `kubectl exec POD -- sh -c SCRIPT`, which runs `agent-open` there,
+  so the session is remembered by the pod and opened again when it starts,
+  like any other of its sessions. The name, the directory and the model
+  are the script's arguments, never part of its text. It is `agent-open`
+  as the pods have it, so a pod need not be restarted for a new image.
+- A name that is taken is refused, and nothing is opened: when the
+  dispatcher knows a running session of that agent and name, before
+  anything is run; and in the pod, when the name is remembered there or
+  has a window. It is not gone to instead: whoever asks for a new session
+  names a directory and a model, and would be put in another conversation,
+  somewhere else, with nothing to tell him so; the refusal says `carman go
+  AGENT/NAME`, which is one command more. The check is before `agent-open`
+  because `agent-open` with a remembered name gives it the new directory.
+- Then it is gone to exactly as `carman go NAME` is: a view of its window
+  (ADR 0071), with `--keep` if asked. Its id is not known yet, so the view
+  is found by the window's name (`agent-view '' NAME`); after a drop
+  `--keep` asks the dispatcher for the name, as it does for any session.
+- The list is the dispatcher's, and the dispatcher learns of a session
+  from its harness (its `SessionStart` hook). Until then, a second or so
+  after it is opened, `carman go --list`, the picker and `carman go NAME`
+  from another window do not know the new session; the window that opened
+  it shows the harness starting. If the name was used in that pod before,
+  the list shows that earlier session, not running, for that moment.
+- A name used before, in the same directory: `agent-open` goes on with the
+  latest conversation of that name there, as it does at a pod's restart.
+  A new conversation is a new name.
+- Ending a session for good is as before: `/exit` in it, then `exit` in
+  the shell it leaves, which closes its window and makes the pod forget
+  it; its conversation is kept. The usage text says so. A form of `carman
+  go` for it is not built: forgetting alone (`agent-open --forget`) would
+  leave the harness running and listed, and ending a harness from outside
+  is `agent-open`'s to do first.
+
 ## Tried
 
 In a standing agent's pod, with two trial sessions and a tmux server of
@@ -127,6 +179,17 @@ escape, vim's keys and the pod tmux's own prefix all reached the harness;
 its view with status 0; closing the outer window removed the view. Not
 tried here: `kubectl exec` from outside (the pod has no rights to exec),
 the wheel and the clipboard in a real terminal, and a real drop.
+
+`--new`, in a standing agent's pod, with a kubectl that runs there what
+follows `--` and a tmux server of its own standing for the owner's
+terminal: a session opened under a new name, in a directory under `~/work`
+and on a named model, was remembered by the pod with both, shown in the
+view at its prompt, and listed by the dispatcher 0.8 seconds after the
+command was started; the same name again was refused, with nothing
+changed; `/exit` and then `exit` ended the program with status 0, closed
+the window and made the pod forget the name; closing the outer terminal
+left the session running and removed its view. Not tried: through a real
+`kubectl exec`.
 
 ## Consequences
 
