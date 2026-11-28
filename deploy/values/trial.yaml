@@ -3,16 +3,44 @@
 # the one standing it up may run workloads but not make accounts, roles or
 # network policies. No credential of the real installation, no egress proxy,
 # no model: nothing here reaches outside the namespace.
+# What a trial asks of the sandbox's quota, which every session's trials
+# share: limits set from what its pods were seen to use (2026-11-28, peaks:
+# memory 9 Mi, the dispatcher 13 Mi, its database 105 Mi, the meter 14 Mi,
+# the proxy 20 Mi, an agent's run on the stand-in with a subagent 155 Mi),
+# not an installation's, which are for a library and a log that have grown.
+# A trial that needs more says so in its own values (TRIAL_VALUES).
 memory:
   service:
     type: ClusterIP
+  resources:
+    requests: {cpu: 10m, memory: 16Mi}
+    limits: {memory: 64Mi}
 dispatcher:
   service:
     type: ClusterIP
+  resources:
+    requests: {cpu: 10m, memory: 16Mi}
+    limits: {memory: 128Mi}
+  database:
+    resources:
+      requests: {cpu: 20m, memory: 64Mi}
+      limits: {memory: 256Mi}
 egress:
   enabled: false
+  resources:
+    requests: {cpu: 20m, memory: 32Mi}
+    limits: {memory: 128Mi}
+  model:
+    resources:
+      requests: {cpu: 10m, memory: 16Mi}
+      limits: {memory: 64Mi}
 usage:
   enabled: false
 backup:
   enabled: false
+# An agent's run, where its entry names no resources of its own.
+dreamer:
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 768Mi}
 agents: []
