@@ -204,8 +204,12 @@ EOF
             # agent.sessionStorage, a trial): the message is still the
             # session's, and is read in a new conversation under its id,
             # told that what went before is not here.
-            echo "agent-resume: ${AGENT_NAME:-this agent} has no conversation $id here; the message is read in a new one under that id" >&2
-            unkept=1
+            # (ADR new-a-message-for-a-conversation-that-is-not-there.)
+            # Where conversations are kept and this one is missing, it was
+            # lost: the answer says so, for the sender and the owner.
+            unkept="this installation keeps no conversations of its jobs"
+            [ ! -d /var/lib/agent/conversations ] || unkept="this installation keeps its jobs' conversations and this one was not found"
+            echo "agent-resume: ${AGENT_NAME:-this agent} has no conversation $id here ($unkept); the message is read in a new one under that id" >&2
         fi
     fi
     . /usr/local/lib/agent-env
@@ -230,7 +234,7 @@ EOF
         sleep 5
     done
     [ -n "$text" ] || { echo "agent-resume: message $msg was taken already; nothing to do"; exit 0; }
-    [ -z "${unkept:-}" ] || text="(This message is for a conversation of yours that this installation did not keep: you have nothing of what you said or did in it. The message is all there is to go on.)
+    [ -z "${unkept:-}" ] || text="(This message is for an earlier conversation of yours that is not here: $unkept. You have nothing of what you said or did in it; the message is all there is to go on. Where the message alone does not say what to do, for example a yes or a go-ahead to something you cannot see, do not guess and do not act: answer by asking its sender to say it in full.)
 
 $text"
     flags="$(cmem routine --flags)" || flags="--permission-mode dontAsk --allowedTools 'Bash(dispatcher *)'"
@@ -268,6 +272,9 @@ PY
     fi
     [ $rc -eq 0 ] || failed=--failed
     [ -n "$result" ] || result="(The run started for this message ended without an answer: $(tail -c 300 /tmp/harness.err | tr '\n' ' '))"
+    case "${unkept:-}" in *"was not found") result="$result
+
+(Written without the conversation this message was for: $unkept.)" ;; esac
     tries=0
     until printf '%s' "$result" | DISPATCHER_SESSION="$id" dispatcher answer "$msg" - $failed; do
         tries=$((tries + 1))
