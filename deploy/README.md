@@ -769,6 +769,7 @@ scripts/deploy.sh CONTEXT dispatch peers                  who can be written to,
 scripts/deploy.sh CONTEXT dispatch send AGENT/SESSION 'TEXT'   to a session by its name; AGENT alone starts a new conversation
 scripts/deploy.sh CONTEXT dispatch inbox [--read]         what agents wrote to the owner (notices of them are withheld while notices are off)
 scripts/deploy.sh CONTEXT dispatch reply ID 'TEXT'        answer one
+scripts/deploy.sh CONTEXT dispatch send --at 15:40 TO 'TEXT'   sent at that time (UTC, or 90m from now); dispatch timed lists them, timed cancel ID cancels
 scripts/deploy.sh CONTEXT dispatch message ID             what became of a message: delivered, how and where, read, answered
 ```
 

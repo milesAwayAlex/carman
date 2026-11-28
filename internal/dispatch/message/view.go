@@ -129,6 +129,18 @@ func (s *Service) Status(ctx context.Context, c Caller, id string) (Status, erro
 			}
 		case TypeRead:
 			st.State = "read"
+		case TypeTimed:
+			// Asked for at a time, and not sent yet.
+			var t Timed
+			if json.Unmarshal(r.Data, &t) == nil && st.Message.ID == "" {
+				st.Message = Message{ID: t.ID, From: t.From, Agent: t.Agent, To: t.To, Given: t.Given, Body: t.Body, Sent: t.At}
+				st.State = "timed"
+			}
+		case TypeTimedDone:
+			var d TimedDone
+			if json.Unmarshal(r.Data, &d) == nil && d.How != "sent" && st.State == "timed" {
+				st.State = d.How
+			}
 		case TypeWaiting:
 			var w Wait
 			if json.Unmarshal(r.Data, &w) == nil && w.Task != "" {
@@ -365,6 +377,11 @@ func (r *Router) Run(ctx context.Context) {
 // Pass routes the messages sent since the last pass.
 func (r *Router) Pass(ctx context.Context) error {
 	s := r.Service
+	// What was asked for at a time that has come is sent first, and routed
+	// with the rest.
+	if err := s.SendDue(ctx); err != nil && ctx.Err() == nil {
+		r.Logger.Warn("sending the messages whose time has come", "error", err)
+	}
 	var p struct {
 		Seq int64 `json:"seq"`
 	}

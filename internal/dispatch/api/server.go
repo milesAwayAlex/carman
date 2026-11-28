@@ -146,6 +146,8 @@ func (s *Server) routes() []route {
 		{http.MethodPost, "/v1/messages", messengers, s.send},
 		{http.MethodGet, "/v1/messages/{id}", messengers, s.messageStatus},
 		{http.MethodPost, "/v1/messages/{id}/answer", messengers, s.answer},
+		{http.MethodGet, "/v1/timed", messengers, s.timed},
+		{http.MethodPost, "/v1/timed/{id}/cancel", messengers, s.cancelTimed},
 		{http.MethodGet, "/v1/inbox", messengers, s.inbox},
 		{http.MethodPost, "/v1/inbox/take", messengers, s.take},
 		{http.MethodPost, "/v1/inbox/read", messengers, s.read},

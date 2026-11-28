@@ -150,7 +150,11 @@ Built so far:
   calls, at the end of a turn, or waking an idle one), and a message for a
   session that is not running starts it again as its agent. Who may write
   to an agent (ADR 0047): the owner, its own sessions, an
-  answer, and the agents its `writtenBy` lists.
+  answer, and the agents its `writtenBy` lists. A message can be asked
+  for at a time (`dispatcher send --at TIME TO 'TEXT'`, `dispatcher
+  timed`; ADR new-a-message-at-a-time, proposed): kept as an event and
+  sent then as an ordinary message, which is how a session keeps a
+  promise to do something at a time.
 - Sessions on the owner's own machine (ADR 0049): a place
   (`dispatcher.host.place`) with the dispatcher's `host` token, its
   sessions `PLACE/NAME` named for their directory. They write as the owner
