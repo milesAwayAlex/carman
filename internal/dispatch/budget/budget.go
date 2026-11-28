@@ -1,5 +1,5 @@
 // Package budget keeps what the model's usage is for (ADR
-// new-the-plan-of-the-models-budget): the owner's priorities, each a name,
+// 0077): the owner's priorities, each a name,
 // a share of the usage and a list of what he wants done under it, in
 // order. They are events in the dispatcher's log; the plan divides the
 // room it finds by the shares.

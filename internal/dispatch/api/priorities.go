@@ -9,7 +9,7 @@ import (
 	"carman/internal/dispatch/message"
 )
 
-// What the model's usage is for (ADR new-the-plan-of-the-models-budget):
+// What the model's usage is for (ADR 0077):
 // the owner's priorities, their shares and the work under each. Who may
 // do what is the budget package's to say.
 
