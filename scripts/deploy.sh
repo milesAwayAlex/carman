@@ -35,6 +35,8 @@
 #   scripts/deploy.sh CONTEXT tool FILE         put a command of this installation's own on agents' PATH
 #   scripts/deploy.sh CONTEXT model-account      which account for the model the egress proxy holds, where the
 #                                       installation has more than one (its definition lists them)
+#   scripts/deploy.sh CONTEXT model-account --all   put every listed account's credential at the proxy, each under
+#                                                 its own key, for a proxy that switches between them
 #   scripts/deploy.sh CONTEXT model-account NAME [--restart [--now]]   put that account's credential at the proxy,
 #                                       wait until its meter has it (or restart the proxy: --now even
 #                                       while jobs run), record the choice, and take a usage reading on it
@@ -1026,7 +1028,7 @@ secret)
     "${kube[@]}" get secret "$name" >/dev/null 2>&1 || "${kube[@]}" create secret generic "$name" >/dev/null
     "${kube[@]}" create secret generic "$name" "--from-file=$key=/dev/stdin" --dry-run=client -o 'jsonpath={.data}' | only_data |
         "${kube[@]}" patch secret "$name" --type merge --patch-file /dev/stdin >/dev/null
-    [ "$("${kube[@]}" get secret "$name" -o "jsonpath={.data.$key}" | wc -c)" -ge 4 ] || die "the secret $name came out empty"
+    [ "$("${kube[@]}" get secret "$name" -o "jsonpath={.data.${key//./\\.}}" | wc -c)" -ge 4 ] || die "the secret $name came out empty"
     echo "the cluster holds secret $name (key $key)"
     # The egress proxy reads its credentials when it starts.
     if [ "$name" = egress-credentials ] && "${kube[@]}" get deployment egress >/dev/null 2>&1; then
@@ -1046,6 +1048,22 @@ model-account)
     if [ -z "$want" ]; then
         echo "at the proxy: ${at_proxy:-the credential of no account listed in $model_accounts_file}; chosen in the installation's definition: ${chosen:-none}"
         awk '$1 !~ /^#/ && NF {print "  " $1}' "$model_accounts_file"
+        exit 0
+    fi
+    if [ "$want" = --all ]; then
+        # Every listed account's credential under its own key, for a proxy
+        # that switches between them (egress.model.accounts). Each goes from
+        # its command to the cluster's API and nowhere else; the one the
+        # proxy holds now is not touched.
+        put=""
+        while read -r name command <&3; do
+            case "$name" in "" | \#*) continue ;; esac
+            case "$name" in *[!a-z0-9-]*) die "an account's name is lower-case letters, digits and dashes: $name" ;; esac
+            sh -c "$command" | tr -d '\n' | "$0" "$context" secret "$model_secret" "account.$name" >/dev/null ||
+                die "the credential of account $name did not reach the cluster"
+            put="$put $name"
+        done 3< "$model_accounts_file"
+        echo "the secret $model_secret holds the credentials of:$put (keys account.NAME). The proxy switches between them where egress.model.accounts.enabled is set; it takes a changed secret within a minute or two, with no restart"
         exit 0
     fi
     command="$(model_account_command "$want")"

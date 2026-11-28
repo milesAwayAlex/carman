@@ -1,16 +1,20 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -122,6 +126,36 @@ func meterCmd(ctx context.Context) error {
 	}
 	go cred.Run(ctx)
 
+	// Several accounts (ADR new-the-proxy-switches-the-models-account): the
+	// credentials are the files account.NAME beside the one credential, and
+	// the meter chooses among them. It begins on the one the installation
+	// had put there.
+	var accounts *meter.Accounts
+	if os.Getenv("METER_ACCOUNTS") == "on" {
+		accounts = &meter.Accounts{Dir: filepath.Dir(credFile), Log: log}
+		for _, f := range []struct {
+			env string
+			v   *time.Duration
+		}{{"METER_ACCOUNT_HOLD", &accounts.Hold}, {"METER_ACCOUNT_READ", &accounts.Read}} {
+			if s := os.Getenv(f.env); s != "" {
+				if *f.v, err = time.ParseDuration(s); err != nil || *f.v <= 0 {
+					return fmt.Errorf("%s is a duration above nothing: %q", f.env, s)
+				}
+			}
+		}
+		if s := os.Getenv("METER_ACCOUNT_CEILING"); s != "" {
+			if accounts.Ceiling, err = strconv.ParseFloat(s, 64); err != nil || accounts.Ceiling <= 0 || accounts.Ceiling > 1 {
+				return fmt.Errorf("METER_ACCOUNT_CEILING is a share of the five-hour window, above 0 and at most 1: %q", s)
+			}
+		}
+		if err := accounts.Load(); err != nil {
+			log.Error("no account's credential can be read; the one credential is used and nothing is switched", "error", err)
+			accounts = nil
+		} else if v, err := cred.Get(); err == nil {
+			accounts.StartWith(v)
+		}
+	}
+
 	proxy := &meter.Proxy{
 		Upstream: up,
 		Transport: &http.Transport{
@@ -142,6 +176,26 @@ func meterCmd(ctx context.Context) error {
 		Shapes:       os.Getenv("METER_SHAPES") == "on",
 		Observer:     observer,
 		Budget:       budget,
+		Accounts:     accounts,
+	}
+	credential := cred.Get
+	if accounts != nil {
+		credential = func() (string, error) { _, v, err := accounts.Use(); return v, err }
+		if model := os.Getenv("METER_ACCOUNT_READ_MODEL"); model != "" {
+			accounts.Probe = func(ctx context.Context, credential string) (meter.LimitInfo, error) {
+				return probeAccount(ctx, proxy, model, credential)
+			}
+			accounts.Seen = func(account string, li meter.LimitInfo, at time.Time) {
+				observer.Add(meter.Reading{Model: model, Info: li, Account: account, Agent: "proxy", Seen: at})
+			}
+		} else {
+			log.Warn("METER_ACCOUNT_READ_MODEL is not set: an account not held is not read, and is known only as it was when last held")
+		}
+		if du != "" && tf != "" {
+			accounts.Switched = func(sw meter.Switch) { go sendSwitch(ctx, dispatcher, sw, log) }
+		}
+		go accounts.Run(ctx)
+		log.Info("the meter holds several accounts for the model and switches between them", "held", accounts.Held())
 	}
 	// Trials (ADR 0065): a second listener,
 	// reached with no proxy in front by agents of trial installations in
@@ -162,7 +216,7 @@ func meterCmd(ctx context.Context) error {
 		if du != "" && tf != "" {
 			trialDispatcher = dispatcher
 		}
-		trial, err := serveTrials(ctx, tl, proxy, cred.Get, ledger, trialDispatcher, host, started, log)
+		trial, err := serveTrials(ctx, tl, proxy, credential, ledger, trialDispatcher, host, started, log)
 		if err != nil {
 			log.Error("no listener for trials", "error", err)
 		} else {
@@ -175,6 +229,69 @@ func meterCmd(ctx context.Context) error {
 	err = meter.Serve(ctx, sender, drain, final, servers...)
 	log.Info("meter ended")
 	return err
+}
+
+// probeAccount asks the model one small thing with one account's
+// credential, as the agents' calls are made, and reads the answer's
+// standing. A refusal for a limit is a standing too.
+func probeAccount(ctx context.Context, p *meter.Proxy, model, credential string) (meter.LimitInfo, error) {
+	body, _ := json.Marshal(map[string]any{"model": model, "max_tokens": 1,
+		"messages": []map[string]string{{"role": "user", "content": "."}}})
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(p.Upstream.String(), "/")+"/v1/messages", bytes.NewReader(body))
+	if err != nil {
+		return meter.LimitInfo{}, err
+	}
+	for n, v := range p.Like() {
+		req.Header[n] = v
+	}
+	if req.Header.Get("Anthropic-Version") == "" {
+		req.Header.Set("Anthropic-Version", "2023-06-01")
+	}
+	if req.Header.Get("Anthropic-Beta") == "" {
+		// A credential of a plan, not a key, is taken with this.
+		req.Header.Set("Anthropic-Beta", envOr("METER_ACCOUNT_READ_BETA", "oauth-2025-04-20"))
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", credential)
+	resp, err := (&http.Client{Transport: p.Transport}).Do(req)
+	if err != nil {
+		return meter.LimitInfo{}, err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	li, ok := meter.ReadHeaders(resp.Header)
+	if !ok {
+		return meter.LimitInfo{}, fmt.Errorf("the answer (%d) said nothing of the account's standing", resp.StatusCode)
+	}
+	return li, nil
+}
+
+// sendSwitch records a switch in the dispatcher's log, which tells the
+// owner; it tries for a few minutes, since the readings that follow are
+// counted from it.
+func sendSwitch(ctx context.Context, dispatcher func() (*api.Client, error), sw meter.Switch, log *slog.Logger) {
+	data, _ := json.Marshal(sw)
+	for try := 0; try < 20; try++ {
+		c, err := dispatcher()
+		if err == nil {
+			cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			err = c.Do(cctx, http.MethodPost, "/v1/events", nil, api.EmitRequest{
+				ID:   meter.TypeModelAccount + "/" + sw.To + "/" + sw.At.UTC().Format(time.RFC3339Nano),
+				Type: meter.TypeModelAccount, Subject: sw.To, Source: "proxy", Time: sw.At, Data: data}, nil)
+			cancel()
+		}
+		if err == nil {
+			return
+		}
+		log.Warn("a change of the model's account not recorded yet", "to", sw.To, "error", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(15 * time.Second):
+		}
+	}
 }
 
 func envOr(name, def string) string {

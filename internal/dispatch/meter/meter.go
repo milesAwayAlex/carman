@@ -27,6 +27,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"carman/internal/dispatch/message"
@@ -44,6 +45,9 @@ type Proxy struct {
 	// Credential is the value of the Authorization header to send, asked
 	// for once per request: a request keeps the one it started with.
 	Credential func() (string, error)
+	// Accounts, when set, chooses the credential among several accounts'
+	// in place of Credential, and is told each answer's standing.
+	Accounts *Accounts
 	// Identify says whose pod has an address now.
 	Identify func(ctx context.Context, ip string) (message.Caller, bool)
 	// CallerHeader is the header in which the proxy in front of the meter
@@ -71,12 +75,14 @@ type Proxy struct {
 	Budget *Budget
 
 	once sync.Once
+	like atomic.Pointer[http.Header]
 	rp   *httputil.ReverseProxy
 }
 
 type ctxKey struct{}
 
 type request struct {
+	account    string // the account whose credential it goes out on, when there are several
 	who        message.Caller
 	credential string
 	metered    bool
@@ -133,7 +139,12 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	cred, err := p.Credential()
+	account, cred, err := "", "", error(nil)
+	if p.Accounts != nil {
+		account, cred, err = p.Accounts.Use()
+	} else {
+		cred, err = p.Credential()
+	}
 	if err != nil || cred == "" {
 		p.log().Error("the model's credential cannot be read", "error", err)
 		refuse(w, http.StatusBadGateway, "api_error", "the egress proxy has no credential for the model")
@@ -145,7 +156,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// The harness names its session on each request: the agent's own word,
 	// kept beside the proxy's, to find a conversation by.
-	rq := &request{who: who, credential: cred, metered: metered(r), session: r.Header.Get("X-Claude-Code-Session-Id")}
+	rq := &request{who: who, credential: cred, account: account, metered: metered(r), session: r.Header.Get("X-Claude-Code-Session-Id")}
 	if rq.metered && r.Body != nil && r.Body != http.NoBody {
 		rq.sniff = &sniffer{body: r.Body}
 		r.Body = rq.sniff
@@ -185,6 +196,16 @@ func refuse(w http.ResponseWriter, code int, kind, msg string) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"type": "error", "error": map[string]string{"type": kind, "message": msg}})
 }
 
+// Like are the headers by which the latest agent's call said what it is
+// (the API's version, its betas, the harness), for a call of the meter's
+// own to be taken as theirs are; nil before any.
+func (p *Proxy) Like() http.Header {
+	if h := p.like.Load(); h != nil {
+		return h.Clone()
+	}
+	return nil
+}
+
 func (p *Proxy) build() {
 	p.rp = &httputil.ReverseProxy{
 		Transport: p.Transport,
@@ -205,6 +226,15 @@ func (p *Proxy) build() {
 			h.Del("X-Api-Key")
 			h.Del("Proxy-Authorization")
 			h.Set("Authorization", rq.credential)
+			if rq.metered {
+				like := http.Header{}
+				for _, n := range []string{"Anthropic-Version", "Anthropic-Beta", "User-Agent", "X-App"} {
+					if v := h.Values(n); len(v) > 0 {
+						like[n] = append([]string(nil), v...)
+					}
+				}
+				p.like.Store(&like)
+			}
 			// An answer that is not compressed is one the meter can read as
 			// it passes; it is compressed again by nobody, inside the cluster.
 			h.Del("Accept-Encoding")
@@ -217,7 +247,12 @@ func (p *Proxy) build() {
 			}
 			asked := rq.sniff.model()
 			if rq.metered && (asked != "" || resp.StatusCode/100 != 2) {
-				p.Observer.Observe(asked, rq.who.Agent, resp.StatusCode, resp.Header)
+				p.Observer.ObserveOn(rq.account, asked, rq.who.Agent, resp.StatusCode, resp.Header)
+			}
+			if rq.metered && p.Accounts != nil {
+				if li, ok := ReadHeaders(resp.Header); ok {
+					p.Accounts.Saw(rq.account, li)
+				}
 			}
 			if !rq.metered || resp.StatusCode/100 != 2 {
 				p.Ledger.add(rq.who, "", func(t *Record) {
@@ -234,7 +269,7 @@ func (p *Proxy) build() {
 			header := resp.Header.Clone()
 			resp.Body = &reading{body: resp.Body, sse: sse, shapes: p.Shapes, log: p.log(), done: func(u answer) {
 				if asked == "" && u.model != "unknown" {
-					p.Observer.Observe(u.model, rq.who.Agent, resp.StatusCode, header)
+					p.Observer.ObserveOn(rq.account, u.model, rq.who.Agent, resp.StatusCode, header)
 				}
 				p.Budget.Count(rq.who, u.tokens)
 				p.Ledger.add(rq.who, u.model, func(t *Record) {

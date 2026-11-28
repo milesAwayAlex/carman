@@ -470,6 +470,30 @@ status` and the admission rule leave them out. A deploy says when the
 proxy holds another account than the definition chooses, and changes
 nothing. `deploy/RECOVERY.md` has the same by hand.
 
+**The proxy switches the account itself** (ADR
+new-the-proxy-switches-the-models-account). Put every listed account's
+credential at the proxy, each from its command to the cluster and nowhere
+else: `scripts/deploy.sh CONTEXT model-account --all` (again whenever a
+credential changes; the meter takes it within a minute or two). Then, in
+the installation's values:
+
+```yaml
+egress:
+  model:
+    accounts:
+      enabled: true
+      readModel: MODEL   # the smallest model, for reading the account not held
+```
+
+and deploy. The meter begins on the account the proxy held and from then
+on holds the one whose week ends soonest while it has room, goes to
+another at 85% of that one's five-hour window until its reset, never more
+often than every 30 minutes. Each switch is `model.account` in the log
+and one line to the owner; `scripts/deploy.sh CONTEXT dispatch plan`
+lists them with their reasons. To hold one account by hand again, set
+`enabled: false`, deploy, and use `model-account NAME`.
+`scripts/check-switch.sh CONTEXT` tries it in a trial.
+
 The model's credential can be held at the proxy too (ADR 0050), by one
 switch in the values:
 

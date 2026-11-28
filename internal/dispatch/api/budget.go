@@ -106,8 +106,9 @@ func (s *Server) usageLatest(_ http.ResponseWriter, r *http.Request, _ Role) (an
 		return nil, err
 	}
 	var after int64
+	held := ""
 	if len(changed) > 0 {
-		after = changed[len(changed)-1].Seq
+		after, held = changed[len(changed)-1].Seq, changed[len(changed)-1].Subject
 	}
 	out := UsageLatest{Models: map[string]time.Time{}}
 	for _, e := range rs {
@@ -115,9 +116,10 @@ func (s *Server) usageLatest(_ http.ResponseWriter, r *http.Request, _ Role) (an
 			continue
 		}
 		var rd struct {
-			Model string `json:"model"`
+			Model   string `json:"model"`
+			Account string `json:"account"`
 		}
-		if json.Unmarshal(e.Data, &rd) != nil || rd.Model == "" {
+		if json.Unmarshal(e.Data, &rd) != nil || rd.Model == "" || (rd.Account != "" && held != "" && rd.Account != held) {
 			continue
 		}
 		if e.Time.After(out.Models[rd.Model]) {

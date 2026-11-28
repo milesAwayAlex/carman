@@ -290,6 +290,22 @@ spec:
             {{- end }}
             - name: METER_CREDENTIAL_FILE
               value: /etc/meter/credential/token
+            {{- with .Values.egress.model.accounts }}
+            {{- if .enabled }}
+            # Several accounts: the secret's keys account.NAME beside the
+            # one credential, and the meter switches between them.
+            - name: METER_ACCOUNTS
+              value: "on"
+            - name: METER_ACCOUNT_READ_MODEL
+              value: {{ .readModel | quote }}
+            - name: METER_ACCOUNT_CEILING
+              value: {{ .fiveHourCeiling | quote }}
+            - name: METER_ACCOUNT_HOLD
+              value: {{ .hold | quote }}
+            - name: METER_ACCOUNT_READ
+              value: {{ .readEvery | quote }}
+            {{- end }}
+            {{- end }}
             - name: METER_IDLE
               value: {{ .Values.egress.model.idle | quote }}
             - name: METER_LONGEST
@@ -413,7 +429,9 @@ spec:
         - name: model-credential
           secret:
             secretName: {{ .Values.agent.modelSecret }}
+            {{- if not .Values.egress.model.accounts.enabled }}
             items: [{key: token, path: token}]
+            {{- end }}
         - name: meter-account
           projected:
             sources:

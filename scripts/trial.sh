@@ -169,7 +169,15 @@ proxy_secrets() {
     "${kube[@]}" create configmap "${pre}egress-ca" "--from-file=ca.crt=$dir/ca.crt" --dry-run=client -o yaml | "${kube[@]}" apply -f - >/dev/null
     "${kube[@]}" create secret generic "${pre}egress-tls" "--from-file=tls.crt=$dir/tls.crt" "--from-file=tls.key=$dir/tls.key" >/dev/null
     "${kube[@]}" create secret generic "${pre}egress-credentials" >/dev/null
-    "${kube[@]}" create secret generic "${pre}model-credential" "--from-literal=token=stand-in-$(openssl rand -hex 12)" >/dev/null
+    # With TRIAL_ACCOUNTS (names), a made-up credential for each as well,
+    # under account.NAME: the first is the one the proxy starts on.
+    accounts=() first=""
+    for a in ${TRIAL_ACCOUNTS:-}; do
+        v="stand-in-$a-$(openssl rand -hex 12)"
+        accounts+=("--from-literal=account.$a=$v")
+        [ -n "$first" ] || first="$v"
+    done
+    "${kube[@]}" create secret generic "${pre}model-credential" "--from-literal=token=${first:-stand-in-$(openssl rand -hex 12)}" ${accounts[@]+"${accounts[@]}"} >/dev/null
     "${kube[@]}" label --overwrite "configmap/${pre}egress-ca" "secret/${pre}egress-tls" "secret/${pre}egress-credentials" "secret/${pre}model-credential" "$label" >/dev/null
     rm -rf "$dir"
     echo "made the trial proxy's authority and certificate, and a made-up credential for the model"
@@ -215,7 +223,7 @@ render() {
     helm template "$name" "$src/charts/carman" --namespace "$namespace" -f deploy/values/trial.yaml ${TRIAL_VALUES:+-f "$TRIAL_VALUES"} \
         --set "memory.image=$memory_image" --set "dispatcher.image=$dispatcher_image" --set "agent.image=${agent_image:-$dispatcher_image}" "${tick[@]}" "${proxy[@]}" |
         kubectl --context "$context" create --dry-run=client -o json -f - |
-        TRIAL_PROXY="${TRIAL_PROXY:-}" TRIAL_MODEL="${TRIAL_MODEL:-}" TRIAL_REFUSED="$refused" TRIAL_LABEL="$name" TRIAL_PREFIX="$pre" TRIAL_OWNER="$holder" TRIAL_ACCOUNT="$account" TRIAL_IMAGE="$dispatcher_image" python3 -c '
+        TRIAL_PROXY="${TRIAL_PROXY:-}" TRIAL_MODEL="${TRIAL_MODEL:-}" TRIAL_REFUSED="$refused" TRIAL_LABEL="$name" TRIAL_PREFIX="$pre" TRIAL_OWNER="$holder" TRIAL_ACCOUNT="$account" TRIAL_ACCOUNTS="${TRIAL_ACCOUNTS:-}" TRIAL_IMAGE="$dispatcher_image" python3 -c '
 import json, os, re, sys
 refused = os.environ["TRIAL_REFUSED"].split()
 name, account, pre = os.environ["TRIAL_LABEL"], os.environ["TRIAL_ACCOUNT"], os.environ["TRIAL_PREFIX"]
@@ -250,7 +258,8 @@ if os.environ.get("TRIAL_PROXY") and not os.environ.get("TRIAL_MODEL"):
         "spec": {"replicas": 1, "selector": {"matchLabels": {"app": "model"}}, "template": {"metadata": {"labels": {"app": "model"}}, "spec": {
             "containers": [{"name": "model", "image": os.environ["TRIAL_IMAGE"], "command": ["dispatcher", "stand-in"],
                 "resources": {"requests": {"cpu": "10m", "memory": "16Mi"}, "limits": {"memory": "64Mi"}},
-                "env": [{"name": "STAND_IN_TOKEN_FILE", "value": "/etc/stand-in/token"}],
+                "env": [{"name": "STAND_IN_TOKEN_FILE", "value": "/etc/stand-in/token"}] +
+                    ([{"name": "STAND_IN_ACCOUNTS_DIR", "value": "/etc/stand-in"}] if os.environ.get("TRIAL_ACCOUNTS") else []),
                 "volumeMounts": [{"name": "credential", "mountPath": "/etc/stand-in", "readOnly": True}]}],
             "volumes": [{"name": "credential", "secret": {"secretName": "model-credential"}}]}}}})
     out.append({"apiVersion": "v1", "kind": "Service", "metadata": {"name": "model"},
