@@ -13,7 +13,10 @@
 #      the first until the reset, not before the least time between
 #      switches;
 #   4. the window is emptied, as at its reset: the meter returns;
-#   5. readings say which account they are of, and `dispatch plan` shows
+#   5. one model's own weekly limit is spent on the account held: that
+#      model's requests go out on the other account, the others stay,
+#      and the change is recorded and told once;
+#   6. readings say which account they are of, and `dispatch plan` shows
 #      both accounts and what the proxy did and why.
 #
 #   scripts/check-switch.sh CONTEXT       stands the trial up, checks, and leaves it up
@@ -168,11 +171,35 @@ assert all(g >= 19 for g in gaps), gaps
 print("gaps between switches, seconds:", [int(g) for g in gaps])' || die "two switches were closer than the least time between them"
 step "no two switches were closer than the least time between them"
 
-# 5. What the owner sees.
+# 5. One model's own limit is spent on the account held: that model's
+# requests go out on the other account, the rest stay.
+held="second" other="first"
+standing '{"account":"second","windows":{"7d_opus":{"utilization":0.98,"reset_in":86400}}}'
+standing '{"account":"first","windows":{"7d_opus":{"utilization":0.2,"reset_in":400000}}}'
+by() { seen | python3 -c 'import json,sys; print(json.load(sys.stdin).get("by_account_and_model", {}).get(sys.argv[1], 0))' "$1"; }
+out="$(ask --model claude-opus-5-5)"; has "$out" "status 200"   # this answer says the limit is at 98%
+o_other="$(by "$other/claude-opus-5-5")" h_held="$(by "$held/claude-haiku-5-5")" h_other="$(by "$other/claude-haiku-5-5")"
+for _ in 1 2 3; do out="$(ask --model claude-opus-5-5)"; has "$out" "status 200"; done
+out="$(ask --model claude-haiku-5-5)"; has "$out" "status 200"
+[ "$(by "$other/claude-opus-5-5")" -eq $((o_other + 3)) ] || die "the model whose limit is spent on $held did not go out on $other: $(seen)"
+[ "$(by "$held/claude-haiku-5-5")" -gt "$h_held" ] || die "another model did not stay on $held: $(seen)"
+: "$h_other"
+aside="$(await model.account.for '"to":"first"')"
+has "$aside" '"model":"claude-opus-5-5"'
+has "$aside" '"rule":"model"'
+has "$aside" "the limit of claude-opus-5-5 on account second is at 98%"
+[ "$(events model.account.for | grep -c '"to":"first"')" -eq 1 ] || die "the change was recorded more than once: $(events model.account.for)"
+for _ in $(seq 20); do inbox="$(owner inbox 2>/dev/null || true)"; grep -qF "requests of claude-opus-5-5 on the model's account first" <<<"$inbox" && break; sleep 2; done
+has "$inbox" "The proxy now sends requests of claude-opus-5-5 on the model's account first"
+[ "$(grep -c "requests of claude-opus-5-5 on the model's account first" <<<"$inbox")" -eq 1 ] || die "the owner was told more than once: $inbox"
+step "with one model's own limit at 98% on the held account its requests went out on the other account and another model's stayed; recorded once, the owner told once"
+
+# 6. What the owner sees.
 plan="$(owner plan)"
 has "$plan" "account first"
 has "$plan" "account second (held by the proxy"
 has "$plan" "by the proxy (rule: five-hour): the five-hour window of account second is at 90%"
 has "$plan" "by the proxy (rule: week)"
+has "$plan" "requests of claude-opus-5-5 to account first, by the proxy (rule: model)"
 step "dispatch plan shows both accounts' standing, which one is held, and each switch with its rule and reason"
 echo "check-switch: all passed; scripts/trial.sh $context down takes the trial down"

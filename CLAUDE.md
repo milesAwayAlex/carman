@@ -83,7 +83,9 @@ Built so far:
   every account's credential (`model-account --all`) and switches by
   itself: the account whose week ends soonest while it has room, another
   at 85% of that one's five-hour window until its reset, at most every
-  half hour; it reads the account not held once an hour, records each
+  half hour; a model whose own weekly limit is spent on the account
+  held goes out on another that has room for it, the rest staying; it
+  reads the account not held once an hour, records each
   switch as `model.account` and the owner is told in a line
   (`scripts/check-switch.sh CONTEXT`).
   `dispatcher plan` (ADR 0077, proposed)

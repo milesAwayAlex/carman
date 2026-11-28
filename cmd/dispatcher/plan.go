@@ -17,6 +17,7 @@ import (
 	"carman/internal/dispatch"
 	"carman/internal/dispatch/api"
 	"carman/internal/dispatch/budget"
+	"carman/internal/dispatch/meter"
 )
 
 // The plan of the model's budget (ADR 0077):
@@ -779,6 +780,15 @@ func planCmd(ctx context.Context, c *api.Client, flags map[string][]string) erro
 		return err
 	}
 	p := planOf(rs, changes, time.Now(), cfg)
+	// One model's requests sent on another account than the one held.
+	if aside, err := get(meter.TypeModelAccountFor, 5); err == nil {
+		for _, r := range aside {
+			var sw meter.Switch
+			_ = json.Unmarshal(r.Data, &sw)
+			p.Switches = append(p.Switches, fmt.Sprintf("%s requests of %s to %s, by the proxy (rule: model): %s", r.Time.UTC().Format("01-02 15:04"), r.Subject, label(sw.To), sw.Why))
+		}
+		sort.Strings(p.Switches)
+	}
 	var v budget.View
 	if err := c.Do(ctx, http.MethodGet, "/v1/budget/priorities", nil, nil, &v); err == nil {
 		p.divide(v)

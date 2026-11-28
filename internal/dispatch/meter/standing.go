@@ -295,6 +295,12 @@ func (s *sniffer) model() string {
 	s.mu.Lock()
 	b := bytes.Clone(s.buf)
 	s.mu.Unlock()
+	return modelIn(b)
+}
+
+// modelIn is the model named at the top of a request's JSON, of which b
+// is the beginning.
+func modelIn(b []byte) string {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
 		return ""

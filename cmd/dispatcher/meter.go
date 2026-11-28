@@ -277,9 +277,14 @@ func sendSwitch(ctx context.Context, dispatcher func() (*api.Client, error), sw 
 		c, err := dispatcher()
 		if err == nil {
 			cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			typ, subject := meter.TypeModelAccount, sw.To
+			if sw.Model != "" {
+				// One model's requests only: the account held is the same.
+				typ, subject = meter.TypeModelAccountFor, sw.Model
+			}
 			err = c.Do(cctx, http.MethodPost, "/v1/events", nil, api.EmitRequest{
-				ID:   meter.TypeModelAccount + "/" + sw.To + "/" + sw.At.UTC().Format(time.RFC3339Nano),
-				Type: meter.TypeModelAccount, Subject: sw.To, Source: "proxy", Time: sw.At, Data: data}, nil)
+				ID:   typ + "/" + subject + "/" + sw.At.UTC().Format(time.RFC3339Nano),
+				Type: typ, Subject: subject, Source: "proxy", Time: sw.At, Data: data}, nil)
 			cancel()
 		}
 		if err == nil {

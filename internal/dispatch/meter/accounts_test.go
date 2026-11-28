@@ -145,3 +145,59 @@ func TestAccountsFiles(t *testing.T) {
 		t.Fatal("no account's file, and no error")
 	}
 }
+
+// A model whose own weekly limit is spent on the account held goes out on
+// another account that has room for it; the other models stay; it comes
+// back when the limit has reset; each change is told once.
+func TestAccountsSendOneModelElsewhere(t *testing.T) {
+	a, now, switches := twoAccounts(t)
+	a.StartWith("Bearer cred-one")
+	soon, late := now.Add(36*time.Hour), now.Add(6*24*time.Hour)
+	own := func(li LimitInfo, u float64, reset time.Time, status string) LimitInfo {
+		li.Windows["seven_day_strong"] = Window{Utilization: u, ResetsAt: reset.Unix(), Status: status}
+		return li
+	}
+	a.SawFor("one", "strong-1", own(stood(0.2, now.Add(3*time.Hour), 0.55, soon), 0.74, soon, "allowed"))
+	a.Saw("two", stood(0.1, now.Add(4*time.Hour), 0.14, late))
+	if n, _, _ := a.UseFor("strong-1"); n != "one" || len(*switches) != 0 {
+		t.Fatalf("with room, strong goes out on %q; %+v", n, *switches)
+	}
+	a.SawFor("one", "strong-1", own(stood(0.3, now.Add(3*time.Hour), 0.57, soon), 0.97, soon, "allowed"))
+	for i := 0; i < 3; i++ {
+		if n, cred, _ := a.UseFor("strong-1"); n != "two" || cred != "Bearer cred-two" {
+			t.Fatalf("at 97%% strong goes out on %q", n)
+		}
+		if n, cred, _ := a.UseFor("cheap-1"); n != "one" || cred != "Bearer cred-one" {
+			t.Fatalf("another model goes out on %q", n)
+		}
+	}
+	if a.Held() != "one" || len(*switches) != 1 {
+		t.Fatalf("held %q, told %d times: %+v", a.Held(), len(*switches), *switches)
+	}
+	if sw := (*switches)[0]; sw.Model != "strong-1" || sw.To != "two" || sw.Held != "one" || sw.Rule != "model" || !strings.Contains(sw.Why, "the limit of strong-1 on account one is at 97%") {
+		t.Fatalf("the change: %+v", sw)
+	}
+	// The other account's limit for it is spent too: it stays on the one
+	// held, and that is told once.
+	a.SawFor("two", "strong-1", own(stood(0.1, now.Add(4*time.Hour), 0.2, late), 1, late, "rejected"))
+	if n, _, _ := a.UseFor("strong-1"); n != "one" || len(*switches) != 2 || !strings.Contains((*switches)[1].Why, "no other account has room") {
+		t.Fatalf("with both spent: %q %+v", n, *switches)
+	}
+	a.UseFor("strong-1")
+	if len(*switches) != 2 {
+		t.Fatalf("told again: %+v", *switches)
+	}
+	// A refusal that names a limit of its own, with no window for it.
+	b, clock, told := twoAccounts(t)
+	b.StartWith("Bearer cred-one")
+	b.SawFor("one", "strong-1", LimitInfo{Status: "rejected", RateLimitType: "seven_day_strong", ResetsAt: soon.Unix(),
+		Windows: map[string]Window{"five_hour": {Utilization: 0.2, ResetsAt: now.Add(time.Hour).Unix()}, "seven_day": {Utilization: 0.5, ResetsAt: soon.Unix()}}})
+	if n, _, _ := b.UseFor("strong-1"); n != "two" || len(*told) != 1 || !strings.Contains((*told)[0].Why, "refused") {
+		t.Fatalf("after a refusal: %q %+v", n, *told)
+	}
+	// After the limit's reset it goes out on the held account again.
+	*clock = soon.Add(time.Minute)
+	if n, _, _ := b.UseFor("strong-1"); n != b.Held() || len(*told) != 2 {
+		t.Fatalf("after the reset strong goes out on %q, held %q: %+v", n, b.Held(), *told)
+	}
+}

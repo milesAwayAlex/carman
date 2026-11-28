@@ -50,7 +50,18 @@ type Accounts struct {
 	probed map[string]time.Time
 	held   string
 	since  time.Time
+	// own is each account's standing on a model's own weekly limit, by
+	// model, as that model's answers gave it; aside is the account a
+	// model's requests go out on while the held one's limit for it is
+	// spent.
+	own   map[string]map[string]Window
+	aside map[string]string
 }
+
+// TypeModelAccountFor is recorded when the requests of one model begin or
+// stop going out on another account than the one held; its subject is
+// the model.
+const TypeModelAccountFor = "model.account.for"
 
 // Stood is one account's standing as last read.
 type Stood struct {
@@ -62,9 +73,13 @@ type Stood struct {
 
 // Switch is one change of the account held.
 type Switch struct {
-	From      string           `json:"from,omitempty"`
-	To        string           `json:"to"`
-	Rule      string           `json:"rule"` // week, five-hour, start
+	From string `json:"from,omitempty"`
+	To   string `json:"to"`
+	// Model, when set: only this model's requests go out on To, the
+	// others stay on the account held (rule "model").
+	Model     string           `json:"model,omitempty"`
+	Held      string           `json:"held,omitempty"`
+	Rule      string           `json:"rule"` // week, five-hour, model
 	Why       string           `json:"why"`
 	At        time.Time        `json:"at"`
 	By        string           `json:"by"`
@@ -202,6 +217,82 @@ func (a *Accounts) Use() (string, string, error) {
 	return a.held, a.creds[a.held], nil
 }
 
+// spent says whether an account's own limit for a model is used up now.
+// One never read on that model, or whose reset has passed, is not.
+func (a *Accounts) spent(account, model string, now time.Time) (Window, bool) {
+	w, ok := a.own[account][model]
+	if !ok || (w.ResetsAt != 0 && w.ResetsAt <= now.Unix()) {
+		return Window{}, false
+	}
+	return w, w.Status == "rejected" || w.Utilization >= ownFull
+}
+
+// UseFor is Use for a request of one model. Where the held account's own
+// limit for that model is spent and another account has room for it, the
+// request goes out on that one; the others stay on the account held.
+// Each change of this is told once, not each request.
+func (a *Accounts) UseFor(model string) (string, string, error) {
+	held, cred, err := a.Use()
+	if err != nil || model == "" {
+		return held, cred, err
+	}
+	a.mu.Lock()
+	now := a.now()
+	to := ""
+	w, full := a.spent(held, model, now)
+	if full {
+		for _, n := range a.namesLocked() {
+			s := brought(a.stand[n], now)
+			if _, f := a.spent(n, model, now); n != held && !f && s.SevenDay.Utilization < a.full() && s.FiveHour.Utilization < a.ceiling() {
+				to = n
+				break
+			}
+		}
+	}
+	was := a.aside[model]
+	if a.aside == nil {
+		a.aside = map[string]string{}
+	}
+	var sw *Switch
+	switch {
+	case to != "" && to != was:
+		a.aside[model] = to
+		why := fmt.Sprintf("the limit of %s on account %s is at %s", model, held, percent(w.Utilization))
+		if w.Status == "rejected" {
+			why = fmt.Sprintf("%s is refused on account %s for its own limit", model, held)
+		}
+		if w.ResetsAt != 0 {
+			why += ", until " + at(w.ResetsAt)
+		}
+		sw = &Switch{From: held, To: to, Model: model, Held: held, Rule: "model", Why: why + "; account " + to + " has room for it, and the other models stay on " + held}
+	case to == "" && was != "":
+		delete(a.aside, model)
+		why := fmt.Sprintf("account %s has room for %s again", held, model)
+		if full {
+			why = fmt.Sprintf("no other account has room for %s", model)
+		}
+		sw = &Switch{From: was, To: held, Model: model, Held: held, Rule: "model", Why: why}
+	}
+	name := held
+	if to != "" {
+		name, cred = to, a.creds[to]
+	}
+	if sw != nil {
+		sw.At, sw.By, sw.Standings = now, "proxy", map[string]Stood{}
+		for n, s := range a.stand {
+			sw.Standings[n] = s
+		}
+	}
+	a.mu.Unlock()
+	if sw != nil {
+		a.log().Info("the account for one model's requests changed", "model", sw.Model, "from", sw.From, "to", sw.To, "why", sw.Why)
+		if a.Switched != nil {
+			a.Switched(*sw)
+		}
+	}
+	return name, cred, nil
+}
+
 // Held is the account requests go out on now.
 func (a *Accounts) Held() string {
 	name, _, _ := a.Use()
@@ -209,9 +300,55 @@ func (a *Accounts) Held() string {
 }
 
 // Saw takes an account's standing from an answer's headers.
-func (a *Accounts) Saw(account string, li LimitInfo) {
+func (a *Accounts) Saw(account string, li LimitInfo) { a.SawFor(account, "", li) }
+
+// ownFull is the share of a model's own weekly limit at which its
+// requests go out on another account.
+const ownFull = 0.97
+
+// SawFor is Saw for an answer to a request of one model: it also takes
+// that model's own weekly limit on the account, if the answer names one.
+func (a *Accounts) SawFor(account, model string, li LimitInfo) {
 	if a == nil || account == "" {
 		return
+	}
+	if model != "" {
+		a.mu.Lock()
+		for n, w := range li.Windows {
+			if !strings.HasPrefix(n, "seven_day_") || n == "seven_day_overage_included" {
+				continue
+			}
+			if li.Status == "rejected" && li.RateLimitType == n {
+				w.Status = "rejected"
+				if w.ResetsAt == 0 {
+					w.ResetsAt = li.ResetsAt
+				}
+			}
+			if a.own == nil {
+				a.own = map[string]map[string]Window{}
+			}
+			if a.own[account] == nil {
+				a.own[account] = map[string]Window{}
+			}
+			a.own[account][model] = w
+		}
+		// Refused for a limit that is neither shared window: the model's
+		// own, whatever the answer calls it.
+		if t := li.RateLimitType; li.Status == "rejected" && t != "" && t != "five_hour" && t != "seven_day" {
+			if a.own == nil {
+				a.own = map[string]map[string]Window{}
+			}
+			if a.own[account] == nil {
+				a.own[account] = map[string]Window{}
+			}
+			w := a.own[account][model]
+			w.Status = "rejected"
+			if w.ResetsAt == 0 {
+				w.ResetsAt, w.Utilization = li.ResetsAt, 1
+			}
+			a.own[account][model] = w
+		}
+		a.mu.Unlock()
 	}
 	five, ok5 := li.Windows["five_hour"]
 	week, ok7 := li.Windows["seven_day"]
