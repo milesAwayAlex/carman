@@ -54,15 +54,31 @@ reading of the account that is not held.
   one line, not each request; the account held, and so the readings'
   account, does not change. A request whose model is not in its first
   bytes goes out on the account held.
-- **It begins on the account a person had put there**: the one whose
-  credential is the secret's `token`. The rules take over at once. A
-  meter that restarts begins there again; which account is held is not
-  kept anywhere else.
+- **What is not known moves nothing.** The two rules are for accounts
+  whose standing is known. An account never read is no reason to leave
+  one that answers: it is tried only when the account held is known to
+  have no room and no known account has (rule "unknown"). The first
+  version took an unread account to have room, and at its first start,
+  its own readings refused, left the account whose week ended in a day
+  for the other.
+- **It begins from the dispatcher's log.** A meter that starts asks the
+  dispatcher (`GET /v1/meter/accounts`, the meter's and the owner's) for
+  the account the proxy held last and each account's standing as last
+  read, a model's own limits too: the same reading of the log as the
+  plan's (ADR 0077). It asks again every minute and takes what is newer
+  than what it read itself, so an account it does not hold is known as
+  the log has it, with windows whose reset has passed counted empty.
+  Without the log it begins on the account whose credential is the
+  secret's `token`, and stays there until something is known.
 - **The account not held is read.** Every answer's headers give the
   standing of the account it went out on (ADR 0064). For the others the
   meter sends one request an hour (`readEvery`) to the smallest model
   (`readModel`), one token long, with the headers the latest agent's call
-  named itself by, and reads that answer's headers. A reading says which
+  named itself by, and reads that answer's headers. On the
+  model's API as it is today such a request is refused (429) with nothing
+  of the standing, as any request no harness wrote: the meter logs that
+  the account could not be read and goes by the log. Leave `readModel`
+  empty to send none. A reading says which
   account it is of (`account` in `usage.observed`); the standing, the
   admission rule and the reading job use those of the held account only,
   and the plan sorts them by what they say.
@@ -99,10 +115,10 @@ Candidates not chosen:
 - A switch within the least time is not made, so an account refused for
   a limit just after a switch stays held for up to half an hour.
 - Reading an account starts its five-hour window if none is open.
-- The request the meter reads with was tried against the stand-in only.
-  If the model's API refuses it without saying the standing, the meter
-  logs that the account's standing could not be read, and the account is
-  known only from its own answers while held.
+- The account not held is known only as it was when last held, less
+  nothing: what the owner's own sessions use on it meanwhile is not seen
+  until the proxy holds it again. A reading of it by a real harness run
+  sent out on a named account is not built.
 
 ## The checks
 
@@ -110,7 +126,10 @@ Candidates not chosen:
 between switches, the reading of the account not held, and the files.
 One model sent elsewhere at 97% and at a refusal, the others staying,
 told once, and back after the reset, are in the same tests.
-`scripts/check-switch.sh CONTEXT`: a trial with its own proxy and meter,
+`scripts/check-switch.sh CONTEXT`: first as a real installation starts,
+the meter's readings refused with nothing of the standing and the log
+empty: it stays on the account it was given; then the log is given the
+other account's standing and it decides from that. Then a trial with its own proxy and meter,
 two made-up accounts on the stand-in each with a standing of its own; the
 meter goes to the account whose week is made to end sooner, the owner is
 told, the next call goes out on that credential; at 90% of its five-hour

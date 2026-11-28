@@ -201,3 +201,50 @@ func TestAccountsSendOneModelElsewhere(t *testing.T) {
 		t.Fatalf("after the reset strong goes out on %q, held %q: %+v", n, b.Held(), *told)
 	}
 }
+
+// A meter that knows nothing stays on the account that answers: an
+// account whose standing is not known is no reason to switch. What the
+// log holds is then what it decides from.
+func TestAccountsUnknownIsNoReasonToSwitch(t *testing.T) {
+	a, now, switches := twoAccounts(t)
+	a.StartWith("Bearer cred-two")
+	a.Probe = func(context.Context, string) (LimitInfo, error) { return LimitInfo{}, os.ErrPermission }
+	a.ReadDue(context.Background())
+	if a.Decide() || a.Held() != "two" {
+		t.Fatalf("with nothing known it went to %q: %+v", a.Held(), *switches)
+	}
+	soon, late := now.Add(36*time.Hour), now.Add(6*24*time.Hour)
+	// The held one answers; the other is still not known.
+	a.Saw("two", stood(0.2, now.Add(3*time.Hour), 0.49, soon))
+	if a.Held() != "two" || len(*switches) != 0 {
+		t.Fatalf("with the other unknown it went to %q", a.Held())
+	}
+	// The log: the proxy held one last, and both standings. Two's week
+	// ends soonest with room: rule 1, with its reason.
+	c, _, told := twoAccounts(t)
+	c.Seed(Logged{Held: "one", Accounts: map[string]LoggedAccount{
+		"one": {Stood: Stood{SevenDay: Window{Utilization: 0.14, ResetsAt: late.Unix()}, At: now.Add(-time.Hour)}},
+		"two": {Stood: Stood{SevenDay: Window{Utilization: 0.49, ResetsAt: soon.Unix()}, At: now.Add(-2 * time.Hour)},
+			Own: map[string]Window{"strong-1": {Utilization: 0.99, ResetsAt: soon.Unix()}}},
+	}})
+	if c.Held() != "two" || len(*told) != 1 || (*told)[0].From != "one" || !strings.Contains((*told)[0].Why, "the week of account two ends soonest") {
+		t.Fatalf("from the log's standings: held %q, %+v", c.Held(), *told)
+	}
+	// The log's word of a model's own limit counts too.
+	if n, _, _ := c.UseFor("strong-1"); n != "one" {
+		t.Fatalf("strong, at 99%% on two by the log, goes out on %q", n)
+	}
+	// A later seed does not put back the account held, nor an older standing.
+	c.Seed(Logged{Held: "one", Accounts: map[string]LoggedAccount{"two": {Stood: Stood{SevenDay: Window{Utilization: 0.99, ResetsAt: soon.Unix()}, At: now.Add(-3 * time.Hour)}}}})
+	if c.Held() != "two" {
+		t.Fatalf("an older standing from the log moved it to %q", c.Held())
+	}
+	// The held account is known to be full and the other is not known:
+	// then, and only then, the unknown one is tried.
+	d, _, tried := twoAccounts(t)
+	d.StartWith("Bearer cred-two")
+	d.Saw("two", stood(0.2, now.Add(3*time.Hour), 0.99, soon))
+	if d.Held() != "one" || (*tried)[0].Rule != "unknown" {
+		t.Fatalf("with the held one full: %q %+v", d.Held(), *tried)
+	}
+}

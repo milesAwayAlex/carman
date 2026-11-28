@@ -750,6 +750,30 @@ func shareLines(p budgetPlan) []string {
 	return out
 }
 
+// loggedAccounts is the plan's standings in the meter's form: what a
+// meter that starts takes from the log.
+func loggedAccounts(p budgetPlan) meter.Logged {
+	win := func(w winAt) meter.Window {
+		out := meter.Window{Utilization: w.Used}
+		if !w.Reset.IsZero() {
+			out.ResetsAt = w.Reset.Unix()
+		}
+		return out
+	}
+	l := meter.Logged{Held: p.Held, Accounts: map[string]meter.LoggedAccount{}}
+	for _, a := range p.Accounts {
+		if !a.Known || a.Name == "" {
+			continue
+		}
+		la := meter.LoggedAccount{Stood: meter.Stood{FiveHour: win(a.Five), SevenDay: win(a.Week), At: a.Week.ReadAt}, Own: map[string]meter.Window{}}
+		for m, o := range a.Own {
+			la.Own[m] = win(o)
+		}
+		l.Accounts[a.Name] = la
+	}
+	return l
+}
+
 // planReadings is how many readings the plan is computed from: enough for
 // two accounts' costs.
 const planReadings = 3000

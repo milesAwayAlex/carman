@@ -223,7 +223,7 @@ render() {
     helm template "$name" "$src/charts/carman" --namespace "$namespace" -f deploy/values/trial.yaml ${TRIAL_VALUES:+-f "$TRIAL_VALUES"} \
         --set "memory.image=$memory_image" --set "dispatcher.image=$dispatcher_image" --set "agent.image=${agent_image:-$dispatcher_image}" "${tick[@]}" "${proxy[@]}" |
         kubectl --context "$context" create --dry-run=client -o json -f - |
-        TRIAL_PROXY="${TRIAL_PROXY:-}" TRIAL_MODEL="${TRIAL_MODEL:-}" TRIAL_REFUSED="$refused" TRIAL_LABEL="$name" TRIAL_PREFIX="$pre" TRIAL_OWNER="$holder" TRIAL_ACCOUNT="$account" TRIAL_ACCOUNTS="${TRIAL_ACCOUNTS:-}" TRIAL_IMAGE="$dispatcher_image" python3 -c '
+        TRIAL_PROXY="${TRIAL_PROXY:-}" TRIAL_MODEL="${TRIAL_MODEL:-}" TRIAL_REFUSED="$refused" TRIAL_LABEL="$name" TRIAL_PREFIX="$pre" TRIAL_OWNER="$holder" TRIAL_ACCOUNT="$account" TRIAL_ACCOUNTS="${TRIAL_ACCOUNTS:-}" TRIAL_REFUSE_READINGS="${TRIAL_REFUSE_READINGS:-}" TRIAL_IMAGE="$dispatcher_image" python3 -c '
 import json, os, re, sys
 refused = os.environ["TRIAL_REFUSED"].split()
 name, account, pre = os.environ["TRIAL_LABEL"], os.environ["TRIAL_ACCOUNT"], os.environ["TRIAL_PREFIX"]
@@ -259,7 +259,8 @@ if os.environ.get("TRIAL_PROXY") and not os.environ.get("TRIAL_MODEL"):
             "containers": [{"name": "model", "image": os.environ["TRIAL_IMAGE"], "command": ["dispatcher", "stand-in"],
                 "resources": {"requests": {"cpu": "10m", "memory": "16Mi"}, "limits": {"memory": "64Mi"}},
                 "env": [{"name": "STAND_IN_TOKEN_FILE", "value": "/etc/stand-in/token"}] +
-                    ([{"name": "STAND_IN_ACCOUNTS_DIR", "value": "/etc/stand-in"}] if os.environ.get("TRIAL_ACCOUNTS") else []),
+                    ([{"name": "STAND_IN_ACCOUNTS_DIR", "value": "/etc/stand-in"}] if os.environ.get("TRIAL_ACCOUNTS") else []) +
+                    ([{"name": "STAND_IN_REFUSE_READINGS", "value": "on"}] if os.environ.get("TRIAL_REFUSE_READINGS") else []),
                 "volumeMounts": [{"name": "credential", "mountPath": "/etc/stand-in", "readOnly": True}]}],
             "volumes": [{"name": "credential", "secret": {"secretName": "model-credential"}}]}}}})
     out.append({"apiVersion": "v1", "kind": "Service", "metadata": {"name": "model"},

@@ -54,8 +54,9 @@ type Accounts struct {
 	// model, as that model's answers gave it; aside is the account a
 	// model's requests go out on while the held one's limit for it is
 	// spent.
-	own   map[string]map[string]Window
-	aside map[string]string
+	own    map[string]map[string]Window
+	aside  map[string]string
+	seeded bool
 }
 
 // TypeModelAccountFor is recorded when the requests of one model begin or
@@ -411,31 +412,89 @@ func (a *Accounts) choose(now time.Time) (string, string, string) {
 		}
 		return x < y
 	}
-	var roomy []string
+	// The rules are for accounts whose standing is known. One never read
+	// is no reason to leave an account that answers: it is tried only when
+	// the account held is known to have no room, and no known one has.
+	known := func(n string) bool { return !a.stand[n].At.IsZero() }
+	var roomy, unknown []string
 	for _, n := range names {
-		if room(n) {
+		switch {
+		case !known(n):
+			unknown = append(unknown, n)
+		case room(n):
 			roomy = append(roomy, n)
 		}
 	}
-	if len(roomy) == 0 {
-		return a.held, "", ""
-	}
 	sort.Slice(roomy, func(i, j int) bool { return sooner(roomy[i], roomy[j]) })
-	first := roomy[0]
-	if open(first) {
-		why := fmt.Sprintf("account %s has room", first)
-		if w := st[first].SevenDay; w.ResetsAt != 0 {
-			why = fmt.Sprintf("the week of account %s ends soonest (%s) and has room (at %s)", first, at(w.ResetsAt), percent(w.Utilization))
+	if len(roomy) > 0 {
+		first := roomy[0]
+		if open(first) {
+			w := st[first].SevenDay
+			return first, "week", fmt.Sprintf("the week of account %s ends soonest (%s) and has room (at %s)", first, at(w.ResetsAt), percent(w.Utilization))
 		}
-		return first, "week", why
+		for _, n := range roomy[1:] {
+			if open(n) {
+				f := st[first].FiveHour
+				return n, "five-hour", fmt.Sprintf("the five-hour window of account %s is at %s, until %s; account %s has room meanwhile", first, percent(f.Utilization), at(f.ResetsAt), n)
+			}
+		}
 	}
-	for _, n := range roomy[1:] {
-		if open(n) {
-			f := st[first].FiveHour
-			return n, "five-hour", fmt.Sprintf("the five-hour window of account %s is at %s, until %s; account %s has room meanwhile", first, percent(f.Utilization), at(f.ResetsAt), n)
+	if h := a.held; h != "" && known(h) && (!room(h) || !open(h)) {
+		for _, n := range unknown {
+			if n != h {
+				return n, "unknown", fmt.Sprintf("account %s has no room now (five-hour at %s, its week at %s) and no account known to have room; the standing of account %s is not known, and it is tried", h, percent(st[h].FiveHour.Utilization), percent(st[h].SevenDay.Utilization), n)
+			}
 		}
 	}
 	return a.held, "", ""
+}
+
+// Logged is what the dispatcher's log holds of the accounts: which one
+// the proxy held last, and each one's standing as last read.
+type Logged struct {
+	Held     string                   `json:"held,omitempty"`
+	Accounts map[string]LoggedAccount `json:"accounts"`
+}
+
+// LoggedAccount is one account's standing by the log.
+type LoggedAccount struct {
+	Stood
+	// Own is each model's own weekly limit on the account, by model.
+	Own map[string]Window `json:"own,omitempty"`
+}
+
+// Seed takes the standings the log holds, where they are newer than what
+// the meter read itself, and, before any request, the account the proxy
+// held last. A meter that starts knows by this what the one before it
+// knew; an account it cannot read is known as the log has it.
+func (a *Accounts) Seed(l Logged) {
+	a.mu.Lock()
+	if a.stand == nil {
+		a.stand = map[string]Stood{}
+	}
+	if _, ok := a.creds[l.Held]; ok && !a.seeded {
+		a.held = l.Held
+	}
+	a.seeded = true
+	for n, s := range l.Accounts {
+		if _, ok := a.creds[n]; !ok || s.At.IsZero() || !s.At.After(a.stand[n].At) {
+			continue
+		}
+		a.stand[n] = s.Stood
+		for m, w := range s.Own {
+			if a.own == nil {
+				a.own = map[string]map[string]Window{}
+			}
+			if a.own[n] == nil {
+				a.own[n] = map[string]Window{}
+			}
+			if a.own[n][m].Status != "rejected" {
+				a.own[n][m] = w
+			}
+		}
+	}
+	a.mu.Unlock()
+	a.Decide()
 }
 
 // Decide applies the rules now and switches if they say so and the last

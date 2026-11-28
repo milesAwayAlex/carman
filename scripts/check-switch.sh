@@ -4,8 +4,12 @@
 # its own proxy and meter in front of the stand-in for the model's API, and
 # two made-up accounts there, each with a standing of its own:
 #
-#   1. the meter holds both credentials, begins on the one the secret
-#      named, and reads the one it does not hold;
+#   0. as a real installation starts: the meter's own readings are refused
+#      with nothing of the standing and the log holds nothing: it stays on
+#      the account the secret named, which answers;
+#   1. the log comes to hold the other account's standing, its week ending
+#      sooner with room: the meter goes to it, by rule 1; then its own
+#      readings are answered, and it reads the account it does not hold;
 #   2. the other account's week is made to end sooner: the meter goes to
 #      it, the change is in the trial's log with its readings, the owner
 #      is told in one line, and the next call goes out on its credential;
@@ -51,7 +55,7 @@ egress:
       hold: 20s
       readEvery: 15s
 YAML
-TRIAL_PROXY=1 TRIAL_MODEL="" TRIAL_ACCOUNTS="first second" TRIAL_VALUES="$values" scripts/trial.sh "$context" up | tail -1
+TRIAL_PROXY=1 TRIAL_MODEL="" TRIAL_ACCOUNTS="second first" TRIAL_REFUSE_READINGS=1 TRIAL_VALUES="$values" scripts/trial.sh "$context" up | tail -1
 rm -f "$values"
 "${kube[@]}" rollout status "deployment/${pre}egress" --timeout=180s >/dev/null
 "${kube[@]}" rollout status "deployment/${pre}model" --timeout=180s >/dev/null
@@ -103,17 +107,41 @@ standing() { path=/stand-in/standing standin "--header 'content-type: applicatio
 asked_of() { seen | python3 -c 'import json,sys; print(json.load(sys.stdin).get("by_account", {}).get(sys.argv[1], 0))' "$1"; }
 meter_log() { "${kube[@]}" logs "deployment/${pre}egress" -c meter --tail=-1 2>&1; }
 
-# 1. Both credentials, the first to begin with, and the other read.
+# 0. As a real installation starts: the meter's own reading of each account
+# is refused with nothing of the standing, and the log holds nothing. It
+# stays on the account it was given (the second), which answers.
+out="$(ask)"; has "$out" "status 200"
+sleep 12
 out="$(ask)"; has "$out" "status 200"
 has "$(seen)" '"refused_for_the_credential":0'
 log="$(meter_log)"
 has "$log" "the meter holds several accounts for the model"
 has "$log" "accounts=first,second"
+has "$log" "an account's standing could not be read"
 ! grep -q "stand-in-first-\|stand-in-second-" <<<"$log" || die "the meter's log holds a credential"
+[ "$(asked_of second)" -ge 2 ] && [ "$(asked_of first)" -eq 0 ] || die "with nothing known the meter left the account it was given: $(seen)"
+[ -z "$(events model.account 2>/dev/null | grep -F '"by":"proxy"' || true)" ] || die "with nothing known the meter switched: $(events model.account)"
+step "with both of its readings refused and nothing in the log, the meter stayed on the account it was given, which answers; its log names no credential"
+
+# 1. The log comes to hold the other account's standing (as the readings of
+# a time it was held): its week ends sooner and has room. The meter decides
+# from the log.
+soon="$(( $(date +%s) + 86400 ))"
+owner emit usage.observed --subject claude-haiku-5-5 --data "{\"model\":\"claude-haiku-5-5\",\"account\":\"first\",\"rate_limit_info\":{\"status\":\"allowed\",\"unifiedWindows\":{\"five_hour\":{\"utilization\":0.1,\"resetsAt\":$(( $(date +%s) + 7200 ))},\"seven_day\":{\"utilization\":0.4,\"resetsAt\":$soon}}}}" >/dev/null
+sw="$(await model.account '"to":"first"')"
+has "$sw" '"rule":"week"'
+has "$sw" '"from":"second"'
+has "$sw" "the week of account first ends soonest"
+before="$(asked_of first)"
+out="$(ask)"; has "$out" "status 200"
+[ "$(asked_of first)" -gt "$before" ] || die "after the switch a call did not go out on the first account: $(seen)"
+step "once the log held the other account's standing (its week ends sooner, with room) the meter went to it by rule 1, with that reason"
+
+# From here the meter's own readings are answered, as the stand-in's are.
+standing '{"readings":"allowed"}'
 await usage.observed '"account":"second"' >/dev/null
 await usage.observed '"account":"first"' >/dev/null
-[ "$(asked_of second)" -ge 1 ] || die "the account not held was not read: $(seen)"
-step "the meter holds both accounts' credentials, sent an agent's call out on the first, and read the standing of the one it does not hold; its log names no credential"
+step "the meter read the standing of the account it does not hold, and readings say which account they are of"
 
 # 2. The second's week ends sooner and has room: the meter goes to it.
 standing '{"account":"second","windows":{"7d":{"utilization":0.4,"reset_in":86400}}}'

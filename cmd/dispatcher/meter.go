@@ -151,8 +151,17 @@ func meterCmd(ctx context.Context) error {
 		if err := accounts.Load(); err != nil {
 			log.Error("no account's credential can be read; the one credential is used and nothing is switched", "error", err)
 			accounts = nil
-		} else if v, err := cred.Get(); err == nil {
-			accounts.StartWith(v)
+		} else {
+			// The account held last and each one's standing, by the log;
+			// without the log, the account a person put there.
+			if du != "" && tf != "" {
+				if err := seedAccounts(ctx, accounts, dispatcher); err != nil {
+					log.Warn("the accounts' standings could not be read from the dispatcher's log; nothing is switched on what is not known", "error", err)
+				}
+			}
+			if v, err := cred.Get(); err == nil {
+				accounts.StartWith(v)
+			}
 		}
 	}
 
@@ -194,6 +203,22 @@ func meterCmd(ctx context.Context) error {
 		if du != "" && tf != "" {
 			accounts.Switched = func(sw meter.Switch) { go sendSwitch(ctx, dispatcher, sw, log) }
 		}
+		if du != "" && tf != "" {
+			go func() {
+				every := time.Minute
+				if accounts.Read > 0 && accounts.Read < every {
+					every = accounts.Read
+				}
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(every):
+					}
+					_ = seedAccounts(ctx, accounts, dispatcher)
+				}
+			}()
+		}
 		go accounts.Run(ctx)
 		log.Info("the meter holds several accounts for the model and switches between them", "held", accounts.Held())
 	}
@@ -229,6 +254,23 @@ func meterCmd(ctx context.Context) error {
 	err = meter.Serve(ctx, sender, drain, final, servers...)
 	log.Info("meter ended")
 	return err
+}
+
+// seedAccounts gives the meter what the dispatcher's log holds of the
+// accounts.
+func seedAccounts(ctx context.Context, a *meter.Accounts, dispatcher func() (*api.Client, error)) error {
+	c, err := dispatcher()
+	if err != nil {
+		return err
+	}
+	var l meter.Logged
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := c.Do(cctx, http.MethodGet, "/v1/meter/accounts", nil, nil, &l); err != nil {
+		return err
+	}
+	a.Seed(l)
+	return nil
 }
 
 // probeAccount asks the model one small thing with one account's

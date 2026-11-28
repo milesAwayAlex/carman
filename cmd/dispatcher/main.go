@@ -68,6 +68,7 @@ import (
 	"carman/internal/dispatch/improve"
 	"carman/internal/dispatch/kube"
 	"carman/internal/dispatch/message"
+	"carman/internal/dispatch/meter"
 	"carman/internal/dispatch/notice"
 	"carman/internal/dispatch/pgxdispatch"
 	"carman/internal/dispatch/trigger"
@@ -850,7 +851,19 @@ func serve(ctx context.Context) error {
 		logger.Info("working through the owner's queue", "agent", qc.Agent, "running", qc.Running, "model", qc.Model, "strongest", qc.Strongest)
 		go q.Run(work)
 	}
-	srv := &api.Server{Store: d, Tokens: tokens, OwnerSHA256: ownerSHA256, Check: check, Log: logger, Messages: messages, Verify: verify, Improve: list, Budget: priorities, Outside: outside, ProxyLimits: proxyLimits,
+	// What the log holds of the model's accounts, as the plan reads it.
+	modelAccounts := func(ctx context.Context) (meter.Logged, error) {
+		rs, err := d.Last(ctx, TypeUsageObserved, planReadings)
+		if err != nil {
+			return meter.Logged{}, err
+		}
+		changes, err := d.Last(ctx, TypeModelAccount, 200)
+		if err != nil {
+			return meter.Logged{}, err
+		}
+		return loggedAccounts(planOf(rs, changes, time.Now(), defaultPlan())), nil
+	}
+	srv := &api.Server{ModelAccounts: modelAccounts, Store: d, Tokens: tokens, OwnerSHA256: ownerSHA256, Check: check, Log: logger, Messages: messages, Verify: verify, Improve: list, Budget: priorities, Outside: outside, ProxyLimits: proxyLimits,
 		Dump: func(ctx context.Context, f *os.File) error {
 			args := []string{"--no-owner", "--no-privileges", "--format=plain"}
 			if dbURL != "" {

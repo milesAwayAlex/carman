@@ -108,6 +108,9 @@ type Server struct {
 	Now func() time.Time
 	// Improve is the list of improvements to the platform (ADR 0058).
 	Improve *improve.Service
+	// ModelAccounts is what the log holds of the model's accounts, for a
+	// meter that switches between them (ADR 0078).
+	ModelAccounts func(ctx context.Context) (meter.Logged, error)
 	// Budget is the owner's priorities for the model's usage.
 	Budget *budget.Service
 	// Outside takes what watches saw and what hooks were told (ADR 0063).
@@ -142,6 +145,7 @@ func (s *Server) routes() []route {
 		{http.MethodGet, "/v1/dump", dumpers, s.dump},
 		{http.MethodGet, "/v1/meter/standing", []Role{RoleOwner, RoleMeter}, s.standing},
 		{http.MethodGet, "/v1/meter/trials", []Role{RoleOwner, RoleMeter}, s.trialsUsed},
+		{http.MethodGet, "/v1/meter/accounts", []Role{RoleOwner, RoleMeter}, s.modelAccounts},
 		{http.MethodGet, "/v1/usage/latest", []Role{RoleOwner, RoleAgent}, s.usageLatest},
 		{http.MethodGet, "/v1/deployed", messengers, s.deployed},
 		{http.MethodGet, "/v1/whoami", messengers, s.whoami},
@@ -379,6 +383,13 @@ func (s *Server) emit(_ http.ResponseWriter, r *http.Request, role Role) (any, e
 		}
 	}
 	return map[string]string{"id": e.ID}, nil
+}
+
+func (s *Server) modelAccounts(_ http.ResponseWriter, r *http.Request, _ Role) (any, error) {
+	if s.ModelAccounts == nil {
+		return meter.Logged{Accounts: map[string]meter.LoggedAccount{}}, nil
+	}
+	return s.ModelAccounts(r.Context())
 }
 
 // Record is a log entry as the API shows it.

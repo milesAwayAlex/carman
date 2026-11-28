@@ -71,6 +71,8 @@ type standIn struct {
 	accounts       map[string]*standAccount
 	byAccount      map[string]int
 	byAccountModel map[string]int
+	refuseReadings bool
+	bare           int
 	now            func() time.Time
 
 	mu       sync.Mutex
@@ -126,6 +128,7 @@ type standWindow struct {
 func standInFromEnv() *standIn {
 	s := newStandIn(os.Getenv("STAND_IN_TOKEN_FILE"))
 	s.accountsDir = os.Getenv("STAND_IN_ACCOUNTS_DIR")
+	s.refuseReadings = os.Getenv("STAND_IN_REFUSE_READINGS") == "on"
 	return s
 }
 
@@ -191,15 +194,19 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case r.URL.Path == "/stand-in/standing" && r.Method == http.MethodPost:
 		var set struct {
-			Account string                 `json:"account"`
-			Status  string                 `json:"status"`
-			Windows map[string]standWindow `json:"windows"`
+			Account  string                 `json:"account"`
+			Readings string                 `json:"readings"` // refused or allowed
+			Status   string                 `json:"status"`
+			Windows  map[string]standWindow `json:"windows"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&set); err != nil {
 			apiError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 			return
 		}
 		s.mu.Lock()
+		if set.Readings != "" {
+			s.refuseReadings = set.Readings == "refused"
+		}
 		if set.Account != "" {
 			a := s.account(set.Account)
 			if set.Status != "" {
@@ -223,7 +230,7 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"requests": s.requests, "by_model": s.byModel, "tokens": s.tokens, "refused_for_the_credential": s.denied, "last_user_agent": s.lastUA, "by_account": s.byAccount, "by_account_and_model": s.byAccountModel})
+		_ = json.NewEncoder(w).Encode(map[string]any{"requests": s.requests, "by_model": s.byModel, "tokens": s.tokens, "refused_for_the_credential": s.denied, "last_user_agent": s.lastUA, "by_account": s.byAccount, "by_account_and_model": s.byAccountModel, "readings_refused": s.bare})
 		return
 	}
 	// The API's own paths take the credential.
@@ -260,15 +267,29 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<20))
 	var req struct {
-		Model    string `json:"model"`
-		Stream   bool   `json:"stream"`
-		Messages []struct {
+		Model     string `json:"model"`
+		Stream    bool   `json:"stream"`
+		MaxTokens int    `json:"max_tokens"`
+		Messages  []struct {
 			Role    string          `json:"role"`
 			Content json.RawMessage `json:"content"`
 		} `json:"messages"`
 	}
 	if json.Unmarshal(body, &req) != nil || req.Model == "" {
 		apiError(w, http.StatusBadRequest, "invalid_request_error", "a message names its model")
+		return
+	}
+	// A request of one token is a reading of the standing by something
+	// that is no harness: refused, where said, as the API refuses those,
+	// with nothing of the standing.
+	s.mu.Lock()
+	bare := s.refuseReadings && req.MaxTokens == 1
+	if bare {
+		s.bare++
+	}
+	s.mu.Unlock()
+	if bare {
+		apiError(w, http.StatusTooManyRequests, "rate_limit_error", "Error")
 		return
 	}
 	s.mu.Lock()
