@@ -82,6 +82,10 @@ type Message struct {
 	// AgainAfterLimit: the sender asks that, if its run stops at the plan's
 	// usage limit, the dispatcher send it again once after the reset.
 	AgainAfterLimit bool `json:"again_after_limit,omitempty"`
+	// Model is the model the run a message starts is to use, where the
+	// dispatcher itself sends it for the owner's queue (ADR
+	// new-the-queue-runs-itself); a sender cannot say it.
+	Model string `json:"model,omitempty"`
 	// Resends is the message this one sends again, after a limit.
 	Resends string `json:"resends,omitempty"`
 }
@@ -418,6 +422,17 @@ type SendOptions struct {
 	AgainAfterLimit bool
 	// id: the id it is sent under, for a message asked for at a time.
 	id string
+	// Model: the model its run is to use (SendQueued only).
+	Model string
+}
+
+// SendQueued sends an item of the owner's queue to an agent, as the owner,
+// for the dispatcher itself (ADR new-the-queue-runs-itself): the run it
+// starts uses the model given, and its answer goes to the owner like any
+// answer to him. The id is the message's, made by the caller, which has
+// recorded it before sending.
+func (s *Service) SendQueued(ctx context.Context, id, to, body, model string) (Result, error) {
+	return s.send(ctx, Caller{Owner: true}, "", to, body, "", true, SendOptions{Model: model, id: id})
 }
 
 // SendWith is Send with options.
@@ -443,7 +458,7 @@ func (s *Service) send(ctx context.Context, c Caller, session, given, body, answ
 	if len(body) > 64<<10 {
 		return Result{}, fmt.Errorf("%w: a message is at most 64 KiB; put more in a file or a repository and send where it is", ErrInvalid)
 	}
-	m := Message{ID: newID(), Given: given, Body: body, Answers: answers, Sent: s.now().UTC(), AgainAfterLimit: o.AgainAfterLimit}
+	m := Message{ID: newID(), Given: given, Body: body, Answers: answers, Sent: s.now().UTC(), AgainAfterLimit: o.AgainAfterLimit, Model: o.Model}
 	if o.id != "" {
 		m.ID = o.id
 	}
@@ -655,6 +670,9 @@ func (s *Service) start(ctx context.Context, m Message, agent, session string, l
 		return reason, err
 	}
 	env := map[string]string{"TASK_MESSAGE": m.ID}
+	if m.Model != "" {
+		env["TASK_MODEL"] = m.Model
+	}
 	if session != "" {
 		env["TASK_SESSION"] = session
 	}

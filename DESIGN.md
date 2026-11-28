@@ -688,7 +688,7 @@ which are the weakest parts. Three things are meant to keep that manageable:
   priorities, each a share of the usage and a list of what is to be done
   under it, are events too (`dispatcher priority`), and the plan divides
   each account's room by them; nothing yet measures what a priority
-  spent or starts its work.
+  spent.
   The model's credential is held by a meter beside the proxy (ADR 0050):
   the proxy hands it every request to the model's API with the
   caller's address, the meter refuses an address that is no agent's pod of
@@ -708,6 +708,14 @@ which are the weakest parts. Three things are meant to keep that manageable:
   finish and sends what it holds, a long session's use is written every
   five minutes, and the trials' day is read back from the log (ADR
   0072, proposed).
+- The queue (ADR new-the-queue-runs-itself, proposed): where the
+  installation turns it on, the dispatcher takes the next item of the
+  owner's list that waits and sends it, as the owner, to one agent, as
+  many at once as it is told; the run is given its model (not the
+  strongest unless the item is hard or names one), and is not started
+  while its model is refused or usage is ahead of its line (ADR 0060);
+  an item held does not hold the next. The item ends done with the first
+  line of the answer, or failed, which nothing takes again by itself.
 - Beside the proxy and the memory, agents reach the namespaces the
   installation names for its own services, and have one namespace where
   they may run what a task needs, bounded by a quota and closed to the

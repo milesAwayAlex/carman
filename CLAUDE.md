@@ -97,8 +97,17 @@ Built so far:
   `internal/dispatch/budget`): each a share and a list of what is to be
   done under it, set by the owner or his machine, and the plan divides
   each account's room by them. Not built: work carrying its priority to
-  the meter, what a priority spent, picking the next item and its model.
+  the meter, and what a priority spent.
 
+- The queue (ADR new-the-queue-runs-itself, proposed): with
+  `dispatcher.queue.enabled` the dispatcher works through the owner's list
+  (`dispatcher priority add`) by itself: the next item that waits is sent
+  to the agent the installation names, on a model that is not the
+  strongest unless the item is hard, while usage is at or under its line
+  (ADR 0060) and the item's model is not refused; it is done with the
+  first line of the run's answer, or failed (`priority again ID` puts it
+  back). `dispatch priority list` shows what runs, waits (and why), failed
+  and was done. `scripts/check-queue.sh CONTEXT` tries it in a trial.
 - The model's credential at the proxy (ADR 0050): with
   `agent.modelCredential: proxy` agent pods hold a placeholder, and a meter
   beside the proxy puts the credential on each request to the model. It

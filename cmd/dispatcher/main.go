@@ -108,6 +108,7 @@ dispatcher priority add NAME 'WHAT' [--hard] [--model M] [--first]
                                               the same: something to be done under it; --hard: for the strongest model
 dispatcher priority start|done ID ['NOTE']    an item is begun or finished (an agent may say this of its own work)
 dispatcher priority drop|first ID             the owner's: not to be done; or before the others of its priority
+dispatcher priority again ID                  the owner's: an item that failed waits again (the queue takes nothing twice by itself)
 
 dispatcher meter                          the egress proxy's meter of model use (ADR 0050)
 dispatcher stand-in                       a stand-in for the model's API, for a trial's proxy and meter: the API's shapes,
@@ -824,7 +825,32 @@ func serve(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	srv := &api.Server{Store: d, Tokens: tokens, OwnerSHA256: ownerSHA256, Check: check, Log: logger, Messages: messages, Verify: verify, Improve: list, Budget: &budget.Service{Store: d}, Outside: outside, ProxyLimits: proxyLimits,
+	// The owner's list of what is to be done (ADR 0077), and, where the
+	// installation says, the queue that works through it by itself (ADR
+	// new-the-queue-runs-itself). Off unless DISPATCHER_QUEUE names an agent.
+	priorities := &budget.Service{Store: d}
+	if qc, on, err := parseQueue(os.Getenv("DISPATCHER_QUEUE")); err != nil {
+		return err
+	} else if on && messages == nil {
+		logger.Warn("the queue is not run: this dispatcher is not in a cluster, so no message starts a run")
+	} else if on {
+		q := &queueRunner{cfg: qc, list: priorities, store: d, now: time.Now, log: logger,
+			hold: queueHold(readings, pacing, 2*time.Hour, time.Now),
+			send: func(ctx context.Context, id, to, body, model string) error {
+				res, err := messages.SendQueued(ctx, id, to, body, model)
+				if err == nil && res.State == "refused" {
+					err = errors.New(res.Detail)
+				}
+				return err
+			},
+			status: func(ctx context.Context, id string) (message.Status, error) {
+				return messages.Status(ctx, queueOwner, id)
+			}}
+		priorities.Held = q.Held
+		logger.Info("working through the owner's queue", "agent", qc.Agent, "running", qc.Running, "model", qc.Model, "strongest", qc.Strongest)
+		go q.Run(work)
+	}
+	srv := &api.Server{Store: d, Tokens: tokens, OwnerSHA256: ownerSHA256, Check: check, Log: logger, Messages: messages, Verify: verify, Improve: list, Budget: priorities, Outside: outside, ProxyLimits: proxyLimits,
 		Dump: func(ctx context.Context, f *os.File) error {
 			args := []string{"--no-owner", "--no-privileges", "--format=plain"}
 			if dbURL != "" {

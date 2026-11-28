@@ -75,7 +75,7 @@ func priorityCmd(ctx context.Context, c *api.Client, pos []string, flags map[str
 			ch.Hard = &hard
 		}
 		return item(ch)
-	case "start", "done", "drop", "first":
+	case "start", "done", "drop", "first", "again":
 		if err := need(1, cmd+" ID"); err != nil {
 			return err
 		}
@@ -89,14 +89,24 @@ func priorityCmd(ctx context.Context, c *api.Client, pos []string, flags map[str
 			ch.State = budget.Dropped
 		case "first":
 			ch.First = true
+		case "again":
+			// A failed item waits again: the queue takes nothing twice by itself.
+			ch.State = budget.Waiting
+			if ch.Note == "" {
+				ch.Note = "put back to wait"
+			}
 		}
 		return item(ch)
 	}
-	return fmt.Errorf("dispatcher priority: no %q; say list, set, remove, add, start, done, drop or first", cmd)
+	return fmt.Errorf("dispatcher priority: no %q; say list, set, remove, add, start, done, drop, first or again", cmd)
 }
 
 func priorityItemLine(it budget.Item) string {
-	s := fmt.Sprintf("%s  %-8s %s", it.ID, it.State, it.Title)
+	state := it.State
+	if state == budget.Started {
+		state = "running"
+	}
+	s := fmt.Sprintf("%s  %-8s %s", it.ID, state, strings.SplitN(it.Title, "\n", 2)[0])
 	switch {
 	case it.Model != "":
 		s += " (on " + it.Model + ")"
@@ -106,8 +116,11 @@ func priorityItemLine(it budget.Item) string {
 	if it.By != "" && it.State != budget.Waiting {
 		s += ", by " + it.By
 	}
-	if it.Note != "" {
+	if it.Note != "" && it.State != budget.Waiting {
 		s += ": " + it.Note
+	}
+	if it.Held != "" {
+		s += "\n      held: " + it.Held
 	}
 	return s
 }
@@ -123,12 +136,32 @@ func printPriorities(v budget.View) {
 		if st.Name == def {
 			l += ", the default"
 		}
-		l += fmt.Sprintf("; %d waiting, %d done", len(st.Items), st.Done)
+		waiting, running, failed := 0, 0, 0
+		for _, it := range st.Items {
+			switch it.State {
+			case budget.Started:
+				running++
+			case budget.Failed:
+				failed++
+			default:
+				waiting++
+			}
+		}
+		l += fmt.Sprintf("; %d waiting, %d running, %d failed, %d done", waiting, running, failed, st.Done)
 		if st.Note != "" {
 			l += ": " + st.Note
 		}
 		fmt.Println(l)
-		for _, it := range st.Items {
+		// What runs, then what waits in its order, then what failed; and
+		// the latest done, each with the first line of what it ended with.
+		for _, want := range []string{budget.Started, budget.Waiting, budget.Failed} {
+			for _, it := range st.Items {
+				if it.State == want {
+					fmt.Println("  " + priorityItemLine(it))
+				}
+			}
+		}
+		for _, it := range st.Recent {
 			fmt.Println("  " + priorityItemLine(it))
 		}
 	}

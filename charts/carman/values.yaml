@@ -210,6 +210,23 @@ dispatcher:
   #       pick: {action: action, issue: data.identifier}
   hooks: {}
   hooksSecret: dispatcher-hooks
+  # The queue (ADR new-the-queue-runs-itself): the owner's list of what is
+  # to be done (`dispatcher priority add`, ADR 0077) worked through by
+  # itself. While fewer than `running` of its items run, the dispatcher
+  # sends the next that waits to `agent`, as the owner, and marks it done
+  # with the first line of the run's answer. An item runs on `model`, or
+  # on `strongest` when it is marked hard, or on the one it names; one
+  # whose model is refused waits for it and does not hold the others; and
+  # none starts while usage is ahead of its line to a window's reset
+  # (pace.target, ADR 0060). Off until the installation says.
+  queue:
+    enabled: false
+    # The agent that takes the items: one with takesMessages.
+    agent: ""
+    running: 1
+    # Not the strongest model: that is for what is marked hard.
+    model: ""
+    strongest: ""
   # The improvement loop (ADR 0058): the list of what should be improved in
   # the platform itself is kept in the dispatcher's log, and read with
   # `scripts/deploy.sh CONTEXT dispatch improve`. The owner and the owner's

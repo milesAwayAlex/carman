@@ -224,6 +224,9 @@ EOF
     else
         id="$(cat /proc/sys/kernel/random/uuid)" cwd="${PWD:-/work}" how="--session-id $id"
     fi
+    # A run the queue started names its model (TASK_MODEL); else the
+    # conversation's own, else the agent's first.
+    [ -z "${TASK_MODEL:-}" ] || model="$TASK_MODEL"
     [ -n "$model" ] || model="$(echo "${CMEM_ROUTINE_MODELS:-}" | cut -d, -f1)"
     # The message, taken: from now it is this session's, delivered at its start.
     # A dispatcher that is restarting is waited for, a minute at most.

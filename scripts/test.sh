@@ -125,6 +125,15 @@ if command -v helm >/dev/null; then
         --set-json 'egress.credentials=[{"host":"a.example.com","key":"app"},{"host":"a.example.com","key":"c"}]' >/dev/null 2>&1; then
         echo "the chart renders two credentials of one host for one header" >&2; exit 1
     fi
+    # The queue (ADR new-the-queue-runs-itself): off unless said; on, the
+    # dispatcher is told its agent and models, and an agent that takes no
+    # messages is refused.
+    ! "${render[@]}" | grep -q DISPATCHER_QUEUE || { echo "the chart turns the queue on by itself" >&2; exit 1; }
+    "${render[@]}" --set-json 'agents=[{"name":"b","takesMessages":true}]' --set-json 'dispatcher.queue={"enabled":true,"agent":"b","model":"plain","strongest":"strong"}' |
+        grep -F '{\"agent\":\"b\",\"model\":\"plain\",\"running\":1,\"strongest\":\"strong\"}' >/dev/null || { echo "the chart does not hand the dispatcher the queue's settings" >&2; exit 1; }
+    if "${render[@]}" --set-json 'agents=[{"name":"b","routines":["x"]}]' --set-json 'dispatcher.queue={"enabled":true,"agent":"b"}' >/dev/null 2>&1; then
+        echo "the chart gives the queue an agent that takes no messages" >&2; exit 1
+    fi
     # Agents' limits at the proxy reach the dispatcher (ADR 0064).
     "${render[@]}" --set-json 'agents=[{"name":"a","routines":["x"],"proxyLimit":{"day":40000000}},{"name":"b","routines":["x"]}]' \
         --set-json 'dreamer.proxyLimit={"pod":8000000}' |

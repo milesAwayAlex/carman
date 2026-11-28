@@ -34,6 +34,10 @@ const (
 	Started = "started"
 	Done    = "done"
 	Dropped = "dropped"
+	// Failed: begun and not finished (its run failed, stopped at a limit
+	// or ran out of time). It is not taken again by itself; the owner
+	// puts it back to waiting, or drops it.
+	Failed = "failed"
 )
 
 var (
@@ -80,7 +84,10 @@ type Item struct {
 	By       string    `json:"by,omitempty"` // who last changed its state
 	Added    time.Time `json:"added"`
 	Changed  time.Time `json:"changed"`
-	order    int64
+	// Held is why the queue does not start it now, where it runs items by
+	// itself and holds this one (cmd/dispatcher/queue.go); not kept.
+	Held  string `json:"held,omitempty"`
+	order int64
 }
 
 // Stream is a priority as it stands: its part of the usage, and its
@@ -90,6 +97,9 @@ type Stream struct {
 	Part  float64 `json:"part"` // of the usage, 0 to 1
 	Items []Item  `json:"items"`
 	Done  int     `json:"done"`
+	// Recent are the latest items done, newest first, each with what it
+	// ended with (its note).
+	Recent []Item `json:"recent,omitempty"`
 }
 
 // View is every priority, the largest share first.
@@ -121,6 +131,10 @@ type Store interface {
 type Service struct {
 	Store Store
 	Now   func() time.Time
+	// Held says why an item that waits is not started now, where
+	// something starts items by itself (the queue); empty when it would
+	// be, or when nothing does.
+	Held func(ctx context.Context, it Item) string
 }
 
 func (s *Service) now() time.Time {
@@ -233,7 +247,17 @@ func (s *Service) View(ctx context.Context, c message.Caller) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
-	return st.view(), nil
+	v := st.view()
+	if s.Held != nil {
+		for i := range v.Streams {
+			for j, it := range v.Streams[i].Items {
+				if it.State == Waiting {
+					v.Streams[i].Items[j].Held = s.Held(ctx, it)
+				}
+			}
+		}
+	}
+	return v, nil
 }
 
 func (st *state) view() View {
@@ -254,6 +278,7 @@ func (st *state) view() View {
 			switch it.State {
 			case Done:
 				x.Done++
+				x.Recent = append(x.Recent, *it)
 			case Dropped:
 			default:
 				x.Items = append(x.Items, *it)
@@ -267,6 +292,10 @@ func (st *state) view() View {
 			}
 			return a < b
 		})
+		sort.Slice(x.Recent, func(i, j int) bool { return x.Recent[i].Changed.After(x.Recent[j].Changed) })
+		if len(x.Recent) > 5 {
+			x.Recent = x.Recent[:5]
+		}
 		v.Streams = append(v.Streams, x)
 	}
 	sort.Slice(v.Streams, func(i, j int) bool {
@@ -319,6 +348,16 @@ func (s *Service) Set(ctx context.Context, c message.Caller, p Priority) (View, 
 // Change adds an item or changes one. Adding, moving and dropping are
 // the owner's; an agent in its pod may say it started or finished one.
 func (s *Service) Change(ctx context.Context, c message.Caller, ch Change) (Item, error) {
+	return s.change(ctx, c, who(c), ch)
+}
+
+// ChangeAs is a change the dispatcher itself makes, with the owner's
+// rights, under the name given: the queue, which starts and ends items.
+func (s *Service) ChangeAs(ctx context.Context, by string, ch Change) (Item, error) {
+	return s.change(ctx, message.Caller{Owner: true}, by, ch)
+}
+
+func (s *Service) change(ctx context.Context, c message.Caller, by string, ch Change) (Item, error) {
 	if !known(c) {
 		return Item{}, fmt.Errorf("%w: %s is not known to the dispatcher", ErrForbidden, who(c))
 	}
@@ -326,11 +365,11 @@ func (s *Service) Change(ctx context.Context, c message.Caller, ch Change) (Item
 	if err != nil {
 		return Item{}, err
 	}
-	ch.Who = who(c)
+	ch.Who = by
 	switch ch.State {
-	case "", Waiting, Started, Done, Dropped:
+	case "", Waiting, Started, Done, Dropped, Failed:
 	default:
-		return Item{}, fmt.Errorf("%w: an item is %s, %s, %s or %s", ErrInvalid, Waiting, Started, Done, Dropped)
+		return Item{}, fmt.Errorf("%w: an item is %s, %s, %s, %s or %s", ErrInvalid, Waiting, Started, Done, Failed, Dropped)
 	}
 	if ch.Priority != "" {
 		if _, ok := st.streams[ch.Priority]; !ok {
