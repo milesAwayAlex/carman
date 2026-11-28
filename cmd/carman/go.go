@@ -24,6 +24,9 @@ import (
 type config struct {
 	Context, Namespace, Kubectl, Checkout string
 	URL, Token                            string
+	// OwnerTokenFile holds the owner's token for the dispatcher, for what
+	// only the owner may ask; Dispatcher is the dispatcher's client.
+	OwnerTokenFile, Dispatcher string
 	// Term and Host say what attaches, for the pod: the terminal's kind,
 	// and a name for this place, so that a client a dropped connection
 	// left behind is ended by the next attach from here.
@@ -42,14 +45,16 @@ func or(a ...string) string {
 func configFrom(getenv func(string) string) config {
 	host, _ := os.Hostname()
 	return config{
-		Context:   getenv("CARMAN_CONTEXT"),
-		Namespace: or(getenv("CARMAN_NAMESPACE"), "carman"),
-		Kubectl:   or(getenv("CARMAN_KUBECTL"), "kubectl"),
-		Checkout:  getenv("CARMAN_CHECKOUT"),
-		URL:       or(getenv("CARMAN_DISPATCHER_URL"), getenv("DISPATCHER_URL")),
-		Token:     or(getenv("CARMAN_DISPATCHER_TOKEN"), getenv("DISPATCHER_TOKEN")),
-		Term:      getenv("TERM"),
-		Host:      host,
+		Context:        getenv("CARMAN_CONTEXT"),
+		Namespace:      or(getenv("CARMAN_NAMESPACE"), "carman"),
+		Kubectl:        or(getenv("CARMAN_KUBECTL"), "kubectl"),
+		Checkout:       getenv("CARMAN_CHECKOUT"),
+		URL:            or(getenv("CARMAN_DISPATCHER_URL"), getenv("DISPATCHER_URL")),
+		Token:          or(getenv("CARMAN_DISPATCHER_TOKEN"), getenv("DISPATCHER_TOKEN")),
+		OwnerTokenFile: getenv("CARMAN_OWNER_TOKEN_FILE"),
+		Dispatcher:     or(getenv("CARMAN_DISPATCHER"), dispatcherBin),
+		Term:           getenv("TERM"),
+		Host:           host,
 	}
 }
 
@@ -243,6 +248,10 @@ func stay(ctx context.Context, c config, s session, keep bool) int {
 	left := make(chan os.Signal, 2)
 	signal.Notify(left, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGINT)
 	by := s.By()
+	// Going to a session is looking at it: what it sent the owner is read.
+	if _, _, err := attach(c, s); err == nil {
+		looked(ctx, c, s, os.Stderr)
+	}
 	wait, quick := firstWait, 0
 	for {
 		argv, dir, err := attach(c, s)

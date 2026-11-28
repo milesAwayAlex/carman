@@ -869,6 +869,29 @@ pod is refused: `carman go NAME` goes to that one. To end a session for
 good, `/exit` in it and then `exit` in the shell it leaves: its window
 closes and the pod no longer opens it again (its conversation is kept).
 
+The same program has the views you would otherwise read from the checkout,
+and your inbox:
+
+```sh
+carman status                # the model's usage, what runs and ran, usage by agent (dispatch status)
+carman plan                  # which account to hold and why (dispatch plan)
+carman queue                 # the priorities and what waits, runs and is done (dispatch priority list)
+carman queue add 'WHAT'      # add to it, under the default priority (--in NAME for another; --hard, --model M, --first)
+carman queue drop ID         # not to be done; `first ID` puts it first, `again ID` lets a failed one wait again
+carman inbox                 # what is unread for you, with each message's first lines
+carman inbox --read          # the same, and mark all of it read
+carman read MESSAGE-ID       # mark one read
+```
+
+These are asked as the owner: set `CARMAN_OWNER_TOKEN_FILE` to the file
+that holds the owner's token (`.local/dispatcher-owner.token` of the
+checkout that deployed). Only `queue` works without it, with the machine's
+token. `status`, `plan` and `queue` run the dispatcher's client: the Nix
+package has its own built in; otherwise `dispatcher` has to be on PATH, or
+`CARMAN_DISPATCHER` name it. Going to a session with `carman go` marks what
+that session sent you as read, so the list's "unread for you" clears when
+you have looked; without the owner's token it says that it could not.
+
 In the pod each attach is a view of its own of that one session's window,
 with no status line and no prefix key, so it sits in a window of your own
 tmux as if it ran there; two windows can show two sessions of one pod. It

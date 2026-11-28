@@ -174,6 +174,50 @@ standing agent's pod and goes to it.
   leave the harness running and listed, and ending a harness from outside
   is `agent-open`'s to do first.
 
+**The owner's views and his inbox** (added 2026-11-28: the owner wanted
+what he read from a checkout with `scripts/deploy.sh CONTEXT dispatch ...`
+in his own command, from any directory).
+
+- `carman status [TASK-ID]`, `carman plan [--json]` and `carman queue` run
+  the dispatcher's client (`dispatcher status`, `plan`, `priority list`)
+  and give its words and its status as they are. The views are computed
+  and worded in that client and are still growing, so the program neither
+  copies nor parses them. Which client: `CARMAN_DISPATCHER`, else the one
+  the package was built with (the Nix package builds its own in), else
+  `dispatcher` on PATH.
+- The queue is added to as well as read: `carman queue add 'WHAT' [--in
+  PRIORITY] [--hard] [--model MODEL] [--first]` and `carman queue
+  drop|first|again ID` are the client's `priority add|drop|first|again`
+  (ADR 0077's list, which ADR 0079's runner works through). With no `--in`
+  the item goes under the default priority, which the program asks the
+  dispatcher for, since the dispatcher takes no item without one. Setting
+  and removing priorities, and saying an item is begun or done, are not
+  the program's: the first is rare and stays with the checkout, the second
+  is the work's own word.
+- As whom: the events and tasks that `status` and `plan` read are the
+  owner's to read, and so is his inbox; the machine's token reads neither
+  (ADR 0049), and that is not widened. The program takes the owner's token
+  from the file `CARMAN_OWNER_TOKEN_FILE` names (ADR 0051 keeps it in a
+  checkout's `.local/dispatcher-owner.token`), reads it when a command
+  needs it, and hands it to the client by the environment, never a command
+  line; it is in no shell's environment. `queue` is asked with the owner's
+  token when there is one and with the machine's otherwise. `carman go`
+  itself still needs only the machine's.
+- `carman inbox` shows what is unread for the owner: each message's id,
+  who sent it by what `carman go` takes, when, and its first three lines.
+  `carman inbox --read` marks all of it read, `carman read ID...` the ones
+  named.
+- Going to a session marks read what that session sent the owner: he went
+  to look. It is done as the attach begins, with the owner's token; with
+  none nothing is marked, and the program says so when the session has
+  something unread. Only that session's messages, by its id: an earlier
+  session of the same name keeps its own.
+- A session that can no longer be gone to is not in the list, so its
+  unread messages are nobody's count there; they stay in the inbox, said
+  to be from a session that is gone, until they are read. A session that
+  is listed keeps its count until it is gone to or its messages are
+  marked: nothing is marked read by age.
+
 ## Tried
 
 In a standing agent's pod, with two trial sessions and a tmux server of

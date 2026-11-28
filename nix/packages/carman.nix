@@ -3,10 +3,13 @@
 # (ADR 0057). It runs kubectl, and fzf for its picker when there is one;
 # both are taken from PATH, since which kubectl reaches the cluster is the
 # machine's business.
+# `carman status`, `plan` and `queue` are the dispatcher's client's own
+# views: it is built in by its path, so that nothing has to be on PATH.
 {
   lib,
   buildGoModule,
   cmem,
+  dispatcher,
 }:
 
 buildGoModule {
@@ -24,6 +27,8 @@ buildGoModule {
   };
 
   subPackages = [ "cmd/carman" ];
+
+  ldflags = [ "-X main.dispatcherBin=${lib.getExe dispatcher}" ];
 
   # One module, one go.sum: the same hash as cmem's.
   inherit (cmem) vendorHash;

@@ -203,6 +203,19 @@ which agents are standing. A name that is taken in that pod (a running
 session, a remembered one, a window) is refused and nothing is opened.
 The dispatcher lists the session once its harness has started.
 
+The same program gives the owner what he otherwise reads from a checkout:
+`carman status`, `carman plan` and `carman queue` run the dispatcher's
+client (`status`, `plan`, `priority list`) and print its words, and
+`carman queue add 'WHAT'` and `carman queue drop|first|again ID` change
+the owner's list through it, an item with no priority named going under
+the default one; `carman
+inbox` shows what is unread for him, with each message's first lines, and
+`carman inbox --read` or `carman read ID` marks it read. Going to a session
+marks read what that session sent him. What only the owner may ask (the
+log's events and tasks, his inbox) is asked with the owner's token, read
+from the file `CARMAN_OWNER_TOKEN_FILE` names; the machine's token still
+reads neither.
+
 A standing agent's pod attends to its own sessions (ADR 0053, proposed).
 `dispatcher attend`, started by `agent-session`, holds a session the
 dispatcher believes runs in the pod to have ended when the harness process

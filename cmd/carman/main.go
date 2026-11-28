@@ -9,13 +9,25 @@
 //	carman go --new NAME      open a new session of that name in a standing agent's pod
 //	                          (--in AGENT, --dir DIR, --model MODEL) and go to it
 //
+//	carman status [TASK-ID]   the model's usage, what runs and ran, usage by agent
+//	carman plan [--json]      which account to hold and why, and each one's standing
+//	carman queue              the owner's priorities and what waits, runs and is done under each
+//	carman queue add 'WHAT'   add to the list (--in PRIORITY, --hard, --model MODEL, --first)
+//	carman queue drop|first|again ID
+//	carman inbox [--read]     what is unread for the owner; --read marks it all read
+//	carman read ID...         mark messages read
+//
 // It needs no checkout. Its configuration is the environment:
 // CARMAN_CONTEXT (the kubectl context of the installation's cluster),
 // CARMAN_NAMESPACE (carman unless set), CARMAN_DISPATCHER_URL and
 // CARMAN_DISPATCHER_TOKEN (DISPATCHER_URL and DISPATCHER_TOKEN unless set:
 // the dispatcher, with the owner's machine's token), CARMAN_KUBECTL (kubectl
 // unless set), and CARMAN_CHECKOUT (optional: a checkout whose
-// scripts/deploy.sh resumes a job's kept conversation, ADR 0040).
+// scripts/deploy.sh resumes a job's kept conversation, ADR 0040),
+// CARMAN_OWNER_TOKEN_FILE (the file with the owner's token for the
+// dispatcher: status, plan, the inbox and marking read are the owner's)
+// and CARMAN_DISPATCHER (the dispatcher's client, which prints status, plan
+// and queue; dispatcher on PATH unless set or built in).
 package main
 
 import (
@@ -28,6 +40,14 @@ carman go --list [--names]                            print the sessions and exi
 carman go --print [NAME]                              pick or resolve, and print what it is gone to by
 carman go --new NAME [--in AGENT] [--dir DIR] [--model MODEL] [--keep]
                                                       open a new session in a standing agent's pod and go to it
+carman status [TASK-ID]                               the model's usage, what runs and ran lately, usage by agent
+carman plan [--json]                                  which account to hold and why; each account's standing
+carman queue                                          the priorities, and what waits, runs and is done under each
+carman queue add 'WHAT' [--in PRIORITY] [--hard] [--model MODEL] [--first]
+                                                      add to the list, under the default priority unless --in names one
+carman queue drop|first|again ID                      an item is not to be done; goes first; waits again after failing
+carman inbox [--read]                                 what is unread for you; --read marks all of it read
+carman read MESSAGE-ID...                             mark messages read
 
 A new session: --in says which standing agent's pod (not needed when there is
 one; asked for on a terminal when there are several). --dir is a directory in
@@ -42,18 +62,33 @@ Ending a session for good: /exit in it, then exit in the shell it leaves.
 That closes its window, and the pod no longer opens it again; its
 conversation is kept. Closing your own window only leaves it, running.
 
+Unread: going to a session marks what it sent you as read, with the owner's
+token; carman inbox shows everything unread, also from sessions that are gone.
+status, plan and queue are the dispatcher's client's own words (dispatcher
+status, plan, priority list|add|drop|first|again); status, plan, the inbox and
+marking read need the owner's token, queue takes the machine's when there is
+no owner's. Priorities themselves are set from a checkout (dispatch priority set).
+
 Configuration, from the environment: CARMAN_CONTEXT, CARMAN_NAMESPACE (carman),
 CARMAN_DISPATCHER_URL and CARMAN_DISPATCHER_TOKEN (or DISPATCHER_URL and
-DISPATCHER_TOKEN), CARMAN_KUBECTL (kubectl), CARMAN_CHECKOUT (optional).`
+DISPATCHER_TOKEN), CARMAN_KUBECTL (kubectl), CARMAN_CHECKOUT (optional),
+CARMAN_OWNER_TOKEN_FILE (the file with the owner's token; a checkout's
+.local/dispatcher-owner.token), CARMAN_DISPATCHER (the dispatcher's client).`
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] == "help" || os.Args[1] == "-h" || os.Args[1] == "--help" {
 		fmt.Println(usage)
 		return
 	}
-	if os.Args[1] != "go" {
-		fmt.Fprintf(os.Stderr, "carman: unknown command %q\n%s\n", os.Args[1], usage)
-		os.Exit(2)
+	word, rest := os.Args[1], os.Args[2:]
+	switch {
+	case word == "go":
+		os.Exit(goCmd(rest))
+	case word == "inbox" || word == "read":
+		os.Exit(inboxCmd(word, rest, os.Stdout))
+	case views[word].Ask != nil:
+		os.Exit(viewCmd(word, rest))
 	}
-	os.Exit(goCmd(os.Args[2:]))
+	fmt.Fprintf(os.Stderr, "carman: unknown command %q\n%s\n", word, usage)
+	os.Exit(2)
 }

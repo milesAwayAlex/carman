@@ -225,6 +225,12 @@ Built so far:
   [--dir DIR] [--model MODEL]` opens a session in a standing agent's pod
   (`agent-open` there, so the pod remembers it) and goes to it; a name
   taken there is refused.
+  `carman status|plan|queue` print the dispatcher's client's `status`,
+  `plan` and `priority list` (`carman queue add|drop|first|again` its
+  `priority add|drop|first|again`), and `carman inbox [--read]` and `carman read
+  ID` show and mark what is unread for the owner, as the owner (the token
+  in the file `CARMAN_OWNER_TOKEN_FILE` names); going to a session marks
+  read what it sent him.
 - The definition from within (ADR 0056, proposed): an agent with
   `definition: true` reads the installation's definition in its pod
   (`agent-definition clone|update|propose`), and its proposal, a message
