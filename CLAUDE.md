@@ -66,7 +66,8 @@ Built so far:
   NAME`) or, with `interactive: true`, a standing pod with a persistent home
   and a tmux session to attach to (`agent attach NAME`, ADR 0034). They
   leave the cluster only through the egress proxy, which holds their
-  credentials (ADR 0031) and renews the ones that do not last (ADR 0035),
+  credentials (ADR 0031; a host may have more than one, each on the
+  header its entry names) and renews the ones that do not last (ADR 0035),
   and can be given plugins, MCP servers, a cloud
   identity and commands of the installation's own. An entry's `tools:`
   is `all`, `memory`, or a map naming all it may do, as the dreamer is

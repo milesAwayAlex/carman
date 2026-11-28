@@ -109,6 +109,22 @@ if command -v helm >/dev/null; then
         echo "the chart renders a writtenBy that names the dreamer" >&2
         exit 1
     fi
+    # A host may have two credentials, each on a header of its own (ADR
+    # 0031): it is answered once, both are added there, and two for one
+    # header are refused.
+    two="$(helm template t charts/carman --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 --set backup.repository=r \
+        --set-json 'egress.credentials=[{"host":"a.example.com","key":"app"},{"host":"a.example.com","key":"front","header":"Proxy-Authorization"},{"host":"b.example.com","key":"b"}]' \
+        --set-json 'egress.renewals=[{"key":"app","command":["x"],"also":["front"]}]')"
+    # One renewal may write both (also): each is read again from its file, and one container renews.
+    [ "$(grep -c 'path: /etc/envoy/renewed/' <<<"$two")" = 2 ] && [ "$(grep -c 'name: renew-' <<<"$two")" = 1 ] && grep -q 'for key in app front;' <<<"$two" ||
+        { echo "the chart does not take a renewal's other key (also) as renewed" >&2; exit 1; }
+    [ "$(grep -c 'server_listener_name: answer-' <<<"$two")" = 2 ] && grep -q 'header: Proxy-Authorization' <<<"$two" &&
+        [ "$(grep -c 'header: Authorization' <<<"$two")" = 2 ] && ! grep -q 'answer-front' <<<"$two" ||
+        { echo "the chart does not answer a host once with both of its credentials, each on its header" >&2; exit 1; }
+    if helm template t charts/carman --set memory.image=m:0 --set agent.image=a:0 --set dispatcher.image=d:0 --set backup.repository=r \
+        --set-json 'egress.credentials=[{"host":"a.example.com","key":"app"},{"host":"a.example.com","key":"c"}]' >/dev/null 2>&1; then
+        echo "the chart renders two credentials of one host for one header" >&2; exit 1
+    fi
     # Agents' limits at the proxy reach the dispatcher (ADR 0064).
     "${render[@]}" --set-json 'agents=[{"name":"a","routines":["x"],"proxyLimit":{"day":40000000}},{"name":"b","routines":["x"]}]' \
         --set-json 'dreamer.proxyLimit={"pod":8000000}' |
