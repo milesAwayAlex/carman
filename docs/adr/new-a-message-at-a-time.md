@@ -23,8 +23,9 @@ address `send` takes, the sender's own included (`AGENT/NAME` or
 `session/ID`). `TIME` is one of:
 
 - a clock time in UTC, `15:40`: the next time it is that, today or
-  tomorrow;
-- a date and time in UTC, `2026-01-02T15:04Z` (any RFC 3339 time is read);
+  tomorrow; asked within that very minute, it is now;
+- a date and time in UTC, `2026-01-02T15:04Z`, with or without seconds
+  and the `Z` (any RFC 3339 time is read, with its own zone);
 - how long from now, `90m`, `1h30m`.
 
 Times are UTC because the dispatcher's log, its messages and the sessions'
@@ -66,14 +67,23 @@ It is sent under the id it was asked for under. A dispatcher that stopped
 after sending it and before recording that finds the message there and
 does not send it twice; one that was down at the time sends it when it is
 back, and the line says how late. Sending and cancelling one message are
-kept apart by a lock in the one dispatcher there is.
+kept apart in the one dispatcher there is: a message is marked as being
+sent, under a lock that is not held while it is sent (sending may start a
+run), and one being sent is no longer cancelled.
 
 **When it cannot be sent at the time** (the addressee has gone, the
-sender may no longer write to it) that is recorded (`message.refused`, and
-`refused` on the `message.timed.done`) and the sender is told by a message
-from the dispatcher, with the reason and how the message began.
+sender may no longer write to it) that is recorded as `refused`, with the
+reason, on the `message.timed.done`, and the sender is told by a message
+from the dispatcher, with the reason and how the message began. Where the
+ordinary path records a refusal of its own (`message.refused`: no such
+addressee, or not allowed to write to it) that is there too, under the
+same id; a refusal for another cause is on the `message.timed.done` only.
 
-**Limits.** Twenty waiting for one sender; seven days ahead. A session
+**Limits.** Twenty waiting for one proved sender: an agent, all its
+sessions together (a pod proves which agent it is, not which session),
+the owner's machine, or the owner; seven days ahead. A pod asks as a
+session the dispatcher has heard from, or as its agent, not as a name it
+makes up. A session
 may ask for a message to itself each time it is woken, which is a
 schedule of its own making: each such turn is the session's choice and
 costs what a turn costs. It is not prevented; `timed` shows it to the

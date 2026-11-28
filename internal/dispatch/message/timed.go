@@ -27,7 +27,8 @@ const (
 
 	// TimedAhead is how far ahead a message may be asked for.
 	TimedAhead = 7 * 24 * time.Hour
-	// TimedPending is how many one sender may have waiting for their time.
+	// TimedPending is how many one agent's sessions together, the owner's
+	// machine's, or the owner may have waiting for their time.
 	TimedPending = 20
 
 	timedMark = "messages.timed"
@@ -54,6 +55,16 @@ type Timed struct {
 	AgainAfterLimit bool   `json:"again_after_limit,omitempty"`
 }
 
+// asker is who proved themselves when it was asked for: the owner, or an
+// agent (the owner's machine is one). The limit on how many wait is theirs,
+// whatever session they named.
+func (t Timed) asker() string {
+	if t.Owner {
+		return Owner
+	}
+	return AgentAddress(t.Agent)
+}
+
 // TimedDone is what became of a message asked for at a time.
 type TimedDone struct {
 	How     string `json:"how"` // sent, cancelled, refused
@@ -65,13 +76,14 @@ type TimedDone struct {
 // timing keeps sending and cancelling one message apart, and remembers
 // which are done.
 type timing struct {
-	mu   sync.Mutex
-	done map[string]bool
+	mu      sync.Mutex
+	done    map[string]bool
+	sending map[string]bool // being sent now: not to be cancelled
 }
 
 var (
 	clockRe = regexp.MustCompile(`^([01]?\d|2[0-3]):([0-5]\d)$`)
-	stamps  = []string{time.RFC3339, "2006-01-02T15:04Z", "2006-01-02T15:04", "2006-01-02 15:04"}
+	stamps  = []string{time.RFC3339, "2006-01-02T15:04Z", "2006-01-02T15:04:05", "2006-01-02 15:04:05", "2006-01-02T15:04", "2006-01-02 15:04"}
 )
 
 // ParseAt reads a time a sender wrote: a clock time in UTC (15:40, the
@@ -84,7 +96,8 @@ func ParseAt(text string, now time.Time) (time.Time, error) {
 		var h, min int
 		fmt.Sscanf(m[1]+" "+m[2], "%d %d", &h, &min)
 		at := time.Date(now.Year(), now.Month(), now.Day(), h, min, 0, 0, time.UTC)
-		if !at.After(now) {
+		// The minute that is now is today's: sent at once.
+		if at.Before(now.Truncate(time.Minute)) {
 			at = at.Add(24 * time.Hour)
 		}
 		return at, nil
@@ -131,8 +144,14 @@ func (s *Service) SendAt(ctx context.Context, c Caller, session, given, body, at
 		return Result{}, fmt.Errorf("%w: say which session sends this (--session ID, or DISPATCHER_SESSION)", ErrInvalid)
 	}
 	if !c.Owner {
-		if _, _, err := s.Act(ctx, c, session); err != nil {
+		_, known, err := s.Act(ctx, c, session)
+		if err != nil {
 			return Result{}, err
+		}
+		if session != "" && !known {
+			// A message at a time is sent as a session the dispatcher has
+			// heard from, not as any name a caller writes.
+			return Result{}, fmt.Errorf("%w: the dispatcher knows no session %s of yours to send as", ErrInvalid, short(session))
 		}
 	}
 	t := Timed{ID: newID(), From: from(c, session), Given: given, Body: body, Asked: now, At: when,
@@ -155,12 +174,12 @@ func (s *Service) SendAt(ctx context.Context, c Caller, session, given, body, at
 	}
 	n := 0
 	for _, p := range pending {
-		if p.From == t.From {
+		if p.asker() == t.asker() {
 			n++
 		}
 	}
 	if n >= TimedPending {
-		return Result{}, fmt.Errorf("%w: %d messages of yours already wait for their time, the most there may be; cancel one (dispatcher timed cancel ID) or wait", ErrInvalid, n)
+		return Result{}, fmt.Errorf("%w: %d messages of %s already wait for their time, the most there may be; cancel one (dispatcher timed cancel ID) or wait", ErrInvalid, n, t.asker())
 	}
 	data, _ := json.Marshal(t)
 	if err := s.Store.Emit(ctx, dispatch.Event{ID: TypeTimed + "/" + t.ID, Type: TypeTimed, Source: Source, Subject: t.ID, Data: data}); err != nil {
@@ -275,6 +294,9 @@ func (s *Service) CancelTimed(ctx context.Context, c Caller, session, id string)
 	}
 	s.timed.mu.Lock()
 	defer s.timed.mu.Unlock()
+	if s.timed.sending[t.ID] {
+		return Timed{}, fmt.Errorf("%w: message %s no longer waits: it is being sent now", ErrInvalid, id)
+	}
 	claimed, err := s.finishTimed(ctx, t, TimedDone{How: "cancelled", By: from(c, session)})
 	if err != nil {
 		return Timed{}, err
@@ -319,24 +341,47 @@ func (s *Service) SendDue(ctx context.Context) error {
 	return nil
 }
 
+// sendTimed sends one. The lock is not held while it is sent, which may
+// start a run: the message is marked as being sent, so that it is not
+// cancelled meanwhile, and what became of it is recorded under the lock.
 func (s *Service) sendTimed(ctx context.Context, t Timed, now time.Time) error {
 	s.timed.mu.Lock()
-	defer s.timed.mu.Unlock()
-	if done, err := s.timedDone(ctx, t.ID); err != nil || done {
+	if done, err := s.timedDone(ctx, t.ID); err != nil || done || s.timed.sending[t.ID] {
+		s.timed.mu.Unlock()
 		return err
 	}
+	if s.timed.sending == nil {
+		s.timed.sending = map[string]bool{}
+	}
+	s.timed.sending[t.ID] = true
+	s.timed.mu.Unlock()
+	d, err := s.sendTimedNow(ctx, t, now)
+	s.timed.mu.Lock()
+	defer s.timed.mu.Unlock()
+	delete(s.timed.sending, t.ID)
+	if err != nil {
+		return err // the store, or the cluster: tried again at the next pass
+	}
+	claimed, err := s.finishTimed(ctx, t, d)
+	if err != nil || !claimed || d.How != "refused" {
+		return err
+	}
+	return s.tellNotSent(ctx, t, d.Why, now)
+}
+
+// sendTimedNow sends it, or finds it sent, and says what became of it.
+func (s *Service) sendTimedNow(ctx context.Context, t Timed, now time.Time) (TimedDone, error) {
 	if _, sent, err := s.message(ctx, t.ID); err != nil {
-		return err
+		return TimedDone{}, err
 	} else if sent {
-		_, err := s.finishTimed(ctx, t, TimedDone{How: "sent", Message: t.ID})
-		return err
+		return TimedDone{How: "sent", Message: t.ID}, nil
 	}
 	c := Caller{Owner: t.Owner, Host: t.Host, Agent: t.Agent, Pod: t.Pod, PodUID: t.PodUID}
 	if !c.Owner && !c.Host && t.Session != "" {
 		// The sender proved who it was when it asked; its session may be
 		// in another pod of its agent by now.
 		if x, ok, err := s.Store.GetSession(ctx, t.Session); err != nil {
-			return err
+			return TimedDone{}, err
 		} else if ok && x.Agent == c.Agent && x.PodUID != "" {
 			c.Pod, c.PodUID = x.Pod, x.PodUID
 		}
@@ -346,22 +391,20 @@ func (s *Service) sendTimed(ctx context.Context, t Timed, now time.Time) error {
 		note += fmt.Sprintf(" It is %s late: the dispatcher was not running at its time.", late.Round(time.Minute))
 	}
 	res, err := s.send(ctx, c, t.Session, t.Given, note+"\n\n"+t.Body, "", false, SendOptions{AgainAfterLimit: t.AgainAfterLimit, id: t.ID})
-	why := ""
 	switch {
 	case err != nil && (errors.Is(err, ErrInvalid) || errors.Is(err, ErrForbidden) || errors.Is(err, ErrUnknown)):
-		why = err.Error()
+		return TimedDone{How: "refused", Why: err.Error()}, nil
 	case err != nil:
-		return err // the store, or the cluster: tried again at the next pass
+		return TimedDone{}, err
 	case res.State == "refused":
-		why = res.Detail
+		return TimedDone{How: "refused", Why: res.Detail}, nil
 	}
-	if why == "" {
-		_, err := s.finishTimed(ctx, t, TimedDone{How: "sent", Message: t.ID})
-		return err
-	}
-	if claimed, err := s.finishTimed(ctx, t, TimedDone{How: "refused", Why: why}); err != nil || !claimed {
-		return err
-	}
+	return TimedDone{How: "sent", Message: t.ID}, nil
+}
+
+// tellNotSent tells whoever asked for a message that it was not sent at
+// its time, and why.
+func (s *Service) tellNotSent(ctx context.Context, t Timed, why string, now time.Time) error {
 	if t.Owner || t.From == "" {
 		return nil // the owner sees it in the log (dispatcher message ID)
 	}
@@ -372,7 +415,7 @@ func (s *Service) sendTimed(ctx context.Context, t Timed, now time.Time) error {
 	if err := s.Store.Emit(ctx, dispatch.Event{ID: TypeSent + "/" + m.ID, Type: TypeSent, Source: Source, Subject: m.ID, Data: data}); err != nil {
 		return err
 	}
-	_, err = s.Route(ctx, m)
+	_, err := s.Route(ctx, m)
 	return err
 }
 

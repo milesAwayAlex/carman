@@ -294,10 +294,25 @@ func TestR2MessageAtATimeHasLimits(t *testing.T) {
 	if _, err := s.SendAt(ctx, a, "sess-a", "desk/alpha", "x", "1h", message.SendOptions{}); !errors.Is(err, message.ErrInvalid) || !strings.Contains(err.Error(), "already wait") {
 		t.Errorf("one more than may wait: %v", err)
 	}
-	// Another sender is not held by them.
+	// The limit is the agent's, whatever session its pod names: another
+	// session of it is held too, a session nobody has heard of is refused,
+	// and another agent is not held.
 	start(t, s, cl, a, "sess-b", "beta", message.Idle)
-	if _, err := s.SendAt(ctx, a, "sess-b", "desk/alpha", "x", "1h", message.SendOptions{}); err != nil {
-		t.Errorf("another session: %v", err)
+	if _, err := s.SendAt(ctx, a, "sess-b", "desk/alpha", "x", "1h", message.SendOptions{}); !errors.Is(err, message.ErrInvalid) {
+		t.Errorf("another session of the same agent: %v", err)
+	}
+	o := pod("trial", "pod-o")
+	start(t, s, cl, o, "sess-o", "", message.Busy)
+	if _, err := s.SendAt(ctx, o, "sess-o", "owner", "x", "1h", message.SendOptions{}); err != nil {
+		t.Errorf("another agent: %v", err)
+	}
+	for _, made := range []string{"made-up-1", "made-up-2"} {
+		if _, err := s.SendAt(ctx, o, made, "owner", "x", "1h", message.SendOptions{}); !errors.Is(err, message.ErrInvalid) || !strings.Contains(err.Error(), "knows no session") {
+			t.Errorf("as a session the dispatcher has not heard of: %v", err)
+		}
+	}
+	if list, _ := s.Timed(ctx, message.Caller{Owner: true}, ""); len(list) != message.TimedPending+1 {
+		t.Errorf("%d wait, want %d", len(list), message.TimedPending+1)
 	}
 }
 
