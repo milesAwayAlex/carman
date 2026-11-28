@@ -100,7 +100,9 @@ harness would otherwise call it a hook's blocking error. A message for a session
 running becomes a task that resumes it as its agent, headless, under
 ADR 0040's one-writer lock, and its last words go back as the answer; one
 for an agent by name starts a new conversation; one for the owner is a
-notice. A sender's new messages (not answers; not the owner's) start at
+notice, which carries its first line, how to read and answer it, and how
+to go to the session it came from: `carman go` and the start of the
+session's id. A sender's new messages (not answers; not the owner's) start at
 most `dispatcher.messages.runsPerSender` runs in `runsPeriod` (24 in three
 hours by default); past it a message is held, the sender told why, until
 the owner lifts it (`dispatch lift SENDER`), which starts what was held.
