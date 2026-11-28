@@ -436,6 +436,46 @@ which is the fitting the design warned of in the other direction: the
 tasks were tried on one model and run on another. The tasks' tickets and
 checks are unchanged; the run that counts is three rounds on this stream.
 
+## The first counted run, its reading fixed after round 1, and the stream frozen (2026-11-28, 02:20 UTC)
+
+Round 1 of the counted run on Sonnet (one run an arm; rounds 2 and 3 were
+going on unchanged when this was written, and had not been looked at):
+tasks passed none 22 of 40, built-in 33, notes 29, tidied 32; a lesson
+needed again followed 9 of 52, 50, 48, 50. No deploy failed for a missing
+image any more.
+
+It showed one more thing wrong with the stream, the same in every arm:
+**all seven deploys to prod failed in all four arms, and no session ever
+passed `--approved-by`.** Sonnet brings the version to staging, reads that
+prod is approved by the service's owner, and stops to report the approval
+as pending: it does not approve in a person's name. The tickets did not
+say the approval had been given.
+
+**How the first counted run is read**, decided before rounds 2 and 3 were
+seen. It stands as it is: the stream was not changed during it. Seven
+tasks are set aside as uninformative, by id: **s10, s16, s20, s25, s29,
+s33, s37** (the deploys to prod; s20 and s29 are also the two tasks a
+wrong note bears on, and s25 the one that meets the ledger's new owner).
+No other task's check depends on one of them. M7 is read on the other 33
+tasks (`STREAM_LEAVE_OUT` in the report): success and cost per task of the
+cmem arms against built-in, and the arm with none as the floor. What this
+run cannot say is anything about stale or wrong memory about approval,
+which was most of the stream's measure of harm; the day-3 changes (the
+renamed option, the registry) remain in it.
+
+**The change for a second run, and the freeze.** Each ticket that asks for
+a deploy to prod now ends "The service's owner has approved this deploy.",
+so that what there is to learn is that the deploy names the owner
+(`--approved-by`), who it is, and that it changes. Nothing else changes:
+the world, the checks, the other 33 tickets and the two wrong notes are as
+they were. **The stream is frozen after this.** Whatever a later run shows
+wrong with a ticket is reported as a caveat and is not fixed in this
+stream.
+
+**How the second run is read**, decided now: on all forty tasks; and, on
+the 33 tasks both runs share unchanged, beside the first run, as six runs
+an arm where the two agree and as two results where they do not.
+
 Not built yet: nothing the design names.
 
 ## Consequences
