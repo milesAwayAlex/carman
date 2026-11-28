@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,9 +34,15 @@ import (
 //
 // its last answer is, in place of "ok", what each tool gave back, a line
 // for each, so that a check reads what the harness let the tools do.
+// And a line
+//
+//	stand-in: slow SECONDS
+//
+// makes a streamed answer take that long (at most 120), for a check of
+// what happens to an answer under way.
 //
 //	dispatcher stand-in                     the service
-//	dispatcher stand-in ask [--model M] [--stream] [--url URL]
+//	dispatcher stand-in ask [--model M] [--stream] [--url URL] [--say TEXT]
 //	                                        one message, as a harness would send it, through the
 //	                                        proxy the environment names; prints the answer's status,
 //	                                        text and usage
@@ -244,11 +251,25 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	event("content_block_start", `{"type":"content_block_start","index":0,"content_block":`+blockStart+`}`)
 	event("ping", `{"type":"ping"}`)
 	time.Sleep(50 * time.Millisecond) // a stream comes in pieces
+	if m := standInSlow.FindStringSubmatch(first); m != nil {
+		if n, _ := strconv.Atoi(m[1]); n > 0 && n <= 120 {
+			for i := 0; i < n; i++ { // a ping a second, as a long answer has
+				select {
+				case <-r.Context().Done():
+					return
+				case <-time.After(time.Second):
+				}
+				event("ping", `{"type":"ping"}`)
+			}
+		}
+	}
 	event("content_block_delta", `{"type":"content_block_delta","index":0,"delta":`+blockDelta+`}`)
 	event("content_block_stop", `{"type":"content_block_stop","index":0}`)
 	event("message_delta", fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":%q,"stop_sequence":null},"usage":{"input_tokens":%d,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5}}`, stop, in))
 	event("message_stop", `{"type":"message_stop"}`)
 }
+
+var standInSlow = regexp.MustCompile(`(?m)^stand-in: slow ([0-9]+)$`)
 
 // standInUse is one line of a conversation's script.
 type standInUse struct {
@@ -350,7 +371,7 @@ func standInAsk(ctx context.Context, flags map[string][]string) error {
 	model := one(flags, "model", "claude-haiku-5-5")
 	_, stream := flags["stream"]
 	body, _ := json.Marshal(map[string]any{"model": model, "max_tokens": 16, "stream": stream,
-		"messages": []map[string]string{{"role": "user", "content": "Reply with the single word ok."}}})
+		"messages": []map[string]string{{"role": "user", "content": one(flags, "say", "Reply with the single word ok.")}}})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(base, "/")+"/v1/messages", bytes.NewReader(body))
 	if err != nil {
 		return err
