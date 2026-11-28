@@ -42,6 +42,8 @@ import (
 // what happens to an answer under way.
 //
 //	dispatcher stand-in                     the service
+//	dispatcher stand-in compare --api URL --stand-in URL
+//	                                        the stand-in's shapes beside the API's (standin_compare.go)
 //	dispatcher stand-in ask [--model M] [--stream] [--url URL] [--say TEXT]
 //	                                        one message, as a harness would send it, through the
 //	                                        proxy the environment names; prints the answer's status,
@@ -247,7 +249,9 @@ func (s *standIn) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			f.Flush()
 		}
 	}
-	event("message_start", fmt.Sprintf(`{"type":"message_start","message":{"id":%q,"type":"message","role":"assistant","model":%q,"content":[],"stop_reason":null,"stop_sequence":null,"usage":`+usage+`}}`, id, req.Model, in, 1))
+	// The order of a stream's fields is the API's as scripts/check-stand-in.sh
+	// last read it (2026-11-28: the model first).
+	event("message_start", fmt.Sprintf(`{"type":"message_start","message":{"model":%q,"id":%q,"type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":`+usage+`}}`, req.Model, id, in, 1))
 	event("content_block_start", `{"type":"content_block_start","index":0,"content_block":`+blockStart+`}`)
 	event("ping", `{"type":"ping"}`)
 	time.Sleep(50 * time.Millisecond) // a stream comes in pieces
@@ -343,6 +347,13 @@ func standInResults(raw json.RawMessage) []string {
 }
 
 func standInCmd(ctx context.Context, args []string) error {
+	if len(args) > 0 && args[0] == "compare" {
+		_, flags, err := parse(args[1:])
+		if err != nil {
+			return err
+		}
+		return standInCompare(ctx, flags)
+	}
 	if len(args) > 0 && args[0] == "ask" {
 		_, flags, err := parse(args[1:])
 		if err != nil {

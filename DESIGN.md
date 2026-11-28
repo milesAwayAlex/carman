@@ -245,7 +245,8 @@ the sandbox. Its meter sends to a stand-in for the model's API
 (`dispatcher stand-in`: the API's shapes, the headers of ADR 0064, one
 credential, the word "ok", or a tool asked for where the conversation's
 first message scripts it, so that a real harness does what a run does with
-no model), or on to the installation's meter for trials
+no model; `scripts/check-stand-in.sh` sets its answers' shapes beside
+the API's), or on to the installation's meter for trials
 (ADR 0065), where the trial's proxy is the caller.
 
 ### Triggers (ADR 0063, proposed)

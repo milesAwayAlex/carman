@@ -6,7 +6,9 @@
 # What a trial asks of the sandbox's quota, which every session's trials
 # share: limits set from what its pods were seen to use (2026-11-28, peaks:
 # memory 9 Mi, the dispatcher 13 Mi, its database 105 Mi, the meter 14 Mi,
-# the proxy 20 Mi, an agent's run on the stand-in with a subagent 155 Mi),
+# the proxy 20 Mi, an agent's run on the stand-in with a subagent 155 Mi,
+# and two runs on a real model, read mid-run, 141 and 170 Mi; a long
+# conversation is not measured),
 # not an installation's, which are for a library and a log that have grown.
 # A trial that needs more says so in its own values (TRIAL_VALUES).
 memory:

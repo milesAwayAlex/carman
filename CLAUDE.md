@@ -212,7 +212,9 @@ Built so far:
   model; a conversation may script the tools it asks for) or, with `TRIAL_MODEL`, chained to the installation's meter for
   trials. `scripts/check-trial-proxy.sh CONTEXT` tries metering, the
   standing read from headers, a limit at the proxy and a credential's
-  reload there.
+  reload there. `scripts/check-stand-in.sh CONTEXT` sets the stand-in's
+  answers beside the API's, a real harness asking both, and fails where
+  the stand-in says what the API does not.
 
 - Triggers (ADR 0063, proposed): `dispatcher.rules` start a task of a
   class when an event of a kind is in the log (`internal/dispatch/trigger`):
