@@ -94,3 +94,37 @@ func TestR7Standing(t *testing.T) {
 		t.Errorf("latest: %+v", latest)
 	}
 }
+
+// TestR10TrialsUsedByTheLog: what trials used in the last day, as a
+// restarted meter asks for it: the records of trials' agents that say a
+// model, less what the asking meter counted itself since it started.
+func TestR10TrialsUsedByTheLog(t *testing.T) {
+	now := time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC)
+	use := func(seq int64, agent, model, m string, at time.Time, n int64) dispatch.Record {
+		return ev(seq, meter.TypeModelUsage, "meter/proxy", agent, at,
+			meter.Record{Agent: agent, Model: model, Meter: m, Requests: n, From: at.Add(-time.Minute), To: at})
+	}
+	store := &lastStore{byType: map[string][]dispatch.Record{meter.TypeModelUsage: {
+		use(1, "trial/t1/caller", "claude-haiku-5-5", "old", now.Add(-time.Hour), 3),
+		use(2, "trial/t1/caller", "claude-haiku-5-5", "old", now.Add(-25*time.Hour), 50), // over a day ago
+		use(3, "trial/t2/proxy", "", "old", now.Add(-time.Hour), 9),                      // no model: refused, or no usage
+		use(4, "dreamer", "claude-haiku-5-5", "old", now.Add(-time.Hour), 7),             // not a trial's
+		use(5, "trial/t1/caller", "claude-haiku-5-5", "me", now.Add(-time.Minute), 4),    // the asker's own
+	}}}
+	s := &Server{Store: store, Tokens: map[string]Role{"o": RoleOwner}, Now: func() time.Time { return now }}
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	q := url.Values{"meter": {"me"}, "since": {now.Add(-10 * time.Minute).Format(time.RFC3339Nano)}}
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/meter/trials?"+q.Encode(), nil)
+	req.Header.Set("Authorization", "Bearer o")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("%v %v", err, resp.Status)
+	}
+	defer resp.Body.Close()
+	var u meter.TrialsUsed
+	json.NewDecoder(resp.Body).Decode(&u)
+	if len(u.Passed) != 1 || u.Passed[0].Requests != 3 || !u.Passed[0].At.Equal(now.Add(-time.Hour)) {
+		t.Errorf("used: %+v", u)
+	}
+}

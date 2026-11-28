@@ -493,7 +493,8 @@ header that claims another address is not believed. What each agent's pod
 used, by model and kind of token, is a line in the meter's log and a
 `model.usage` event in the dispatcher's log, one for each pod and model when
 the pod has been quiet for `egress.model.idle` (2m) or has been asking for
-`egress.model.longest` (15m):
+`egress.model.longest` (5m). Told to end (a deploy), the meter lets the
+answers under way finish and sends everything it holds. To see it:
 
     kubectl --context CONTEXT -n NAMESPACE logs deploy/egress -c meter
     scripts/deploy.sh CONTEXT dispatch status      # by agent, and each run against it

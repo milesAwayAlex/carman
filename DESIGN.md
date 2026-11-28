@@ -636,6 +636,10 @@ which are the weakest parts. Three things are meant to keep that manageable:
   (`proxyLimit`, the owner's `dispatcher limit`), a call over it refused
   with a 402 the harness shows as it is (ADR
   0064, proposed).
+  A restart of the meter loses no tally: told to end, it lets its answers
+  finish and sends what it holds, a long session's use is written every
+  five minutes, and the trials' day is read back from the log (ADR
+  new-the-meter-keeps-its-count-across-a-restart, proposed).
 - Beside the proxy and the memory, agents reach the namespaces the
   installation names for its own services, and have one namespace where
   they may run what a task needs, bounded by a quota and closed to the

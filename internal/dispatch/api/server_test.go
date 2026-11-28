@@ -233,6 +233,8 @@ func TestR10MeterRole(t *testing.T) {
 		{"meter.pod.token", "POST", "/v1/events", `{"type":"model.limit","subject":"dreamer","data":{}}`, 403},
 		{"meter.pod.token", "GET", "/v1/meter/standing", "", 200},
 		{"agent.pod.token", "GET", "/v1/meter/standing", "", 403},
+		{"meter.pod.token", "GET", "/v1/meter/trials", "", 200},
+		{"agent.pod.token", "GET", "/v1/meter/trials", "", 403},
 		{"agent.pod.token", "GET", "/v1/usage/latest", "", 200},
 		{"agent.pod.token", "POST", "/v1/events", `{"type":"model.limit","subject":"dreamer","data":{}}`, 403},
 		{"meter.pod.token", "GET", "/v1/events", "", 403},
