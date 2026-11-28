@@ -976,6 +976,11 @@ the same check before it sends (refuse words that look like a credential
 or match your shapes, and say so to the agent), since the channel carries
 no personal data, internal identifiers or keys (ADR 0048). With `agent.sessionStorage` set, a job's conversation is kept
 after its pod is gone, and a notice can give you its id to carry on.
+The dispatcher's notice of a message to you ends with how to go to the
+session that sent it, `carman go ID` with the start of the session's id
+(above, "Going to a session from the owner's machine"; a job's kept conversation needs
+`CARMAN_CHECKOUT`, or the `agent resume` that `carman go` then names). A
+`notify-owner` of your own can say the same from `DISPATCHER_SESSION`.
 
 ### Resuming an agent's conversation
 
