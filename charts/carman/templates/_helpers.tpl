@@ -178,6 +178,9 @@ A name there that is not an agent of the installation fails the render. */ -}}
 {{- if eq . "dreamer" }}
 {{- fail (printf "agents: %s: writtenBy names the dreamer, which reads all of memory and so writes only to the owner and answers what it is sent (ADR 0070)" $agent) }}
 {{- end }}
+{{- if and $.Values.dispatcher.improvement.surveyor (eq . $.Values.dispatcher.improvement.surveyor) }}
+{{- fail (printf "agents: %s: writtenBy names %s, the surveyor of the improvement list, which reads what every session wrote and so reaches another agent only by a brief the dispatcher lets through (ADR 0058)" $agent .) }}
+{{- end }}
 {{- if not (has . $names) }}
 {{- fail (printf "agents: %s: writtenBy names %q, which is not an agent here (the agents are %s)" $agent . (join ", " $names)) }}
 {{- end }}

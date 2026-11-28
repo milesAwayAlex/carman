@@ -142,6 +142,31 @@ func TestR2Identity(t *testing.T) {
 // TestR2AgentsCarryTheirDeadline: an agent's CronJob says how a new run of
 // it starts and how long its Job may run; a CronJob whose pods name no
 // agent is not an agent.
+// TestR6IdentityKeepsTrialsApart: a trial's dispatcher (ADR 0054) knows
+// only its own agents' pods: a pod of the same namespace that carries
+// another trial's label, or none, is nobody to it, though it says it is an
+// agent and shows a good token.
+func TestR6IdentityKeepsTrialsApart(t *testing.T) {
+	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	cl := identityCluster(t, key, map[string]string{
+		"mine":    `{"metadata":{"name":"mine","uid":"u-1","labels":{"agent":"worker","trial":"one"}},"status":{"phase":"Running"}}`,
+		"theirs":  `{"metadata":{"name":"theirs","uid":"u-2","labels":{"agent":"worker","trial":"two"}},"status":{"phase":"Running"}}`,
+		"nobodys": `{"metadata":{"name":"nobodys","uid":"u-3","labels":{"agent":"worker"}},"status":{"phase":"Running"}}`,
+	})
+	cl.Selector = "trial=one"
+	v := &Verifier{Client: cl}
+	ctx := context.Background()
+	soon := time.Now().Add(time.Hour)
+	if who, err := v.Verify(ctx, token(t, key, "k1", podClaims("dispatcher", "carman", "mine", "u-1", soon))); err != nil || who.Agent != "worker" {
+		t.Errorf("the trial's own pod: %+v, %v", who, err)
+	}
+	for _, c := range [][2]string{{"theirs", "u-2"}, {"nobodys", "u-3"}} {
+		if who, err := v.Verify(ctx, token(t, key, "k1", podClaims("dispatcher", "carman", c[0], c[1], soon))); !errors.Is(err, ErrIdentity) {
+			t.Errorf("the pod %s is taken as %+v, %v", c[0], who, err)
+		}
+	}
+}
+
 func TestR2AgentsCarryTheirDeadline(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/namespaces/carman/pods" {

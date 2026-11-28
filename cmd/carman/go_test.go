@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -220,7 +222,7 @@ func TestR2GoKeep(t *testing.T) {
 	// This end goes while attached (its window is closed): what it runs is
 	// ended with it, and that is a leave, whatever kubectl would have done.
 	said := filepath.Join(dir, "said")
-	os.WriteFile(script, []byte("#!/bin/sh\ncase \"$*\" in *--beat) while read w; do [ \"$w\" = bye ] && { echo bye > "+said+"; exit 0; }; done; exit 0 ;; esac\necho \"$*\" >> "+calls+"\ntrap '' HUP\nexec sleep 30\n"), 0o755)
+	os.WriteFile(script, []byte("#!/bin/sh\ncase \"$*\" in *--beat) ps -o pgid= -p $$ > "+said+".group; while read w; do [ \"$w\" = bye ] && { echo bye > "+said+"; exit 0; }; done; exit 0 ;; esac\necho \"$*\" >> "+calls+"\ntrap '' HUP\nexec sleep 30\n"), 0o755)
 	os.Remove(calls)
 	began := time.Now()
 	go func() {
@@ -233,6 +235,31 @@ func TestR2GoKeep(t *testing.T) {
 	// And the pod was told that this end left, so its view goes at once.
 	if b, _ := os.ReadFile(said); strings.TrimSpace(string(b)) != "bye" {
 		t.Errorf("the pod was not told that this end left: %q", b)
+	}
+	// The beat is not of this program's process group: a terminal that goes
+	// hangs its foreground group up all at once (so it is when the program
+	// runs under a shell), and the beat must still be there to carry the bye.
+	if _, err := exec.LookPath("ps"); err == nil {
+		b, _ := os.ReadFile(said + ".group")
+		if g := strings.TrimSpace(string(b)); g == "" || g == strconv.Itoa(syscall.Getpgrp()) {
+			t.Errorf("the beat runs in process group %q, this program's is %d", g, syscall.Getpgrp())
+		}
+	}
+	// The hang-up reaches what it runs first, and this program a moment
+	// later (both are of the terminal's foreground group): still a leave,
+	// said to the pod, and not a drop to attach again after.
+	os.WriteFile(script, []byte("#!/bin/sh\ncase \"$*\" in *--beat) while read w; do [ \"$w\" = bye ] && { echo bye > "+said+"; exit 0; }; done; exit 0 ;; esac\necho \"$*\" >> "+calls+"\nsleep 0.3\nkill -HUP $$\n"), 0o755)
+	os.Remove(calls)
+	os.Remove(said)
+	go func() {
+		time.Sleep(400 * time.Millisecond)
+		syscall.Kill(os.Getpid(), syscall.SIGHUP)
+	}()
+	if got := stay(context.Background(), c, s, true); got != exitLeft || count() != 1 {
+		t.Errorf("what it runs hung up just before it: status %d after %d attaches", got, count())
+	}
+	if b, _ := os.ReadFile(said); strings.TrimSpace(string(b)) != "bye" {
+		t.Errorf("the pod was not told that this end left, its attach having ended first: %q", b)
 	}
 	os.WriteFile(script, []byte("#!/bin/sh\ncase \"$*\" in *--beat) cat >/dev/null; exit 0 ;; esac\necho \"$*\" >> "+calls+"\ncode=$(head -1 "+dir+"/codes)\nsed -i.bak 1d "+dir+"/codes\nexit ${code:-0}\n"), 0o755)
 	codes("1\n3\n0\n")

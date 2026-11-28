@@ -1058,7 +1058,7 @@ model-account)
     meter_pod() { "${kube[@]}" get pods -l "app=egress${pre:+,trial=${pre%-}}" --field-selector=status.phase=Running -o 'jsonpath={.items[*].metadata.name}' 2>/dev/null | cut -d' ' -f1; }
     restart_proxy() {
         if [ -z "$now" ]; then
-            busy="$("${kube[@]}" get pods -l app.kubernetes.io/component=agent --field-selector=status.phase=Running -o 'jsonpath={range .items[?(@.metadata.ownerReferences[0].kind=="Job")]}{.metadata.name}{" "}{end}')"
+            busy="$("${kube[@]}" get pods -l "app.kubernetes.io/component=agent${pre:+,trial=${pre%-}}" --field-selector=status.phase=Running -o 'jsonpath={range .items[?(@.metadata.ownerReferences[0].kind=="Job")]}{.metadata.name}{" "}{end}')"
             [ -z "$busy" ] || die "these jobs are running and the proxy's restart would cut their answers: $busy. Wait, or add --now"
         fi
         "${kube[@]}" rollout restart "deployment/${pre}egress" >/dev/null
@@ -1242,6 +1242,7 @@ dispatch)
             "${kube[@]}" patch secret ${pre}dispatcher-tokens --type merge --patch-file /dev/stdin >/dev/null <<EOF
 {"stringData": {"owner-sha256": "$owner_sha256"}}
 EOF
+            [ "$(cluster_owner_hash)" = "$owner_sha256" ] || die "the cluster did not take the new token's hash: $owner_token_file holds a token it does not know, and the one before it is gone from this machine; run this again"
             "${kube[@]}" rollout restart deployment/${pre}dispatcher >/dev/null
             "${kube[@]}" rollout status deployment/${pre}dispatcher --timeout=180s >/dev/null
             echo "made a new owner token in $owner_token_file; the dispatcher knows its hash, and the token before it no longer works"

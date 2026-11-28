@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -113,6 +114,12 @@ func TestR10_TheStandInFollowsAScript(t *testing.T) {
 	if got := ask(false, first+","+both); !strings.Contains(got, `"text":"ok"`) || !strings.Contains(got, `"stop_reason":"end_turn"`) {
 		t.Errorf("the script used up, the answer is not ok: %s", got)
 	}
+	// Asked to tell the results, its last answer is what the tools gave back.
+	telling := strings.Replace(first, `"Do it.\n`, `"Do it.\nstand-in: tell results\n`, 1)
+	denied := strings.Replace(both, `"content":"ok"`, `"is_error":true,"content":[{"type":"text","text":"not\nallowed"}]`, 1)
+	if got := ask(false, telling+","+denied); !strings.Contains(got, `result 1: one\nresult 2: ERROR not allowed`) {
+		t.Errorf("the results are not told: %s", got)
+	}
 	// No script, as a string or as blocks: ok, as before.
 	if got := ask(false, `{"role":"user","content":"say ok"}`); !strings.Contains(got, `"text":"ok"`) {
 		t.Errorf("a conversation with no script: %s", got)
@@ -121,7 +128,61 @@ func TestR10_TheStandInFollowsAScript(t *testing.T) {
 	resp, _ := http.Get(model.URL + "/stand-in/seen")
 	seen, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if !strings.Contains(string(seen), `"tokens":{"m":{"input_tokens":`) || !strings.Contains(string(seen), `"output_tokens":20`) {
+	if !strings.Contains(string(seen), `"tokens":{"m":{"input_tokens":`) || !strings.Contains(string(seen), `"output_tokens":25`) {
 		t.Errorf("what the stand-in answered is not kept: %s", seen)
+	}
+}
+
+// TestR10_TheStandInIsSetBesideTheAPI: the comparison finds what the
+// stand-in says that an API does not (an event, a field, a header, fields
+// in another order), lists what the API has more without failing, and
+// passes the stand-in set beside itself.
+func TestR10_TheStandInIsSetBesideTheAPI(t *testing.T) {
+	model := httptest.NewServer(newStandIn(""))
+	t.Cleanup(model.Close)
+	get := func(stream bool) shape {
+		resp, err := http.Post(model.URL+"/v1/messages", "application/json", strings.NewReader(fmt.Sprintf(`{"model":"m","stream":%v,"messages":[{"role":"user","content":"x"}]}`, stream)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(resp.Body)
+		return shapeOf(resp, raw)
+	}
+	whole, stream := get(false), get(true)
+	if w, b := compareShapes(whole, whole); len(w)+len(b) != 0 {
+		t.Errorf("a whole answer beside itself: %v, %v", w, b)
+	}
+	if w, b := compareShapes(stream, stream); len(w)+len(b) != 0 {
+		t.Errorf("a stream beside itself: %v, %v", w, b)
+	}
+	if got := strings.Join(stream.fields["message_start"][:4], " "); got != "type message message.model message.id" {
+		t.Errorf("a stream's fields are not read in the order sent: %s", got)
+	}
+	if len(stream.headers) < 5 || stream.events[0] != "message_start" || stream.events[len(stream.events)-1] != "message_stop" {
+		t.Errorf("the shape of a stream: %+v", stream)
+	}
+	// An API that has more, has one field elsewhere, and lacks an event and a header.
+	api := shape{status: 200, headers: append([]string{"anthropic-ratelimit-unified-new"}, stream.headers[1:]...), fields: map[string][]string{}}
+	for e, f := range stream.fields {
+		api.fields[e] = append([]string{}, f...)
+	}
+	for _, e := range stream.events {
+		if e != "content_block_stop" {
+			api.events = append(api.events, e)
+		}
+	}
+	delete(api.fields, "content_block_stop")
+	f := api.fields["message_start"]
+	f[0], f[1] = f[1], f[0]
+	api.fields["message_delta"] = append(api.fields["message_delta"], "usage.server_tool_use")
+	wrong, behind := compareShapes(api, stream)
+	for _, want := range []string{"a stream's events", "content_block_stop: the API sent no such event", "message_start: fields in another order", "the stand-in sends the header " + stream.headers[0]} {
+		if !slices.ContainsFunc(wrong, func(w string) bool { return strings.Contains(w, want) }) {
+			t.Errorf("not found wrong: %q in %v", want, wrong)
+		}
+	}
+	if len(wrong) != 4 || len(behind) != 2 {
+		t.Errorf("wrong %v; behind %v", wrong, behind)
 	}
 }

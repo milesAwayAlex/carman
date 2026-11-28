@@ -141,6 +141,11 @@ func (v *Verifier) Verify(ctx context.Context, token string) (message.Caller, er
 	if pod.Metadata.UID != cl.Kube.Pod.UID || pod.ended() {
 		return message.Caller{}, fmt.Errorf("%w: its pod %s has gone", ErrIdentity, cl.Kube.Pod.Name)
 	}
+	// A trial's dispatcher shares its namespace with other trials (ADR
+	// 0054): a pod of another's is nobody to it, whatever it says it is.
+	if !v.Client.Selects(pod.Metadata.Labels) {
+		return message.Caller{}, fmt.Errorf("%w: pod %s is not one of this dispatcher's (%s)", ErrIdentity, pod.Metadata.Name, v.Client.Selector)
+	}
 	agent := pod.agent()
 	who := message.Caller{Agent: agent, Pod: pod.Metadata.Name, PodUID: pod.Metadata.UID}
 	switch {

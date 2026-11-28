@@ -82,6 +82,10 @@ if command -v helm >/dev/null; then
         --set dispatcher.image=d:0 --set backup.repository=r --show-only templates/dispatcher.yaml)
     "${render[@]}" --set-json 'agents=[{"name":"a","routines":["x"]},{"name":"b","routines":["x"],"writtenBy":["a"]}]' |
         grep -F 'value: "{\"b\":[\"a\"]}"' >/dev/null || { echo "the chart does not hand the dispatcher agent b's writtenBy" >&2; exit 1; }
+    if "${render[@]}" --set dispatcher.improvement.surveyor=a --set-json 'agents=[{"name":"a","routines":["x"]},{"name":"b","routines":["x"],"writtenBy":["a"]}]' >/dev/null 2>&1; then
+        echo "the chart renders a writtenBy that names the improvement list's surveyor (ADR 0058)" >&2
+        exit 1
+    fi
     if "${render[@]}" --set-json 'agents=[{"name":"b","routines":["x"],"writtenBy":["nobody"]}]' >/dev/null 2>&1; then
         echo "the chart renders a writtenBy that names no agent" >&2
         exit 1

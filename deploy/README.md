@@ -561,6 +561,18 @@ prefix (`NAME-dispatcher`, `NAME-cmem-tokens`). `down` takes only the
 session's own; `down NAME` takes another's. `up` refuses when the
 namespace's quota has no room for the trial, and says what is up.
 
+A trial's images go to the registry under one tag each
+(`NAME-memory:trial`, `NAME-dispatcher:trial`, `NAME-agent:trial`), which
+moves with every build; the trial runs them by digest. So the registry
+holds one tagged image for each name, and every earlier build is untagged
+there. Nothing in the sandbox may delete from a registry: whoever runs it
+removes what is untagged, on a schedule of the machine's own. For the
+reference registry that is `registry garbage-collect --delete-untagged
+/etc/docker/registry/config.yml`, run while nothing pushes; the nodes let
+go of images no container runs by themselves. A trial's name that is no
+longer used leaves its last three images tagged: those are removed by
+name (`NAME-*`), by hand or by the same job.
+
 Trying a move from an older installation: `TRIAL_SOURCE=WORKTREE-OF-OLD
 scripts/trial.sh sandbox up --old-secret`, then `scripts/trial.sh sandbox
 up`. For the trial's dispatcher to start Jobs, set `agent.sandbox.trial:
