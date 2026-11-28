@@ -33,6 +33,15 @@ type Awaited struct {
 	Messages []string `json:"messages"`
 }
 
+// attendant is who may attend to sessions: a standing agent's pod to its
+// own, and the owner's machine to the sessions of its place.
+func (s *Service) attendant(c Caller) error {
+	if c.Host && !c.Owner && s.isPlace(c.Agent) {
+		return nil
+	}
+	return s.podOnly(c)
+}
+
 func (s *Service) podOnly(c Caller) error {
 	if c.Owner || c.Host || c.Pod == "" || c.PodUID == "" || s.isPlace(c.Agent) {
 		return fmt.Errorf("%w: only a standing agent's pod attends to its sessions", ErrForbidden)
@@ -43,7 +52,7 @@ func (s *Service) podOnly(c Caller) error {
 // Attending is what the caller's pod has to attend to.
 func (s *Service) Attending(ctx context.Context, c Caller) (Attend, error) {
 	out := Attend{Running: []Session{}, Waiting: []Awaited{}}
-	if err := s.podOnly(c); err != nil {
+	if err := s.attendant(c); err != nil {
 		return out, err
 	}
 	all, err := s.Store.Sessions(ctx, c.Agent, s.now().Add(-s.keep()))
@@ -57,10 +66,10 @@ func (s *Service) Attending(ctx context.Context, c Caller) (Attend, error) {
 		if err != nil {
 			return out, err
 		}
-		if on && x.PodUID == c.PodUID {
+		if on && (c.Host || x.PodUID == c.PodUID) {
 			out.Running = append(out.Running, x)
 		}
-		if x.Name == "" || x.Kind != "interactive" {
+		if x.Name == "" || (x.Kind != "interactive" && !c.Host) {
 			continue
 		}
 		if on {
@@ -101,7 +110,7 @@ func (s *Service) Attending(ctx context.Context, c Caller) (Attend, error) {
 // HarnessGone records that a session the dispatcher believed running in
 // the caller's pod has no harness any more, and routes what waits for it.
 func (s *Service) HarnessGone(ctx context.Context, c Caller, session, why string) error {
-	if err := s.podOnly(c); err != nil {
+	if err := s.attendant(c); err != nil {
 		return err
 	}
 	x, ok, err := s.Store.GetSession(ctx, session)
@@ -114,7 +123,7 @@ func (s *Service) HarnessGone(ctx context.Context, c Caller, session, why string
 	if x.Agent != c.Agent {
 		return fmt.Errorf("%w: session %s is agent %s's, and this pod is agent %s's", ErrForbidden, short(session), x.Agent, c.Agent)
 	}
-	if x.PodUID != c.PodUID {
+	if !c.Host && x.PodUID != c.PodUID {
 		return fmt.Errorf("%w: session %s last ran in pod %s, not in this one", ErrForbidden, short(session), x.Pod)
 	}
 	if x.State == Ended {
@@ -140,14 +149,18 @@ func (s *Service) HarnessGone(ctx context.Context, c Caller, session, why string
 	if _, _, err := s.Store.PutSession(ctx, x); err != nil {
 		return err
 	}
-	return s.ended(ctx, x, "its harness has gone from its pod ("+strings.TrimSpace(or(why, "no word"))+")")
+	where := "its pod"
+	if c.Host {
+		where = "the owner's machine"
+	}
+	return s.ended(ctx, x, "its harness has gone from "+where+" ("+strings.TrimSpace(or(why, "no word"))+")")
 }
 
 // Hold records why a message for a session of the caller's agent still
 // waits, so that its sender sees it (dispatcher message ID). Key names
 // the reason, so that the same one is said once.
 func (s *Service) Hold(ctx context.Context, c Caller, msg, key, reason string) error {
-	if err := s.podOnly(c); err != nil {
+	if err := s.attendant(c); err != nil {
 		return err
 	}
 	if strings.TrimSpace(reason) == "" || key == "" || !nameRe.MatchString(key) {

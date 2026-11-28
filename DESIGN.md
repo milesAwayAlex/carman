@@ -158,6 +158,16 @@ handed it. The dispatcher's Service may be a LoadBalancer
 (`dispatcher.service.type`; the local values do this, on port 8379), and
 `scripts/deploy.sh CONTEXT env` writes `.local/dispatcher.env`.
 
+The machine may run the watcher too (ADR
+new-the-owners-machine-attends-to-its-sessions, proposed): `dispatcher
+attend` with the place's token says a session there ended when the
+harness process its `SessionStart` hook recorded has gone (asked of `ps`
+where there is no `/proc`), instead of after a day. It opens no session
+and types nothing: the terminals are the person's. For a name that
+messages wait for it runs the machine's own command, if one is set
+(`DISPATCHER_ATTEND_NOTIFY`), once, and says so on the messages. What
+keeps it running is the machine's configuration.
+
 The owner goes to a session with `carman go` (ADR 0057, proposed): the
 program asks the dispatcher for the sessions, lists those that wait on him
 first (idle with a message for him unread, then working with one, then

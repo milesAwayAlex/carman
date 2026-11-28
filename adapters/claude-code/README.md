@@ -153,6 +153,20 @@ name to start there is handed it.
    profile sourcing `.local/dispatcher.env`, for one) rather than in the
    file.
 
+5. Optionally, keep the watcher running (ADR
+   new-the-owners-machine-attends-to-its-sessions): `dispatcher attend`,
+   in the same environment as the hooks (`DISPATCHER_URL`,
+   `DISPATCHER_TOKEN`, `DISPATCHER_PLACE`), as a user service of your
+   machine's (a launchd agent, a systemd user unit) that starts it again
+   if it ends. It says a session ended when its harness's process has
+   gone (a closed terminal, a kill), so the session is not shown as
+   running for a day. It opens no session and types nothing. With
+   `DISPATCHER_ATTEND_NOTIFY` set to a command, it runs `CMD NAME COUNT
+   'FROM: first line'` once when messages wait for a session of that name
+   that is not running, for a notification of your desktop's. Its log is
+   on standard error; its records are under
+   `~/.local/state/dispatcher` (or `$XDG_STATE_HOME/dispatcher`).
+
 Each hook gives up after three seconds, and does nothing when the
 dispatcher does not answer. `CMEM_HOOK=off` or `DISPATCHER_HOOK=off` in a
 session's environment switches it off for that session.

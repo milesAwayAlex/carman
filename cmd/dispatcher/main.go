@@ -117,6 +117,10 @@ dispatcher lift SENDER                    the owner: lift the limit on runs a se
 dispatcher whoami                         what the dispatcher makes of this caller
 dispatcher attend [--every 10s] [--once]  in a standing agent's pod: say when a session's harness has gone, and open
                                           again a remembered session a message waits for (ADR 0053)
+                                          on the owner's machine (DISPATCHER_PLACE and the place's token): say when a
+                                          session's harness has gone; opens nothing. [--notify 'CMD'] or
+                                          DISPATCHER_ATTEND_NOTIFY: run CMD NAME COUNT 'FIRST LINE' for messages that
+                                          wait for a session of that name that is not running there
 dispatcher hook claude-code [--wait D]    the harness's hook that carries messages into a running session
 
 The list of improvements to the platform (ADR 0058):

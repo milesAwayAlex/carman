@@ -109,8 +109,9 @@ func TestR2StandingAttendIsThePodsOwn(t *testing.T) {
 		t.Errorf("another pod of the agent ending a session of this one: %v", err)
 	}
 	for _, c := range []message.Caller{{Owner: true}, {Host: true, Agent: "host"}} {
-		if _, err := s.Attending(ctx, c); !errors.Is(err, message.ErrForbidden) {
-			t.Errorf("%v attending: %v", c, err)
+		// The place attends to its own sessions, and is told of no pod's.
+		if at, err := s.Attending(ctx, c); !c.Host && !errors.Is(err, message.ErrForbidden) || c.Host && (err != nil || len(at.Running)+len(at.Waiting) != 0) {
+			t.Errorf("%v attending: %+v, %v", c, at, err)
 		}
 		if err := s.HarnessGone(ctx, c, "s-d", ""); !errors.Is(err, message.ErrForbidden) {
 			t.Errorf("%v ending a session: %v", c, err)
