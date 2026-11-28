@@ -33,11 +33,18 @@ the queue's to end.
 `queue.model`, which the chart refuses to be the strongest. The run is
 told its model by the dispatcher (`TASK_MODEL`); a sender cannot say one.
 
-**Usage.** Before an item starts, ADR 0060's rule is asked for its model,
-whether or not admission is on for tasks: an item whose model is refused
-waits until that model's reset, and one whose windows (the shared ones,
-and its model's own) are ahead of their line to the reset waits for the
-line. An item that is held does not hold the ones behind it, so when the
+**Usage.** Before an item starts the queue asks, whether or not admission
+is on for tasks: an item whose model is refused waits until that model's
+reset, and one whose weekly windows (the seven-day one, and its model's
+own week) are ahead of their line to the weekly reset (ADR 0060's line)
+waits for the line. The five-hour window is a rate limit and not a
+budget (ADR 0077): it holds the queue only at the ceiling the plan keeps
+for the owner (`dispatcher.plan.fiveHourCeiling`, 85%). What is judged is
+the standing of the account the proxy holds now, as the log has it, not
+the latest reading whichever account it was of. (Corrected 2026-11-28,
+the day it was first on: it had held an item at 47% of a five-hour
+window, and for some minutes after a change of account judged by the
+other account's reading.) An item that is held does not hold the ones behind it, so when the
 strongest model is spent the queue goes on with what does not need it.
 The owner's own messages are not items and are never asked this.
 

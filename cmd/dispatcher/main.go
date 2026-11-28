@@ -826,17 +826,33 @@ func serve(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// What the log holds of the model's accounts, as the plan reads it.
+	modelAccounts := func(ctx context.Context) (meter.Logged, error) {
+		rs, err := d.Last(ctx, TypeUsageObserved, planReadings)
+		if err != nil {
+			return meter.Logged{}, err
+		}
+		changes, err := d.Last(ctx, TypeModelAccount, 200)
+		if err != nil {
+			return meter.Logged{}, err
+		}
+		return loggedAccounts(planOf(rs, changes, time.Now(), defaultPlan())), nil
+	}
 	// The owner's list of what is to be done (ADR 0077), and, where the
 	// installation says, the queue that works through it by itself (ADR
 	// 0079). Off unless DISPATCHER_QUEUE names an agent.
 	priorities := &budget.Service{Store: d}
+	planCeiling := defaultPlan().Ceiling
+	if cfg, err := planSettings(); err == nil {
+		planCeiling = cfg.Ceiling
+	}
 	if qc, on, err := parseQueue(os.Getenv("DISPATCHER_QUEUE")); err != nil {
 		return err
 	} else if on && messages == nil {
 		logger.Warn("the queue is not run: this dispatcher is not in a cluster, so no message starts a run")
 	} else if on {
 		q := &queueRunner{cfg: qc, list: priorities, store: d, now: time.Now, log: logger,
-			hold: queueHold(readings, pacing, 2*time.Hour, time.Now),
+			hold: queueHold(readings, modelAccounts, pacing, planCeiling, time.Now),
 			send: func(ctx context.Context, id, to, body, model string) error {
 				res, err := messages.SendQueued(ctx, id, to, body, model)
 				if err == nil && res.State == "refused" {
@@ -850,18 +866,6 @@ func serve(ctx context.Context) error {
 		priorities.Held = q.Held
 		logger.Info("working through the owner's queue", "agent", qc.Agent, "running", qc.Running, "model", qc.Model, "strongest", qc.Strongest)
 		go q.Run(work)
-	}
-	// What the log holds of the model's accounts, as the plan reads it.
-	modelAccounts := func(ctx context.Context) (meter.Logged, error) {
-		rs, err := d.Last(ctx, TypeUsageObserved, planReadings)
-		if err != nil {
-			return meter.Logged{}, err
-		}
-		changes, err := d.Last(ctx, TypeModelAccount, 200)
-		if err != nil {
-			return meter.Logged{}, err
-		}
-		return loggedAccounts(planOf(rs, changes, time.Now(), defaultPlan())), nil
 	}
 	srv := &api.Server{ModelAccounts: modelAccounts, Store: d, Tokens: tokens, OwnerSHA256: ownerSHA256, Check: check, Log: logger, Messages: messages, Verify: verify, Improve: list, Budget: priorities, Outside: outside, ProxyLimits: proxyLimits,
 		Dump: func(ctx context.Context, f *os.File) error {

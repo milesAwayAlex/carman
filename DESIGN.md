@@ -713,7 +713,9 @@ which are the weakest parts. Three things are meant to keep that manageable:
   owner's list that waits and sends it, as the owner, to one agent, as
   many at once as it is told; the run is given its model (not the
   strongest unless the item is hard or names one), and is not started
-  while its model is refused or usage is ahead of its line (ADR 0060);
+  while its model is refused, a weekly window of the account held is
+  ahead of its line (ADR 0060), or its five-hour window at the plan's
+  ceiling;
   an item held does not hold the next. The item ends done with the first
   line of the answer, or failed, which nothing takes again by itself.
 - Beside the proxy and the memory, agents reach the namespaces the

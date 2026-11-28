@@ -12,6 +12,7 @@ import (
 	"carman/internal/dispatch"
 	"carman/internal/dispatch/budget"
 	"carman/internal/dispatch/message"
+	"carman/internal/dispatch/meter"
 )
 
 // The queue (ADR 0079): the owner's list of what is
@@ -276,18 +277,70 @@ func (q *queueRunner) Run(ctx context.Context) {
 	}
 }
 
-// queueHold is the queue's rule for usage, from the readings: a model
-// that is refused holds the items that need it until its reset, and a
-// window ahead of its line to its reset (the shared ones, and the model's
-// own) holds work that can wait, which all of the queue's is.
-func queueHold(readings func(context.Context) ([]dispatch.Record, error), pacing paceConfig, maxAge time.Duration, now func() time.Time) func(context.Context, string) (bool, string) {
+// queueHold is the queue's rule for usage (ADR 0079, as the owner agreed
+// it: paced against the line to the weekly reset). It judges by the
+// standing of the account the proxy holds now, as the log has it, so that
+// after a change of account the other's last reading holds nothing:
+//
+//   - a model that is refused holds the items that need it until its reset;
+//   - a weekly window (the seven-day one, and for an item that needs a
+//     model with a week of its own, that week) ahead of its line to its
+//     reset holds work that can wait, which all of the queue's is, unless
+//     it resets within soon with room under the target left;
+//   - the five-hour window is a rate limit, and holds only at the ceiling
+//     the plan keeps for the owner (ADR 0077): under it a week is spent,
+//     not saved.
+func queueHold(readings func(context.Context) ([]dispatch.Record, error), accounts func(context.Context) (meter.Logged, error), pacing paceConfig, ceiling float64, now func() time.Time) func(context.Context, string) (bool, string) {
+	const week = 7 * 24 * time.Hour
 	return func(ctx context.Context, model string) (bool, string) {
-		rule := budgetRule{Below: 1 << 30, Mode: "curve", Target: pacing.target, Soon: pacing.soon, MaxAge: maxAge, Readings: readings, Now: now}
+		at := now()
 		if model != "" {
-			rule.Models = func(context.Context, dispatch.TaskSpec) ([]string, error) { return []string{model}, nil }
+			// Only the refusal: no priority is below nothing.
+			rule := budgetRule{Readings: readings, Now: now, Models: func(context.Context, dispatch.TaskSpec) ([]string, error) { return []string{model}, nil }}
+			if ok, why := rule.admit(ctx, dispatch.TaskSpec{}, nil); !ok {
+				return true, strings.NewReplacer(", the first model of this task's ladder,", "", "; this task waits for it", "").Replace(why)
+			}
 		}
-		ok, why := rule.admit(ctx, dispatch.TaskSpec{}, nil)
-		why = strings.NewReplacer(", the first model of this task's ladder,", "", "; this task waits for it", "", "this task can wait, and ", "it ").Replace(why)
-		return !ok, why
+		l, err := accounts(ctx)
+		a, known := l.Accounts[l.Held]
+		if err != nil || !known || a.At.IsZero() {
+			return false, "" // nothing is known of the account held: nothing is held for it
+		}
+		of := ""
+		if len(l.Accounts) > 1 {
+			of = " of account " + l.Held
+		}
+		if w := a.FiveHour; ceiling > 0 && w.Utilization >= ceiling && time.Unix(w.ResetsAt, 0).After(at) {
+			return true, fmt.Sprintf("the five-hour window%s is at %s, at the ceiling of %s above which only the owner's own work runs; it resets at %s",
+				of, pct(w.Utilization), pct(ceiling), time.Unix(w.ResetsAt, 0).UTC().Format("15:04 UTC"))
+		}
+		weeks := []struct {
+			name string
+			w    meter.Window
+		}{{"the seven-day window", a.SevenDay}}
+		if own, ok := a.Own[model]; ok && model != "" {
+			weeks = append(weeks, struct {
+				name string
+				w    meter.Window
+			}{model + "'s own week", own})
+		}
+		for _, x := range weeks {
+			reset := time.Unix(x.w.ResetsAt, 0)
+			if x.w.ResetsAt == 0 || !reset.After(at) {
+				continue // a window whose reset has passed is new
+			}
+			start := reset.Add(-week)
+			line := pacing.target * float64(at.Sub(start)) / float64(week)
+			if x.w.Utilization <= line || (reset.Sub(at) <= pacing.soon && x.w.Utilization < pacing.target) {
+				continue
+			}
+			until := reset
+			if x.w.Utilization < pacing.target {
+				until = start.Add(time.Duration(x.w.Utilization / pacing.target * float64(week)))
+			}
+			return true, fmt.Sprintf("%s%s is at %s, ahead of its line to the weekly reset (%s now, %s at its reset at %s); it is expected to start about %s",
+				x.name, of, pct(x.w.Utilization), pct(line), pct(pacing.target), reset.UTC().Format("2006-01-02 15:04 UTC"), until.UTC().Format("2006-01-02 15:04 UTC"))
+		}
+		return false, ""
 	}
 }

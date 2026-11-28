@@ -217,8 +217,9 @@ dispatcher:
   # with the first line of the run's answer. An item runs on `model`, or
   # on `strongest` when it is marked hard, or on the one it names; one
   # whose model is refused waits for it and does not hold the others; and
-  # none starts while usage is ahead of its line to a window's reset
-  # (pace.target, ADR 0060). Off until the installation says.
+  # none starts while a weekly window of the account held is ahead of its
+  # line to the reset (pace.target, ADR 0060) or its five-hour window is at
+  # the plan's ceiling (plan.fiveHourCeiling). Off until the installation says.
   queue:
     enabled: false
     # The agent that takes the items: one with takesMessages.

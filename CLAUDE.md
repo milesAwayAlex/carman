@@ -105,8 +105,9 @@ Built so far:
   `dispatcher.queue.enabled` the dispatcher works through the owner's list
   (`dispatcher priority add`) by itself: the next item that waits is sent
   to the agent the installation names, on a model that is not the
-  strongest unless the item is hard, while usage is at or under its line
-  (ADR 0060) and the item's model is not refused; it is done with the
+  strongest unless the item is hard, while the weekly windows of the account held are at or under their line
+  (ADR 0060), its five-hour window under the plan's ceiling, and the
+  item's model not refused; it is done with the
   first line of the run's answer, or failed (`priority again ID` puts it
   back). `dispatch priority list` shows what runs, waits (and why), failed
   and was done. `scripts/check-queue.sh CONTEXT` tries it in a trial.
