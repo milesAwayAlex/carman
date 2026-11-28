@@ -141,7 +141,11 @@ credential of the real installation's.
   machine deploys it: standing a trial up takes about half a minute (most
   of it the two image builds), taking it down a few seconds.
 - The registry keeps the trial's images after `down`: nothing in the
-  sandbox may delete from it.
+  sandbox may delete from it. (Since 2026-11-28 a trial's image has one
+  tag, `NAME-memory:trial` and so on, which moves with each build, and the
+  trial runs it by digest: the builds before the latest are untagged in
+  the registry, which is what a registry's own clean-up removes; see
+  deploy/README.md.)
 - A trial's names are not the chart's, so a step of the deploy script that
   names an object without the prefix is not tried by a trial: it touches
   another trial's object, or none. The actions above take the prefix.
